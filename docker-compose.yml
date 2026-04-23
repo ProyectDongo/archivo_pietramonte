@@ -1,0 +1,15 @@
+services:
+  web:
+    build: .
+    container_name: pietramonte_archivo
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./db.sqlite3:/app/db.sqlite3
+      - ./mbox:/app/mbox
+      - static_files:/app/staticfiles
+    ports:
+      - "8001:8000"
+
+volumes:
+  static_files:
