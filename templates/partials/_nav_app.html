@@ -1,0 +1,17 @@
+{% if request.session.buzon_email %}
+<nav class="app-nav">
+  <a class="app-brand" href="{% url 'inbox' %}">
+    <div class="app-brand-logo">PM</div>
+    <div class="app-brand-text">
+      <span>Pietramonte</span>
+      <span>Automotriz</span>
+    </div>
+  </a>
+  <div class="app-nav-right">
+    <span class="app-nav-user">
+      Archivo de <strong>{{ request.session.buzon_email }}</strong>
+    </span>
+    <a href="{% url 'logout' %}" class="btn-salir">Salir</a>
+  </div>
+</nav>
+{% endif %}

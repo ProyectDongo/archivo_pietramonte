@@ -1,217 +1,6 @@
-{% extends 'base.html' %}
+{% extends 'base_app.html' %}
 
 {% block title %}Bandeja — {{ buzon.email }}{% endblock %}
-
-{% block extra_css %}
-<style>
-  .inbox-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 1.5rem;
-    flex-wrap: wrap;
-    gap: 1rem;
-  }
-  .inbox-title {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .inbox-title h1 {
-    font-size: 22px;
-    font-weight: 700;
-    color: var(--grafito-d);
-  }
-  .inbox-title h1 small {
-    display: block;
-    font-size: 13px;
-    font-weight: 400;
-    color: var(--gris-3);
-    margin-top: 2px;
-  }
-  .inbox-stats {
-    font-size: 13px;
-    color: var(--gris-3);
-  }
-  .inbox-stats strong { color: var(--rojo); font-size: 20px; }
-
-  /* Buscador */
-  .search-bar {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 1.5rem;
-  }
-  .search-bar input {
-    flex: 1;
-    padding: 12px 16px;
-    border: 2px solid var(--gris-2);
-    border-radius: 8px;
-    font-family: var(--font);
-    font-size: 14px;
-    color: var(--grafito-d);
-    outline: none;
-    transition: border-color .2s;
-  }
-  .search-bar input:focus { border-color: var(--rojo); }
-  .search-bar button {
-    padding: 12px 24px;
-    background: var(--rojo);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-family: var(--font);
-    font-size: 13px;
-    font-weight: 700;
-    cursor: pointer;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    transition: background .2s;
-    white-space: nowrap;
-  }
-  .search-bar button:hover { background: var(--rojo-d); }
-  .search-bar a {
-    padding: 12px 16px;
-    border: 2px solid var(--gris-2);
-    border-radius: 8px;
-    color: var(--gris-3);
-    text-decoration: none;
-    font-size: 13px;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    transition: all .2s;
-    white-space: nowrap;
-  }
-  .search-bar a:hover { border-color: var(--grafito); color: var(--grafito-d); }
-
-  /* Tabla */
-  .tabla-wrap {
-    background: white;
-    border-radius: 12px;
-    box-shadow: var(--shadow);
-    overflow: hidden;
-  }
-  .tabla-correos {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  .tabla-correos thead {
-    background: var(--grafito-d);
-    color: white;
-  }
-  .tabla-correos thead th {
-    padding: 12px 16px;
-    text-align: left;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    color: rgba(255,255,255,.7);
-  }
-  .tabla-correos tbody tr {
-    border-bottom: 1px solid var(--gris-1);
-    transition: background .15s;
-    cursor: pointer;
-  }
-  .tabla-correos tbody tr:last-child { border-bottom: none; }
-  .tabla-correos tbody tr:hover { background: #fafafa; }
-  .tabla-correos tbody tr.no-leido { background: #fff9f9; }
-  .tabla-correos td {
-    padding: 13px 16px;
-    font-size: 14px;
-    color: var(--grafito-d);
-    vertical-align: middle;
-  }
-
-  .col-remitente {
-    max-width: 200px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .remitente-nombre { font-weight: 600; display: block; }
-  .remitente-mail   { font-size: 12px; color: var(--gris-3); }
-
-  .col-asunto { max-width: 400px; }
-  .asunto-texto {
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: block;
-  }
-  .asunto-preview {
-    font-size: 12px;
-    color: var(--gris-3);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: block;
-    margin-top: 2px;
-  }
-
-  .col-fecha {
-    white-space: nowrap;
-    font-size: 13px;
-    color: var(--gris-3);
-    text-align: right;
-  }
-  .col-adj { text-align: center; }
-
-  .ico-adj { font-size: 16px; }
-  .ico-adj.tiene { color: var(--rojo); }
-  .ico-adj.no    { color: transparent; }
-
-  /* Paginación */
-  .paginacion {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin-top: 1.5rem;
-  }
-  .paginacion a, .paginacion span {
-    padding: 8px 14px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 600;
-    text-decoration: none;
-    color: var(--grafito);
-    background: white;
-    border: 1px solid var(--gris-2);
-    transition: all .2s;
-  }
-  .paginacion a:hover { border-color: var(--rojo); color: var(--rojo); }
-  .paginacion span.actual {
-    background: var(--rojo);
-    color: white;
-    border-color: var(--rojo);
-  }
-
-  /* Vacío */
-  .estado-vacio {
-    text-align: center;
-    padding: 4rem 2rem;
-    color: var(--gris-3);
-  }
-  .estado-vacio p { margin-top: 8px; font-size: 14px; }
-
-  /* Query highlight */
-  .search-info {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    background: #fff3f3;
-    border: 1px solid #ffd0d0;
-    border-radius: 6px;
-    padding: 8px 14px;
-    font-size: 13px;
-    margin-bottom: 1rem;
-    color: var(--rojo);
-    font-weight: 500;
-  }
-</style>
-{% endblock %}
 
 {% block content %}
 <div class="inbox-header">
@@ -228,13 +17,15 @@
   </div>
 </div>
 
-<form class="search-bar" method="get" action="{% url 'inbox' %}">
+<form class="search-bar" method="get" action="{% url 'inbox' %}" role="search">
   <input
     type="text"
     name="q"
     value="{{ query }}"
     placeholder="Buscar por asunto, remitente o contenido..."
     autocomplete="off"
+    maxlength="200"
+    aria-label="Buscar correos"
   >
   <button type="submit">Buscar</button>
   {% if query %}
@@ -244,7 +35,7 @@
 
 {% if query %}
 <div class="search-info">
-  🔍 {{ total }} resultado{% if total != 1 %}s{% endif %} para "<strong>{{ query }}</strong>"
+  🔍 {{ total }} resultado{{ total|pluralize:"s" }} para "<strong>{{ query }}</strong>"
 </div>
 {% endif %}
 
@@ -255,20 +46,22 @@
       <tr>
         <th>Remitente</th>
         <th>Asunto</th>
-        <th class="col-adj">📎</th>
+        <th class="col-adj" aria-label="Adjuntos">📎</th>
         <th>Fecha</th>
       </tr>
     </thead>
     <tbody>
       {% for correo in page.object_list %}
-      <tr onclick="location.href='{% url 'detalle' correo.id %}'">
+      <tr data-href="{% url 'detalle' correo.id %}">
         <td class="col-remitente">
           <span class="remitente-nombre">{{ correo.remitente_nombre|truncatechars:30 }}</span>
           <span class="remitente-mail">{{ correo.remitente_email|truncatechars:35 }}</span>
         </td>
         <td class="col-asunto">
-          <span class="asunto-texto">{{ correo.asunto|default:"(sin asunto)"|truncatechars:80 }}</span>
-          <span class="asunto-preview">{{ correo.cuerpo_texto|truncatechars:80 }}</span>
+          <a href="{% url 'detalle' correo.id %}" style="color:inherit">
+            <span class="asunto-texto">{{ correo.asunto|default:"(sin asunto)"|truncatechars:80 }}</span>
+            <span class="asunto-preview">{{ correo.cuerpo_texto|truncatechars:80 }}</span>
+          </a>
         </td>
         <td class="col-adj">
           <span class="ico-adj {% if correo.tiene_adjunto %}tiene{% else %}no{% endif %}">📎</span>
@@ -285,22 +78,22 @@
   </table>
 
   {% if page.has_other_pages %}
-  <div class="paginacion">
+  <nav class="paginacion" aria-label="Paginación">
     {% if page.has_previous %}
-    <a href="?page={{ page.previous_page_number }}{% if query %}&q={{ query }}{% endif %}">← Anterior</a>
+    <a href="?page={{ page.previous_page_number }}{% if query %}&q={{ query|urlencode }}{% endif %}">← Anterior</a>
     {% endif %}
 
     <span class="actual">{{ page.number }} / {{ page.paginator.num_pages }}</span>
 
     {% if page.has_next %}
-    <a href="?page={{ page.next_page_number }}{% if query %}&q={{ query }}{% endif %}">Siguiente →</a>
+    <a href="?page={{ page.next_page_number }}{% if query %}&q={{ query|urlencode }}{% endif %}">Siguiente →</a>
     {% endif %}
-  </div>
+  </nav>
   {% endif %}
 
   {% else %}
   <div class="estado-vacio">
-    <div style="font-size:48px">📭</div>
+    <div class="estado-vacio-icon">📭</div>
     {% if query %}
     <p>No se encontraron correos para "<strong>{{ query }}</strong>"</p>
     {% else %}
@@ -309,4 +102,17 @@
   </div>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Hace clickeable toda la fila sin usar onclick inline (CSP-safe)
+  document.querySelectorAll('tr[data-href]').forEach(function (row) {
+    row.addEventListener('click', function (e) {
+      // Si el click vino de un link interno, no duplicar navegación
+      if (e.target.closest('a')) return;
+      window.location.href = row.dataset.href;
+    });
+  });
+</script>
 {% endblock %}

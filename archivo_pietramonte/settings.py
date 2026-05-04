@@ -1,14 +1,53 @@
+"""
+Settings de Django para Archivo de Correos Pietramonte.
+
+Variables sensibles se leen de .env (ver .env.example).
+En producción, asegúrate de:
+  - DEBUG=False
+  - SECRET_KEY rotada
+  - ALLOWED_HOSTS limitado a tu dominio
+  - Acceso por HTTPS (Cloudflare Tunnel ya lo provee)
+"""
+
 from pathlib import Path
-from dotenv import load_dotenv
 import os
+from dotenv import load_dotenv
 
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-SECRET_KEY = os.getenv('SECRET_KEY', 'cambia-esto-en-produccion')
-DEBUG = os.getenv('DEBUG', 'False') == 'True'
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'archivo.pietramonte.cl,localhost').split(',')
 
+
+# ─── Helpers ───────────────────────────────────────────────────────────────
+def env_bool(key: str, default: bool = False) -> bool:
+    raw = os.getenv(key)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def env_list(key: str, default: str = '') -> list[str]:
+    raw = os.getenv(key, default)
+    return [x.strip() for x in raw.split(',') if x.strip()]
+
+
+# ─── Núcleo ────────────────────────────────────────────────────────────────
+SECRET_KEY = os.getenv('SECRET_KEY')
+if not SECRET_KEY:
+    # Solo arrancar sin secreto en dev — fallar duro en prod
+    if env_bool('DEBUG', False):
+        SECRET_KEY = 'dev-insecure-key-do-not-use-in-production'
+    else:
+        raise RuntimeError(
+            'SECRET_KEY no está definida. Configúrala en .env antes de arrancar.'
+        )
+
+DEBUG = env_bool('DEBUG', False)
+
+ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', 'localhost,127.0.0.1')
+
+
+# ─── Aplicaciones ──────────────────────────────────────────────────────────
 INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.staticfiles',
@@ -24,6 +63,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
 ROOT_URLCONF = 'archivo_pietramonte.urls'
@@ -42,28 +82,88 @@ TEMPLATES = [
     },
 ]
 
+
+# ─── Base de datos ─────────────────────────────────────────────────────────
+# SQLite va en /data para poder montarla como volumen y backup separado del código.
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': BASE_DIR / 'data' / 'db.sqlite3' if (BASE_DIR / 'data').exists() else BASE_DIR / 'db.sqlite3',
+        'OPTIONS': {
+            'timeout': 20,
+        },
     }
 }
 
+
+# ─── Estáticos (whitenoise + collectstatic) ────────────────────────────────
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [BASE_DIR / 'static']
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
+}
 
+
+# ─── Sesiones ──────────────────────────────────────────────────────────────
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_DB_ALIAS = 'default'
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_AGE = 60 * 60 * 8         # 8 horas
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 
+
+# ─── CSRF ──────────────────────────────────────────────────────────────────
+CSRF_COOKIE_HTTPONLY = True
+CSRF_COOKIE_SAMESITE = 'Lax'
+# Detrás de Cloudflare Tunnel — el host visto por Django coincide con ALLOWED_HOSTS,
+# pero los formularios HTTPS necesitan que CSRF acepte el origin del dominio público.
+CSRF_TRUSTED_ORIGINS = [f'https://{h}' for h in ALLOWED_HOSTS if h not in ('localhost', '127.0.0.1')]
+
+
+# ─── Endurecimiento (solo en producción) ───────────────────────────────────
+if not DEBUG:
+    # Cookies seguras
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
+    # Cabeceras de seguridad
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+    X_FRAME_OPTIONS = 'DENY'
+
+    # HSTS — el Tunnel termina TLS en Cloudflare, así que el tráfico interno
+    # es HTTP plano; Cloudflare reescribe, pero igual avisamos al navegador.
+    SECURE_HSTS_SECONDS = 60 * 60 * 24 * 30      # 30 días
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = False                  # activa solo cuando vayas a someter al preload list
+
+    # Confiar en X-Forwarded-Proto que mete cloudflared
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+
+# ─── i18n ──────────────────────────────────────────────────────────────────
 LANGUAGE_CODE = 'es-cl'
 TIME_ZONE = 'America/Santiago'
 USE_I18N = True
 USE_TZ = True
 
-# Carpeta donde se guardarán los archivos .mbox importados
-MBOX_DIR = BASE_DIR / 'mbox'
-MBOX_DIR.mkdir(exist_ok=True)
+
+# ─── Específico Pietramonte ────────────────────────────────────────────────
+# Carpeta donde se guardarán los .mbox importados (NO va en git, ver .gitignore).
+MBOX_DIR = BASE_DIR / 'data' / 'mbox' if (BASE_DIR / 'data').exists() else BASE_DIR / 'mbox'
+MBOX_DIR.mkdir(parents=True, exist_ok=True)
+
+# Lista de Gmail autorizados para entrar al portal (allowlist).
+# Mientras Cloudflare Access no esté activo, este es el filtro principal.
+PORTAL_ALLOWED_EMAILS = env_list(
+    'PORTAL_ALLOWED_EMAILS',
+    'soporte.dongo@gmail.com',
+)
+PORTAL_ADMIN_EMAIL = os.getenv('PORTAL_ADMIN_EMAIL', 'soporte.dongo@gmail.com')
+
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

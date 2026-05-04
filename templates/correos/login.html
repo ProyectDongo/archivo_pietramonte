@@ -1,264 +1,63 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Archivo de Correos — Pietramonte Automotriz</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700;900&display=swap" rel="stylesheet">
-<style>
-  :root {
-    --rojo:    #C80C0F;
-    --rojo-d:  #9a0a0c;
-    --grafito: #394348;
-    --grafito-d: #252c30;
-    --font: 'Montserrat', sans-serif;
-  }
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+{% extends 'base_public.html' %}
+{% load static %}
 
-  body {
-    font-family: var(--font);
-    min-height: 100vh;
-    background: var(--grafito-d);
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-  }
+{% block title %}Acceso al archivo — Pietramonte{% endblock %}
 
-  /* Panel izquierdo — imagen/marca */
-  .panel-marca {
-    background: linear-gradient(135deg, var(--grafito-d) 0%, #1a1f22 100%);
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: flex-start;
-    padding: 4rem;
-    position: relative;
-    overflow: hidden;
-  }
-  .panel-marca::before {
-    content: '';
-    position: absolute;
-    top: -80px; right: -80px;
-    width: 400px; height: 400px;
-    background: var(--rojo);
-    border-radius: 50%;
-    opacity: .04;
-  }
-  .panel-marca::after {
-    content: '';
-    position: absolute;
-    bottom: -40px; left: -40px;
-    width: 300px; height: 300px;
-    background: var(--rojo);
-    border-radius: 50%;
-    opacity: .06;
-  }
-  .marca-logo {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 3rem;
-  }
-  .marca-pm {
-    width: 64px; height: 64px;
-    background: var(--rojo);
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 900;
-    font-size: 22px;
-    color: white;
-    letter-spacing: -1px;
-    transform: skewX(-5deg);
-  }
-  .marca-nombre { display: flex; flex-direction: column; line-height: 1.1; }
-  .marca-nombre span:first-child {
-    font-weight: 900;
-    font-size: 22px;
-    color: white;
-    letter-spacing: 3px;
-    text-transform: uppercase;
-  }
-  .marca-nombre span:last-child {
-    font-weight: 300;
-    font-size: 11px;
-    color: rgba(255,255,255,.4);
-    letter-spacing: 5px;
-    text-transform: uppercase;
-  }
-  .marca-titulo {
-    font-size: 38px;
-    font-weight: 900;
-    color: white;
-    line-height: 1.1;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-bottom: 16px;
-    position: relative;
-    z-index: 1;
-  }
-  .marca-titulo em {
-    font-style: normal;
-    color: var(--rojo);
-  }
-  .marca-sub {
-    font-size: 14px;
-    color: rgba(255,255,255,.4);
-    font-weight: 400;
-    line-height: 1.6;
-    max-width: 320px;
-    position: relative;
-    z-index: 1;
-  }
-  .marca-linea {
-    width: 60px; height: 4px;
-    background: var(--rojo);
-    transform: skewX(-20deg);
-    margin-bottom: 24px;
-  }
+{% block extra_head %}
+<meta name="robots" content="noindex,nofollow">
+<link rel="stylesheet" href="{% static 'css/correos.css' %}">
+{% endblock %}
 
-  /* Panel derecho — formulario */
-  .panel-form {
-    background: white;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    padding: 4rem;
-  }
-  .form-header { margin-bottom: 2.5rem; }
-  .form-header h2 {
-    font-size: 26px;
-    font-weight: 700;
-    color: var(--grafito-d);
-    margin-bottom: 8px;
-  }
-  .form-header p {
-    font-size: 14px;
-    color: #9e9e9e;
-  }
+{% block body %}
+<div class="login-grid">
 
-  .form-group { margin-bottom: 1.5rem; }
-  label {
-    display: block;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    color: var(--grafito);
-    margin-bottom: 8px;
-  }
-  input[type="email"] {
-    width: 100%;
-    padding: 14px 16px;
-    border: 2px solid #e0e0e0;
-    border-radius: 8px;
-    font-family: var(--font);
-    font-size: 15px;
-    color: var(--grafito-d);
-    outline: none;
-    transition: border-color .2s;
-  }
-  input[type="email"]:focus { border-color: var(--rojo); }
-  input[type="email"]::placeholder { color: #bdbdbd; }
-
-  .btn-acceder {
-    width: 100%;
-    padding: 15px;
-    background: var(--rojo);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-family: var(--font);
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    cursor: pointer;
-    transition: background .2s, transform .1s;
-    margin-top: .5rem;
-  }
-  .btn-acceder:hover  { background: var(--rojo-d); }
-  .btn-acceder:active { transform: scale(.98); }
-
-  .msg-error {
-    background: #fdecea;
-    color: #b71c1c;
-    border-left: 4px solid var(--rojo);
-    padding: 12px 16px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 500;
-    margin-bottom: 1.5rem;
-  }
-
-  .footer-nota {
-    margin-top: 2rem;
-    font-size: 12px;
-    color: #bdbdbd;
-    text-align: center;
-    line-height: 1.5;
-  }
-
-  @media (max-width: 768px) {
-    body { grid-template-columns: 1fr; }
-    .panel-marca { display: none; }
-    .panel-form { padding: 2rem; }
-  }
-</style>
-</head>
-<body>
-
-<div class="panel-marca">
-  <div class="marca-logo">
-    <div class="marca-pm">PM</div>
-    <div class="marca-nombre">
-      <span>Pietramonte</span>
-      <span>Automotriz</span>
+  <div class="login-marca">
+    <div class="login-logo">
+      <div class="login-logo-pm">PM</div>
+      <div class="login-logo-text">
+        <span>Pietramonte</span>
+        <span>Automotriz</span>
+      </div>
     </div>
-  </div>
-  <div class="marca-linea"></div>
-  <div class="marca-titulo">Archivo de<br><em>Correos</em></div>
-  <p class="marca-sub">
-    Consulta el historial completo de tu bandeja de correo corporativa.
-    Accede con tu dirección @pietramonte.cl.
-  </p>
-</div>
-
-<div class="panel-form">
-  <div class="form-header">
-    <h2>Acceder al archivo</h2>
-    <p>Ingresa tu correo corporativo para continuar</p>
+    <div class="login-linea"></div>
+    <div class="login-titulo">Archivo de<br><em>Correos</em></div>
+    <p class="login-sub">
+      Consulta el historial completo de tu bandeja de correo corporativa.
+      Acceso restringido a personal autorizado.
+    </p>
   </div>
 
-  {% if messages %}
-  {% for msg in messages %}
-  <div class="msg-error">{{ msg }}</div>
-  {% endfor %}
-  {% endif %}
-
-  <form method="post" novalidate>
-    {% csrf_token %}
-    <div class="form-group">
-      <label for="email">Correo corporativo</label>
-      <input
-        type="email"
-        id="email"
-        name="email"
-        placeholder="tucorreo@pietramonte.cl"
-        autocomplete="email"
-        autofocus
-        required
-      >
+  <div class="login-form-panel">
+    <div class="login-form-header">
+      <h2>Acceder al archivo</h2>
+      <p>Ingresa tu correo corporativo para continuar</p>
     </div>
-    <button type="submit" class="btn-acceder">Ver mi bandeja →</button>
-  </form>
 
-  <p class="footer-nota">
-    Solo cuentas @pietramonte.cl tienen acceso.<br>
-    Si tu cuenta no aparece, contacta al administrador.
-  </p>
+    {% include 'partials/_messages.html' %}
+
+    <form method="post" novalidate autocomplete="off">
+      {% csrf_token %}
+      <div class="form-group">
+        <label for="email">Correo corporativo</label>
+        <input
+          type="email"
+          id="email"
+          name="email"
+          placeholder="tucorreo@pietramonte.cl"
+          autocomplete="email"
+          maxlength="254"
+          required
+          autofocus
+        >
+      </div>
+      <button type="submit" class="btn-acceder">Ver mi bandeja →</button>
+    </form>
+
+    <p class="login-foot">
+      Solo cuentas autorizadas tienen acceso.<br>
+      Si tu cuenta no aparece, contacta al administrador.
+    </p>
+  </div>
+
 </div>
-
-</body>
-</html>
+{% endblock %}

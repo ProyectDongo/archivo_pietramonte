@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(awk 'NR>=435 && NR<=460 {if\\(length\\($0\\)>200\\) print NR\": [\"length\\($0\\)\" chars]\"; else print NR\": \"$0}' c:/Users/anghe/Documents/GitHub/archivo_pietramonte/templates/correos/landing.html)",
+      "Bash(awk 'length\\($0\\)<200' c:/Users/anghe/Documents/GitHub/archivo_pietramonte/templates/correos/landing.html)",
+      "Bash(awk 'NR>=80 && NR<=440 && length\\($0\\)<300 {print NR\": \"$0}' c:/Users/anghe/Documents/GitHub/archivo_pietramonte/templates/correos/landing.html)",
+      "Bash(git rm *)"
+    ]
+  }
+}
