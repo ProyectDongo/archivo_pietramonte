@@ -1,22 +1,73 @@
 {% extends 'base_app.html' %}
+{% load correos_tags %}
 
 {% block title %}Bandeja — {{ buzon.email }}{% endblock %}
 
 {% block content %}
-<div class="inbox-header">
-  <div class="inbox-title">
-    <div>
-      <h1>
-        <span class="pm-accent"></span>Bandeja de entrada
-        <small>{{ buzon.email }}</small>
-      </h1>
+
+{# ─── HERO con stats (solo cuando NO hay filtros activos) ───────── #}
+{% if stats %}
+<section class="dash-hero">
+  <div class="dash-greet">
+    <div class="dash-greet-kicker">
+      <span class="pm-accent"></span> Archivo de correos
+    </div>
+    <h1 class="dash-h1">Bandeja de <em>{{ buzon.email }}</em></h1>
+    <p class="dash-sub">
+      {% if stats.fecha_mas_antigua %}
+      Histórico desde <strong>{{ stats.fecha_mas_antigua|date:"M Y" }}</strong>
+      {% if stats.fecha_mas_reciente %}
+      hasta <strong>{{ stats.fecha_mas_reciente|date:"M Y" }}</strong>
+      {% endif %}.
+      {% else %}
+      Aún no hay correos importados en este buzón.
+      {% endif %}
+    </p>
+  </div>
+
+  <div class="dash-stats">
+    <div class="stat-card"><div class="stat-n">{{ stats.total }}</div><div class="stat-l">Correos totales</div></div>
+    <div class="stat-card"><div class="stat-n">{{ stats.recientes_30d }}</div><div class="stat-l">Últimos 30 días</div></div>
+    <div class="stat-card"><div class="stat-n">{{ stats.con_adjuntos }}</div><div class="stat-l">Con adjuntos</div></div>
+    {% if cant_destacados %}
+    <div class="stat-card"><div class="stat-n">{{ cant_destacados }}</div><div class="stat-l">★ Destacados</div></div>
+    {% endif %}
+  </div>
+
+  {% if stats.chart %}
+  <div class="dash-chart" aria-label="Actividad mensual últimos 6 meses">
+    <div class="chart-label">Actividad reciente</div>
+    <div class="chart-bars">
+      {% for mes, n in stats.chart %}
+      <div class="chart-bar-wrap" title="{{ mes|date:'F Y' }}: {{ n }} correos">
+        <div class="chart-bar" data-h="{% widthratio n stats.chart_max 100 %}"></div>
+        <div class="chart-bar-label">{{ mes|date:"M" }}</div>
+      </div>
+      {% endfor %}
     </div>
   </div>
-  <div class="inbox-stats">
-    <strong>{{ buzon.total_correos|default:"0" }}</strong> correos en archivo
-  </div>
-</div>
+  {% endif %}
 
+  {% if stats.top_remitentes %}
+  <div class="dash-senders">
+    <div class="dash-senders-label">Top remitentes</div>
+    <div class="dash-senders-list">
+      {% for r in stats.top_remitentes %}
+      <button type="button" class="sender-chip" data-remitente="{{ r.remitente }}">
+        <span class="avatar" data-color="{{ r.remitente|avatar_color }}">{{ r.remitente|avatar_iniciales }}</span>
+        <span class="sender-text">
+          <span class="sender-name">{{ r.remitente|truncatechars:35 }}</span>
+          <span class="sender-count">{{ r.n }}</span>
+        </span>
+      </button>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
+{# ─── Buscador ──────────────────────────────────────────────────── #}
 <form class="search-bar" method="get" action="{% url 'inbox' %}" role="search">
   <input
     type="text"
@@ -28,10 +79,51 @@
     aria-label="Buscar correos"
   >
   <button type="submit">Buscar</button>
-  {% if query %}
-  <a href="{% url 'inbox' %}">✕ Limpiar</a>
+  {% if hay_filtros_activos %}
+  <a href="{% url 'inbox' %}">✕ Limpiar filtros</a>
   {% endif %}
 </form>
+
+{# ─── Barra de filtros: destacados + etiquetas ──────────────────── #}
+<div class="filter-bar">
+  <a href="?destacado=1{% if query %}&q={{ query|urlencode }}{% endif %}"
+     class="filter-pill filter-star {% if solo_destacados %}active{% endif %}"
+     title="Ver solo destacados">
+    <svg class="ico-star" viewBox="0 0 24 24" width="14" height="14"
+         fill="{% if solo_destacados %}currentColor{% else %}none{% endif %}"
+         stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26"/>
+    </svg>
+    Destacados{% if cant_destacados %} <span class="filter-count">{{ cant_destacados }}</span>{% endif %}
+  </a>
+
+  {% for et in etiquetas_disponibles %}
+  <a href="?etiqueta={{ et.id }}{% if query %}&q={{ query|urlencode }}{% endif %}"
+     class="filter-pill filter-tag {% if etiqueta_actual.id == et.id %}active{% endif %}"
+     data-color="{{ et.color }}">
+    <span class="tag-dot"></span>{{ et.nombre }}
+  </a>
+  {% endfor %}
+
+  <button type="button" class="filter-pill filter-new-tag" id="btn-new-tag" title="Nueva etiqueta">+ Etiqueta</button>
+</div>
+
+{# Diálogo inline para crear etiqueta (oculto por defecto) #}
+<div class="new-tag-dialog" id="new-tag-dialog" hidden>
+  <input type="text" id="new-tag-name" maxlength="40" placeholder="Nombre de la etiqueta">
+  <div class="color-palette" id="new-tag-colors">
+    <button type="button" data-color="#C80C0F" style="background:#C80C0F" aria-label="Rojo"></button>
+    <button type="button" data-color="#1976D2" style="background:#1976D2" aria-label="Azul"></button>
+    <button type="button" data-color="#388E3C" style="background:#388E3C" aria-label="Verde"></button>
+    <button type="button" data-color="#F57C00" style="background:#F57C00" aria-label="Naranja"></button>
+    <button type="button" data-color="#7B1FA2" style="background:#7B1FA2" aria-label="Morado"></button>
+    <button type="button" data-color="#5D4037" style="background:#5D4037" aria-label="Café"></button>
+    <button type="button" data-color="#455A64" style="background:#455A64" aria-label="Grafito"></button>
+    <button type="button" data-color="#FBC02D" style="background:#FBC02D" aria-label="Amarillo"></button>
+  </div>
+  <button type="button" class="btn-acceder" id="new-tag-create">Crear</button>
+  <button type="button" class="filter-pill" id="new-tag-cancel">Cancelar</button>
+</div>
 
 {% if query %}
 <div class="search-info">
@@ -39,80 +131,91 @@
 </div>
 {% endif %}
 
-<div class="tabla-wrap">
-  {% if page.object_list %}
-  <table class="tabla-correos">
-    <thead>
-      <tr>
-        <th>Remitente</th>
-        <th>Asunto</th>
-        <th class="col-adj" aria-label="Adjuntos">📎</th>
-        <th>Fecha</th>
-      </tr>
-    </thead>
-    <tbody>
+{# ─── Split: lista + preview ────────────────────────────────────── #}
+<div class="split">
+  <div class="split-list" id="split-list">
+    {% if page.object_list %}
+    <ul class="correos-list" role="list">
       {% for correo in page.object_list %}
-      <tr data-href="{% url 'detalle' correo.id %}">
-        <td class="col-remitente">
-          <span class="remitente-nombre">{{ correo.remitente_nombre|truncatechars:30 }}</span>
-          <span class="remitente-mail">{{ correo.remitente_email|truncatechars:35 }}</span>
-        </td>
-        <td class="col-asunto">
-          <a href="{% url 'detalle' correo.id %}" style="color:inherit">
-            <span class="asunto-texto">{{ correo.asunto|default:"(sin asunto)"|truncatechars:80 }}</span>
-            <span class="asunto-preview">{{ correo.cuerpo_texto|truncatechars:80 }}</span>
-          </a>
-        </td>
-        <td class="col-adj">
-          <span class="ico-adj {% if correo.tiene_adjunto %}tiene{% else %}no{% endif %}">📎</span>
-        </td>
-        <td class="col-fecha">
-          {% if correo.fecha %}
-          {{ correo.fecha|date:"d/m/Y" }}<br>
-          <small>{{ correo.fecha|time:"H:i" }}</small>
-          {% else %}—{% endif %}
-        </td>
-      </tr>
+      <li>
+        <div class="correo-row {% if correo.destacado %}is-starred{% endif %}"
+             data-correo-id="{{ correo.id }}"
+             data-href="{% url 'detalle' correo.id %}"
+             data-preview-url="{% url 'correo_preview' correo.id %}">
+          <button type="button" class="row-star" data-correo-id="{{ correo.id }}"
+                  title="{% if correo.destacado %}Quitar destacado{% else %}Destacar{% endif %}">
+            <svg viewBox="0 0 24 24" width="16" height="16"
+                 fill="{% if correo.destacado %}currentColor{% else %}none{% endif %}"
+                 stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26"/>
+            </svg>
+          </button>
+          <span class="avatar" data-color="{{ correo.remitente|avatar_color }}">{{ correo.remitente|avatar_iniciales }}</span>
+          <span class="correo-body">
+            <span class="correo-r">
+              <span class="correo-from">{{ correo.remitente_nombre|default:correo.remitente|truncatechars:30 }}</span>
+              <span class="correo-date">{{ correo.fecha|fecha_amigable }}</span>
+            </span>
+            <span class="correo-r">
+              <span class="correo-subject">{{ correo.asunto|default:"(sin asunto)"|truncatechars:60 }}</span>
+              {% if correo.tiene_adjunto %}<span class="adj-pill" title="Con adjunto">📎</span>{% endif %}
+            </span>
+            <span class="correo-snippet">{{ correo.cuerpo_texto|truncatechars:90 }}</span>
+            {% if correo.etiquetas.all %}
+            <span class="row-tags">
+              {% for et in correo.etiquetas.all %}
+              <span class="tag-chip-mini" data-color="{{ et.color }}">{{ et.nombre }}</span>
+              {% endfor %}
+            </span>
+            {% endif %}
+          </span>
+        </div>
+      </li>
       {% endfor %}
-    </tbody>
-  </table>
+    </ul>
 
-  {% if page.has_other_pages %}
-  <nav class="paginacion" aria-label="Paginación">
-    {% if page.has_previous %}
-    <a href="?page={{ page.previous_page_number }}{% if query %}&q={{ query|urlencode }}{% endif %}">← Anterior</a>
+    {% if page.has_other_pages %}
+    <nav class="paginacion" aria-label="Paginación">
+      {% if page.has_previous %}
+      <a href="?page={{ page.previous_page_number }}{% if query %}&q={{ query|urlencode }}{% endif %}{% if solo_destacados %}&destacado=1{% endif %}{% if etiqueta_actual %}&etiqueta={{ etiqueta_actual.id }}{% endif %}">← Anterior</a>
+      {% endif %}
+      <span class="actual">{{ page.number }} / {{ page.paginator.num_pages }}</span>
+      {% if page.has_next %}
+      <a href="?page={{ page.next_page_number }}{% if query %}&q={{ query|urlencode }}{% endif %}{% if solo_destacados %}&destacado=1{% endif %}{% if etiqueta_actual %}&etiqueta={{ etiqueta_actual.id }}{% endif %}">Siguiente →</a>
+      {% endif %}
+    </nav>
     {% endif %}
 
-    <span class="actual">{{ page.number }} / {{ page.paginator.num_pages }}</span>
-
-    {% if page.has_next %}
-    <a href="?page={{ page.next_page_number }}{% if query %}&q={{ query|urlencode }}{% endif %}">Siguiente →</a>
-    {% endif %}
-  </nav>
-  {% endif %}
-
-  {% else %}
-  <div class="estado-vacio">
-    <div class="estado-vacio-icon">📭</div>
-    {% if query %}
-    <p>No se encontraron correos para "<strong>{{ query }}</strong>"</p>
     {% else %}
-    <p>Esta bandeja no tiene correos importados aún.</p>
+    <div class="estado-vacio">
+      <div class="estado-vacio-icon">📭</div>
+      {% if hay_filtros_activos %}
+      <p>No hay correos con esos filtros.</p>
+      {% else %}
+      <p>Esta bandeja no tiene correos importados aún.</p>
+      {% endif %}
+    </div>
     {% endif %}
   </div>
-  {% endif %}
+
+  <aside class="split-preview" id="split-preview" aria-live="polite">
+    <div class="preview-empty">
+      <div class="preview-empty-icon">✉️</div>
+      <p>Selecciona un correo para ver su contenido aquí</p>
+      <p class="preview-empty-hint">
+        Usa <kbd>j</kbd> / <kbd>k</kbd> para navegar, <kbd>s</kbd> para destacar, <kbd>Enter</kbd> para abrir.
+      </p>
+    </div>
+  </aside>
 </div>
+
+{# JSON con etiquetas disponibles del buzón actual — usado por preview para autocomplete #}
+<script id="etiquetas-disponibles-data" type="application/json">
+[{% for et in etiquetas_disponibles %}{"id":{{ et.id }},"nombre":"{{ et.nombre|escapejs }}","color":"{{ et.color }}"}{% if not forloop.last %},{% endif %}{% endfor %}]
+</script>
 {% endblock %}
 
 {% block extra_js %}
-<script>
-  // Hace clickeable toda la fila sin usar onclick inline (CSP-safe)
-  document.querySelectorAll('tr[data-href]').forEach(function (row) {
-    row.addEventListener('click', function (e) {
-      // Si el click vino de un link interno, no duplicar navegación
-      if (e.target.closest('a')) return;
-      window.location.href = row.dataset.href;
-    });
-  });
-</script>
+{% load static %}
+<script src="{% static 'js/inbox.js' %}" defer></script>
 {% endblock %}

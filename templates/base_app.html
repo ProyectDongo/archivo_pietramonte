@@ -4,6 +4,8 @@
   {% include 'partials/_head.html' %}
   <title>{% block title %}Archivo Correos{% endblock %} — Pietramonte</title>
   <meta name="robots" content="noindex,nofollow">
+  {# CSRF para llamadas fetch desde JS sin necesidad de leer la cookie. #}
+  <meta name="csrf-token" content="{{ csrf_token }}">
   {% load static %}
   <link rel="stylesheet" href="{% static 'css/correos.css' %}">
   {% block extra_head %}{% endblock %}
@@ -16,6 +18,8 @@
     {% block content %}{% endblock %}
   </main>
 
+  <script src="{% static 'js/portal_helpers.js' %}" defer></script>
+  <script src="{% static 'js/app_nav.js' %}" defer></script>
   {% block extra_js %}{% endblock %}
 </body>
 </html>

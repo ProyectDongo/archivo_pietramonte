@@ -49,6 +49,8 @@ ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', 'localhost,127.0.0.1')
 
 # ─── Aplicaciones ──────────────────────────────────────────────────────────
 INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.staticfiles',
     'django.contrib.messages',
@@ -59,9 +61,11 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
+    'archivo_pietramonte.middleware.SecurityHeadersMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -76,10 +80,25 @@ TEMPLATES = [
         'OPTIONS': {
             'context_processors': [
                 'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'correos.context_processors.portal',
             ],
         },
     },
+]
+
+
+# ─── Validadores de password (Django built-in + nuestros) ───────────────────
+# Aplican a UsuarioPortal cuando se crea/edita desde admin o desde
+# "Cambiar contraseña" en el portal.
+AUTH_PASSWORD_VALIDATORS = [
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+     'OPTIONS': {'user_attributes': ('email',), 'max_similarity': 0.6}},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+     'OPTIONS': {'min_length': 10}},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
 
@@ -152,10 +171,28 @@ USE_I18N = True
 USE_TZ = True
 
 
+# ─── Admin ─────────────────────────────────────────────────────────────────
+# Ruta del admin DESDE .env, sin "/" inicial. Default ofuscado.
+# En producción: detrás de Cloudflare Access además.
+ADMIN_URL_PATH = (os.getenv('ADMIN_URL_PATH', 'admin-pm-staff').strip().strip('/') + '/')
+
+# Login de Django (admin) usa estas URLs
+LOGIN_URL  = '/' + ADMIN_URL_PATH + 'login/'
+LOGIN_REDIRECT_URL = '/' + ADMIN_URL_PATH
+
+
 # ─── Específico Pietramonte ────────────────────────────────────────────────
 # Carpeta donde se guardarán los .mbox importados (NO va en git, ver .gitignore).
-MBOX_DIR = BASE_DIR / 'data' / 'mbox' if (BASE_DIR / 'data').exists() else BASE_DIR / 'mbox'
+DATA_DIR = BASE_DIR / 'data'
+DATA_DIR.mkdir(exist_ok=True)
+MBOX_DIR = DATA_DIR / 'mbox'
 MBOX_DIR.mkdir(parents=True, exist_ok=True)
+
+# Adjuntos extraídos de los .mbox — NUNCA expuestos directamente, solo vía vista
+# protegida con auth. NO va en git.
+MEDIA_ROOT = DATA_DIR / 'adjuntos'
+MEDIA_ROOT.mkdir(exist_ok=True)
+MEDIA_URL  = '/media-internal/'   # nunca se sirve directo, solo vía adjunto_view
 
 # Lista de Gmail autorizados para entrar al portal (allowlist).
 # Mientras Cloudflare Access no esté activo, este es el filtro principal.

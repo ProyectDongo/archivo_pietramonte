@@ -20,12 +20,12 @@
       });
     }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
 
-    document.querySelectorAll('.rv, .rvl, .rvr').forEach(function (el) {
+    document.querySelectorAll('.rv, .rvl, .rvr, .fx-zoom, .fx-blur, .fx-tilt').forEach(function (el) {
       obs.observe(el);
     });
   } else {
     // Sin IntersectionObserver: muestra todo de una
-    document.querySelectorAll('.rv, .rvl, .rvr').forEach(function (el) {
+    document.querySelectorAll('.rv, .rvl, .rvr, .fx-zoom, .fx-blur, .fx-tilt').forEach(function (el) {
       el.classList.add('on');
     });
   }

@@ -66,7 +66,9 @@ button { font-family: inherit; cursor: pointer; }
     transition-duration: .01ms !important;
   }
   html { scroll-behavior: auto; }
-  .rv, .rvl, .rvr { opacity: 1; transform: none; }
+  .rv, .rvl, .rvr, .fx-zoom, .fx-blur, .fx-tilt {
+    opacity: 1; transform: none; filter: none;
+  }
 }
 
 /* ─── Mensajes flash de Django ─────────────────────────────── */

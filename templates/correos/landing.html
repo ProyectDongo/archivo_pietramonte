@@ -5,6 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/landing.css' %}">
+<link rel="preload" as="image" href="{% static 'img/bg/hero.jpg' %}">
 {% endblock %}
 
 {% block body %}
@@ -26,6 +27,13 @@
     <a class="nl" href="#nosotros">Nosotros</a>
     <a class="nl" href="#horario">Horario</a>
     <a class="nl" href="#contacto">Contacto</a>
+
+    {# Candadito sutil en el header — acceso al portal interno #}
+    <a class="nav-portal" href="{% url 'login' %}" rel="nofollow noindex"
+       data-tip="Acceso interno" aria-label="Acceso interno">
+      <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+    </a>
+
     <button type="button" class="nav-cta" data-scroll-to="contacto">Agendar hora</button>
   </div>
   <button class="ham" id="ham-btn" aria-label="Menú">
@@ -37,27 +45,31 @@
   <a class="nl-m" href="#nosotros">Nosotros</a>
   <a class="nl-m" href="#horario">Horario</a>
   <a class="nl-m" href="#contacto">Contacto</a>
+  <a class="nl-m portal-m" href="{% url 'login' %}" rel="nofollow noindex">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+    Acceso interno
+  </a>
 </div>
 
 <section class="hero">
   <div class="hero-l">
-    <div class="h-kicker rv">
+    <div class="h-kicker fx-zoom">
       <span class="h-kicker-dot"></span>
       <span class="h-kicker-t">Taller automotriz · Copiapó</span>
     </div>
     <div class="h-rule rv d1"></div>
-    <h1 class="hero-h1 rv d2">Tu vehículo<br>en las <span class="acc">mejores</span><br>manos</h1>
+    <h1 class="hero-h1 fx-blur d1">Tu vehículo<br>en las <span class="acc">mejores</span><br>manos</h1>
     <p class="hero-sub rv d3">Servicio técnico integral con más de 10 años en la Región de Atacama. Diagnóstico computarizado, mecánica general y repuestos con garantía.</p>
     <div class="hero-btns rv d4">
       <button type="button" class="btn-p" data-scroll-to="servicios">Ver servicios</button>
       <a class="btn-g" href="#contacto">Agendar hora →</a>
     </div>
   </div>
-  <div class="hero-r rv d2">
+  <div class="hero-r fx-zoom d2">
     <div class="hero-frame">
       <img class="hero-insig" src="{% static 'img/insignia.jpg' %}" alt="Insignia Pietramonte">
     </div>
-    <div class="hero-metrics">
+    <div class="hero-metrics rv d3">
       <div class="hm"><div class="hm-n">+10</div><div class="hm-l">Años</div></div>
       <div class="hm"><div class="hm-n">+500</div><div class="hm-l">Clientes</div></div>
       <div class="hm"><div class="hm-n">6</div><div class="hm-l">Días/sem</div></div>
@@ -82,11 +94,11 @@
   </div>
 </div>
 
-<section class="sec" id="servicios">
+<section class="sec bg-servicios" id="servicios">
   <div class="sec-tag rv"><div class="sec-bar"></div><span class="sec-tag-t">¿Qué hacemos?</span></div>
-  <h2 class="sec-h2 rv d1">Nuestros <em>servicios</em></h2>
+  <h2 class="sec-h2 fx-blur d1">Nuestros <em>servicios</em></h2>
   <div class="sv-grid">
-    <div class="sv rv d1">
+    <div class="sv fx-zoom d1">
       <div class="sv-num">01</div>
       <svg class="sv-icon" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
       <div class="sv-name">Mecánica general</div>
@@ -98,7 +110,7 @@
         <li>Suspensión y tren delantero</li>
       </ul>
     </div>
-    <div class="sv rv d2">
+    <div class="sv fx-zoom d2">
       <div class="sv-num">02</div>
       <svg class="sv-icon" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
       <div class="sv-name">Diagnóstico computarizado</div>
@@ -110,7 +122,7 @@
         <li>Revisión eléctrica completa</li>
       </ul>
     </div>
-    <div class="sv rv d3">
+    <div class="sv fx-zoom d3">
       <div class="sv-num">03</div>
       <svg class="sv-icon" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
       <div class="sv-name">Car Wash</div>
@@ -122,7 +134,7 @@
         <li>Tratamiento de pintura</li>
       </ul>
     </div>
-    <div class="sv rv d1">
+    <div class="sv fx-zoom d1">
       <div class="sv-num">04</div>
       <svg class="sv-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
       <div class="sv-name">Neumáticos y frenos</div>
@@ -134,7 +146,7 @@
         <li>Revisión líquido de frenos</li>
       </ul>
     </div>
-    <div class="sv rv d2">
+    <div class="sv fx-zoom d2">
       <div class="sv-num">05</div>
       <svg class="sv-icon" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3"/></svg>
       <div class="sv-name">Aire acondicionado</div>
@@ -146,7 +158,7 @@
         <li>Sellado de fugas</li>
       </ul>
     </div>
-    <div class="sv rv d3">
+    <div class="sv fx-zoom d3">
       <div class="sv-num">06</div>
       <svg class="sv-icon" viewBox="0 0 24 24"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
       <div class="sv-name">Repuestos y accesorios</div>
@@ -161,34 +173,34 @@
   </div>
 </section>
 
-<section class="sec alt" id="nosotros">
+<section class="sec bg-nosotros" id="nosotros">
   <div class="nos-grid">
     <div class="nos-img-box rvl">
       <img class="nos-img" src="{% static 'img/insignia.jpg' %}" alt="Insignia Pietramonte">
     </div>
     <div class="rvr">
-      <div class="sec-tag" style="margin-bottom:12px;"><div class="sec-bar"></div><span class="sec-tag-t">Quiénes somos</span></div>
-      <h2 class="sec-h2" style="margin-bottom:18px;">Sobre <em>Pietramonte</em></h2>
+      <div class="sec-tag tight"><div class="sec-bar"></div><span class="sec-tag-t">Quiénes somos</span></div>
+      <h2 class="sec-h2 fx-blur tight-h"><em>Sobre</em> Pietramonte</h2>
       <p class="nos-txt">Más de una década atendiendo a la Región de Atacama con servicio técnico de calidad, diagnóstico honesto y repuestos garantizados. Nuestra prioridad es que tu vehículo vuelva a la ruta seguro.</p>
       <div class="nos-vals">
-        <div class="nv"><div class="nv-t">Calidad</div><div class="nv-d">Repuestos y mano de obra garantizados en cada trabajo</div></div>
-        <div class="nv"><div class="nv-t">Confianza</div><div class="nv-d">Diagnóstico honesto, sin sorpresas al cobro</div></div>
-        <div class="nv"><div class="nv-t">Experiencia</div><div class="nv-d">Más de 10 años en la Región de Atacama</div></div>
-        <div class="nv"><div class="nv-t">Rapidez</div><div class="nv-d">Tiempos de entrega comprometidos y cumplidos</div></div>
+        <div class="nv fx-tilt d1"><div class="nv-t">Calidad</div><div class="nv-d">Repuestos y mano de obra garantizados en cada trabajo</div></div>
+        <div class="nv fx-tilt d2"><div class="nv-t">Confianza</div><div class="nv-d">Diagnóstico honesto, sin sorpresas al cobro</div></div>
+        <div class="nv fx-tilt d3"><div class="nv-t">Experiencia</div><div class="nv-d">Más de 10 años en la Región de Atacama</div></div>
+        <div class="nv fx-tilt d4"><div class="nv-t">Rapidez</div><div class="nv-d">Tiempos de entrega comprometidos y cumplidos</div></div>
       </div>
     </div>
   </div>
 </section>
 
-<section class="sec" id="horario">
+<section class="sec bg-horario" id="horario">
   <div class="hor-layout">
     <div class="rvl">
-      <div class="sec-tag" style="margin-bottom:12px;"><div class="sec-bar"></div><span class="sec-tag-t">Atención</span></div>
-      <h2 class="sec-h2" style="margin-bottom:14px;">Horario de <em>atención</em></h2>
+      <div class="sec-tag tight"><div class="sec-bar"></div><span class="sec-tag-t">Atención</span></div>
+      <h2 class="sec-h2 fx-blur tight-h">Horario de <em>atención</em></h2>
       <p class="hor-sub">Disponibles de lunes a sábado. Le recomendamos agendar hora para garantizar atención inmediata sin esperas.</p>
       <button type="button" class="btn-p" data-scroll-to="contacto">Agendar hora →</button>
     </div>
-    <div class="hor-card rvr">
+    <div class="hor-card fx-tilt d2">
       <div class="hor-head">
         <span class="hor-head-t">Horario semanal</span>
         <span class="hor-dot" aria-hidden="true"></span>
@@ -210,15 +222,15 @@
   </div>
 </section>
 
-<section class="sec dark" id="contacto">
+<section class="sec bg-contacto" id="contacto">
   <div class="cont-in">
     <div class="cont-grid">
       <div class="rvl">
-        <div class="sec-tag" style="margin-bottom:12px;">
+        <div class="sec-tag tight">
           <div class="sec-bar"></div>
-          <span class="sec-tag-t" style="color:rgba(200,12,15,.7)">Contacto</span>
+          <span class="sec-tag-t sec-tag-t-dim">Contacto</span>
         </div>
-        <h2 class="cont-h2">¿Necesitas una <em>revisión?</em></h2>
+        <h2 class="cont-h2 fx-blur">¿Necesitas una <em>revisión?</em></h2>
       </div>
       <div class="rvr">
         <p class="cont-sub">Contáctanos por cualquiera de los medios disponibles. Nuestro equipo responderá a la brevedad para coordinar la atención de tu vehículo.</p>
@@ -241,14 +253,7 @@
     <a class="fl" href="#horario">Horario</a>
     <a class="fl" href="#contacto">Contacto</a>
   </div>
-  <span class="f-copy">
-    © {% now "Y" %} Pietramonte Automotriz — Copiapó
-    {# Acceso oculto al portal interno: candadito casi invisible. #}
-    {# La URL no aparece en sitemap ni se indexa (noindex en login.html). #}
-    <a class="f-portal" href="{% url 'login' %}" rel="nofollow noindex" title=" " aria-label="Acceso interno">
-      <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
-    </a>
-  </span>
+  <span class="f-copy">© {% now "Y" %} Pietramonte Automotriz — Copiapó</span>
 </footer>
 {% endblock %}
 
