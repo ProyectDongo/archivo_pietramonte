@@ -11,6 +11,7 @@ En producción, asegúrate de:
 
 from pathlib import Path
 import os
+import dj_database_url
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -103,15 +104,14 @@ AUTH_PASSWORD_VALIDATORS = [
 
 
 # ─── Base de datos ─────────────────────────────────────────────────────────
-# SQLite va en /data para poder montarla como volumen y backup separado del código.
+# En producción: DATABASE_URL apunta a Postgres (servicio gestionado por Coolify).
+# En desarrollo local sin DATABASE_URL: cae a SQLite en BASE_DIR/db.sqlite3.
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'data' / 'db.sqlite3' if (BASE_DIR / 'data').exists() else BASE_DIR / 'db.sqlite3',
-        'OPTIONS': {
-            'timeout': 20,
-        },
-    }
+    'default': dj_database_url.config(
+        default=f'sqlite:///{BASE_DIR / "db.sqlite3"}',
+        conn_max_age=600,
+        conn_health_checks=True,
+    )
 }
 
 
