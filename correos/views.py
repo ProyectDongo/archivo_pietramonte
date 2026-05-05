@@ -202,11 +202,7 @@ def login_view(request):
     if honeypot:
         return fallo('honeypot')
 
-    # 2. Tiempo mínimo razonable de un humano (esquiva submit instantáneo).
-    if tiempo_ms < captcha.MIN_TIEMPO_HUMANO_MS:
-        return fallo('muy_rapido')
-
-    # 3. Validación básica de email + presencia de password.
+    # 2. Validación básica de email + presencia de password.
     if not email or '@' not in email or len(email) > 254 or not password:
         return fallo('email_invalido')
 

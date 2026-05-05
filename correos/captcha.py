@@ -160,7 +160,6 @@ CHALLENGES: dict[str, dict] = {
 GRID_SIZE = 9
 CORRECT_RANGE = (3, 5)
 TTL_SEGUNDOS = 180
-MIN_TIEMPO_HUMANO_MS = 1500
 
 
 # ─── Generación ────────────────────────────────────────────────────────────

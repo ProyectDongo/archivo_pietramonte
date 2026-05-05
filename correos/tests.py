@@ -120,11 +120,6 @@ class LoginFlowTests(TestCase):
         self.assertEqual(r.status_code, 400)
         self.assertTrue(IntentoLogin.objects.filter(motivo='honeypot').exists())
 
-    def test_submit_demasiado_rapido_es_rechazado(self):
-        r = self._post_login('empleado@gmail.com', dormir=0.05)
-        self.assertEqual(r.status_code, 400)
-        self.assertTrue(IntentoLogin.objects.filter(motivo='muy_rapido').exists())
-
     def test_anti_enumeracion_mensaje_uniforme(self):
         """Los 3 fallos básicos deben verse idénticos para el atacante."""
         r1 = self._post_login('empleado@gmail.com', password='Mala123456!')
