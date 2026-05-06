@@ -1,10 +1,8 @@
-import hmac
 import mimetypes
 import time
 from datetime import timedelta
 from functools import wraps
 
-from django.conf import settings
 from django.contrib import messages
 from django.core.cache import cache
 from django.core.paginator import Paginator
@@ -35,15 +33,6 @@ def _get_ip(request) -> str:
 
 def _ua(request) -> str:
     return (request.META.get('HTTP_USER_AGENT') or '')[:500]
-
-
-def _allowed_emails() -> set[str]:
-    return {e.lower().strip() for e in settings.PORTAL_ALLOWED_EMAILS}
-
-
-def _safe_email_eq(a: str, b: str) -> bool:
-    """Comparación de emails resistente a timing attacks (paranoia)."""
-    return hmac.compare_digest(a.lower().strip(), b.lower().strip())
 
 
 def portal_login_required(view):

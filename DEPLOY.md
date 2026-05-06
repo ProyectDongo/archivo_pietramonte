@@ -317,7 +317,7 @@ Cada nuevo proyecto repite el flujo:
 | 400 Bad Request "DisallowedHost" | `archivo.pietramonte.cl` no está en `ALLOWED_HOSTS` | Edita `.env` → redeploy |
 | 500 al cargar `/intranet/` | `SECRET_KEY` mal formado o falta | Genera uno nuevo y redeploy |
 | Static no cargan (404 en CSS) | `collectstatic` no corrió | Rebuild en Coolify |
-| Login no acepta nadie | Falta `crear_usuario` o `PORTAL_ALLOWED_EMAILS` no incluye el email | Verifica admin |
+| Login no acepta nadie | El usuario no existe o está marcado inactivo en `UsuarioPortal` | Crea/activa desde `/admin-…/correos/usuarioportal/` |
 | Adjuntos 404 | El volumen `/app/data` no se montó | `docker inspect` y revisa `Mounts` |
 
 ---

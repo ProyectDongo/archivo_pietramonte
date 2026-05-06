@@ -169,10 +169,13 @@ class Command(BaseCommand):
 
                 for i, msg in enumerate(mbox, 1):
                     try:
-                        asunto    = decodificar_header(msg.get('Subject', ''))
-                        remitente = decodificar_header(msg.get('From', ''))
-                        dest      = decodificar_header(msg.get('To', ''))
-                        msg_id    = msg.get('Message-ID', '')
+                        # Postgres rechaza NUL bytes en columnas de texto. Algunos
+                        # correos viejos los traen en headers (encoding raro). Los
+                        # quitamos antes de cualquier insert para no perder el msg.
+                        asunto    = decodificar_header(msg.get('Subject', '')).replace('\x00', '')
+                        remitente = decodificar_header(msg.get('From', '')).replace('\x00', '')
+                        dest      = decodificar_header(msg.get('To', '')).replace('\x00', '')
+                        msg_id    = (msg.get('Message-ID', '') or '').replace('\x00', '')
                         fecha_str = msg.get('Date', '')
 
                         fecha = None
@@ -185,7 +188,7 @@ class Command(BaseCommand):
                             except Exception:
                                 pass
 
-                        texto = extraer_texto(msg)
+                        texto = extraer_texto(msg).replace('\x00', '')
                         adjuntos_data = [] if skip_adj else extraer_adjuntos(msg)
 
                         # Crear correo

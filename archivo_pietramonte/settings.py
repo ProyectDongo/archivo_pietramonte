@@ -132,7 +132,10 @@ SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_DB_ALIAS = 'default'
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Lax'
-SESSION_COOKIE_AGE = 60 * 60 * 8         # 8 horas
+# 2 h de inactividad → expira. SAVE_EVERY_REQUEST renueva la cookie en cada hit,
+# así una sesión activa nunca caduca pero una abandonada muere sola.
+SESSION_COOKIE_AGE = 60 * 60 * 2
+SESSION_SAVE_EVERY_REQUEST = True
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 
 
@@ -196,12 +199,8 @@ MEDIA_ROOT = DATA_DIR / 'adjuntos'
 MEDIA_ROOT.mkdir(exist_ok=True)
 MEDIA_URL  = '/media-internal/'   # nunca se sirve directo, solo vía adjunto_view
 
-# Lista de Gmail autorizados para entrar al portal (allowlist).
-# Mientras Cloudflare Access no esté activo, este es el filtro principal.
-PORTAL_ALLOWED_EMAILS = env_list(
-    'PORTAL_ALLOWED_EMAILS',
-    'soporte.dongo@gmail.com',
-)
+# Email para notificaciones operacionales (futuras: alertas, agendamientos).
+# La allowlist real del portal es la tabla UsuarioPortal en BD.
 PORTAL_ADMIN_EMAIL = os.getenv('PORTAL_ADMIN_EMAIL', 'soporte.dongo@gmail.com')
 
 
