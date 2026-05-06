@@ -18,8 +18,18 @@
     {% block content %}{% endblock %}
   </main>
 
+  {# Lightbox global para preview de imágenes adjuntas #}
+  <div id="lightbox" class="lightbox" hidden role="dialog" aria-modal="true" aria-label="Vista de imagen">
+    <button type="button" class="lightbox-close" aria-label="Cerrar">✕</button>
+    <figure class="lightbox-figure">
+      <img class="lightbox-img" alt="">
+      <figcaption class="lightbox-caption"></figcaption>
+    </figure>
+  </div>
+
   <script src="{% static 'js/portal_helpers.js' %}" defer></script>
   <script src="{% static 'js/app_nav.js' %}" defer></script>
+  <script src="{% static 'js/lightbox.js' %}" defer></script>
   {% block extra_js %}{% endblock %}
 </body>
 </html>

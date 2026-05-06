@@ -74,3 +74,50 @@ def avatar_color(texto):
         return _AVATAR_COLORS[0][0]
     h = int(hashlib.md5(str(texto).encode()).hexdigest()[:8], 16)
     return _AVATAR_COLORS[h % len(_AVATAR_COLORS)][0]
+
+
+# Mapeo MIME → categoría visual usada en la galería de adjuntos.
+# Image, pdf, sheet, doc, slides, zip, audio, video, code, text, otro.
+_TIPO_BY_PREFIX = {
+    'image/': 'imagen',
+    'audio/': 'audio',
+    'video/': 'video',
+    'text/':  'texto',
+}
+_TIPO_BY_EXACT = {
+    'application/pdf':                                                         'pdf',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':       'sheet',
+    'application/vnd.ms-excel':                                                'sheet',
+    'application/vnd.oasis.opendocument.spreadsheet':                          'sheet',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'doc',
+    'application/msword':                                                      'doc',
+    'application/vnd.oasis.opendocument.text':                                 'doc',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'slides',
+    'application/vnd.ms-powerpoint':                                           'slides',
+    'application/zip':                                                         'zip',
+    'application/x-zip-compressed':                                            'zip',
+    'application/x-rar-compressed':                                            'zip',
+    'application/x-7z-compressed':                                             'zip',
+    'application/json':                                                        'codigo',
+    'application/javascript':                                                  'codigo',
+    'application/xml':                                                         'codigo',
+}
+
+
+@register.filter
+def tipo_archivo(adjunto):
+    """Devuelve la categoría visual ('imagen' / 'pdf' / 'doc' / ...) de un Adjunto."""
+    mime = (getattr(adjunto, 'mime_type', '') or '').lower().strip()
+    if mime in _TIPO_BY_EXACT:
+        return _TIPO_BY_EXACT[mime]
+    for prefijo, t in _TIPO_BY_PREFIX.items():
+        if mime.startswith(prefijo):
+            return t
+    return 'otro'
+
+
+@register.filter
+def es_imagen(adjunto):
+    """True si el adjunto es una imagen renderizable inline."""
+    mime = (getattr(adjunto, 'mime_type', '') or '').lower()
+    return mime.startswith('image/')
