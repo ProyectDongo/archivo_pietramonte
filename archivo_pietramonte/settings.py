@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.sessions',
     'correos',
+    'taller',
 ]
 
 MIDDLEWARE = [
