@@ -18,7 +18,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.utils.html import format_html
 
-from .models import AdminTOTP, Adjunto, Buzon, Correo, Etiqueta, IntentoLogin, UsuarioPortal
+from .models import AdminTOTP, Adjunto, Buzon, Correo, Etiqueta, IntentoLogin, ReenvioCorreo, UsuarioPortal
 
 
 # ─── UsuarioPortal ─────────────────────────────────────────────────────────
@@ -279,6 +279,48 @@ class IntentoLoginAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         # Permitir borrado en bloque para limpiar bitácora vieja
+        return request.user.is_superuser
+
+
+# ─── Reenvíos (auditoría, read-only para no-supers) ────────────────────────
+@admin.register(ReenvioCorreo)
+class ReenvioCorreoAdmin(admin.ModelAdmin):
+    list_display    = ('enviado_en', 'exito_icon', 'usuario', 'destinatarios_corto',
+                       'correo_link', 'tiene_nota')
+    list_filter     = ('exito', 'enviado_en', 'usuario')
+    search_fields   = ('destinatarios', 'mensaje_extra', 'usuario__email',
+                       'correo__asunto')
+    readonly_fields = [f.name for f in ReenvioCorreo._meta.fields]
+    date_hierarchy  = 'enviado_en'
+
+    @admin.display(description='Estado', ordering='exito')
+    def exito_icon(self, obj):
+        return format_html(
+            '<span style="color:{};font-weight:700">{}</span>',
+            '#1B5E20' if obj.exito else '#B71C1C',
+            'OK' if obj.exito else 'FAIL',
+        )
+
+    @admin.display(description='Destinatarios')
+    def destinatarios_corto(self, obj):
+        return (obj.destinatarios or '')[:80]
+
+    @admin.display(description='Correo original')
+    def correo_link(self, obj):
+        return format_html('<a href="../correo/{}/change/">{}</a>',
+                           obj.correo_id, (obj.correo.asunto or '(sin asunto)')[:50])
+
+    @admin.display(description='Nota', boolean=True)
+    def tiene_nota(self, obj):
+        return bool(obj.mensaje_extra)
+
+    def has_add_permission(self, request):
+        return False     # se generan automáticamente al reenviar desde el portal
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
         return request.user.is_superuser
 
 

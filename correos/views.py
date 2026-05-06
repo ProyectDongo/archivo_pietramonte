@@ -14,7 +14,7 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_POST
 
 from . import captcha, totp as totp_helpers
-from .models import Adjunto, Buzon, Correo, Etiqueta, IntentoLogin, UsuarioPortal, hash_ip
+from .models import Adjunto, Buzon, Correo, Etiqueta, IntentoLogin, ReenvioCorreo, UsuarioPortal, hash_ip
 
 
 # Tiempo máximo entre password OK y completar 2FA (segundos).
@@ -741,6 +741,141 @@ def cambiar_password_view(request):
     request.session.cycle_key()
     messages.success(request, 'Contraseña actualizada correctamente.')
     return redirect('inbox')
+
+
+# ─── Reenvío de correos al exterior ─────────────────────────────────────────
+# Cualquier UsuarioPortal puede reenviar correos de los buzones que ve.
+# Rate limit: 30 reenvíos/día normales, 100/día admins. Audit completo en
+# `ReenvioCorreo`. From=EMAIL_REENVIO_FROM (típicamente la cuenta interna),
+# Reply-To=email del usuario portal que reenvía → respuestas vuelven al equipo.
+REENVIO_RL_HORAS    = 24
+REENVIO_LIMIT_USER  = 30
+REENVIO_LIMIT_ADMIN = 100
+REENVIO_MAX_DEST    = 5         # max emails por reenvío
+REENVIO_MAX_NOTA    = 2000      # max chars del mensaje extra
+
+
+def _reenvios_recientes(usuario: UsuarioPortal) -> int:
+    """Cantidad de reenvíos del usuario en las últimas REENVIO_RL_HORAS."""
+    desde = timezone.now() - timedelta(hours=REENVIO_RL_HORAS)
+    return ReenvioCorreo.objects.filter(usuario=usuario, enviado_en__gte=desde).count()
+
+
+def _parse_destinatarios(raw: str) -> list[str]:
+    """Parsea 'a@b.cl, c@d.cl' → ['a@b.cl', 'c@d.cl']. Valida formato. Lanza ValidationError."""
+    from django.core.exceptions import ValidationError
+    from django.core.validators import validate_email
+    emails = [e.strip() for e in (raw or '').replace(';', ',').split(',') if e.strip()]
+    if not emails:
+        raise ValidationError('Indicá al menos un destinatario.')
+    if len(emails) > REENVIO_MAX_DEST:
+        raise ValidationError(f'Máximo {REENVIO_MAX_DEST} destinatarios por reenvío.')
+    for e in emails:
+        validate_email(e)
+    return emails
+
+
+@portal_login_required
+@never_cache
+@require_http_methods(['GET', 'POST'])
+def reenviar_correo_view(request, correo_id):
+    """
+    Reenvía un correo del archivo a destinatarios externos.
+
+    GET  → form con destinatarios + mensaje extra opcional.
+    POST → valida + rate-limit + envía + loguea ReenvioCorreo + redirige al detalle.
+    """
+    from django.conf import settings
+    from django.core.exceptions import ValidationError
+
+    from archivo_pietramonte.email_utils import safe_send
+
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+
+    correo = get_object_or_404(Correo, id=correo_id)
+    if not usuario.puede_ver(correo.buzon):
+        raise Http404
+
+    limite = REENVIO_LIMIT_ADMIN if usuario.es_admin else REENVIO_LIMIT_USER
+    usados = _reenvios_recientes(usuario)
+    restantes = max(0, limite - usados)
+
+    if request.method == 'GET':
+        return render(request, 'correos/reenviar.html', {
+            'correo': correo, 'limite': limite, 'usados': usados, 'restantes': restantes,
+        })
+
+    # ─── POST ───────────────────────────────────────────────────────────
+    if usados >= limite:
+        messages.error(request, f'Llegaste al límite de {limite} reenvíos en {REENVIO_RL_HORAS}h. Esperá unas horas o pedile a un admin que lo haga.')
+        return render(request, 'correos/reenviar.html', {
+            'correo': correo, 'limite': limite, 'usados': usados, 'restantes': 0,
+        }, status=429)
+
+    raw_dest = request.POST.get('destinatarios') or ''
+    nota     = (request.POST.get('mensaje_extra') or '')[:REENVIO_MAX_NOTA]
+
+    try:
+        destinatarios = _parse_destinatarios(raw_dest)
+    except ValidationError as e:
+        for msg in e.messages if hasattr(e, 'messages') else [str(e)]:
+            messages.error(request, msg)
+        return render(request, 'correos/reenviar.html', {
+            'correo': correo, 'limite': limite, 'usados': usados, 'restantes': restantes,
+            'destinatarios': raw_dest, 'mensaje_extra': nota,
+        }, status=400)
+
+    # ─── Adjuntos: re-leer del disco para reattachar ───────────────────
+    adjuntos_payload = []
+    for adj in correo.adjuntos.all():
+        try:
+            with adj.archivo.open('rb') as f:
+                content = f.read()
+            adjuntos_payload.append((adj.nombre_original, content,
+                                     adj.mime_type or 'application/octet-stream'))
+        except Exception:
+            # Si el archivo se perdió en disco, seguimos sin ese adjunto
+            continue
+
+    # ─── Send ──────────────────────────────────────────────────────────
+    asunto = f'Fwd: {correo.asunto or "(sin asunto)"}'
+    resultado = safe_send(
+        asunto=asunto,
+        para=destinatarios,
+        template='correos/email/reenvio',
+        contexto={
+            'correo': correo,
+            'mensaje_extra': nota,
+            'reenviado_por': usuario.email,
+        },
+        from_alias=settings.EMAIL_REENVIO_FROM,
+        reply_to=[usuario.email],     # las respuestas vuelven al usuario portal
+        adjuntos=adjuntos_payload,
+    )
+
+    # ─── Audit log ─────────────────────────────────────────────────────
+    ip_h = hash_ip(_get_ip(request))
+    ReenvioCorreo.objects.create(
+        correo=correo,
+        usuario=usuario,
+        destinatarios=', '.join(destinatarios),
+        mensaje_extra=nota,
+        exito=resultado['ok'],
+        error_msg=(resultado.get('error') or '')[:500],
+        ip_hash=ip_h,
+    )
+
+    if resultado['ok']:
+        messages.success(request, f'Correo reenviado a: {", ".join(destinatarios)}.')
+        return redirect('detalle', correo_id=correo.id)
+
+    messages.error(request, f'No se pudo enviar el correo: {resultado.get("error", "error desconocido")}')
+    return render(request, 'correos/reenviar.html', {
+        'correo': correo, 'limite': limite, 'usados': usados + 1, 'restantes': max(0, restantes - 1),
+        'destinatarios': raw_dest, 'mensaje_extra': nota,
+    }, status=500)
 
 
 @portal_login_required

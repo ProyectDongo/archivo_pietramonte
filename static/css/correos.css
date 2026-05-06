@@ -1886,3 +1886,33 @@
   .carpeta-chip-text { display: none; }
   .carpeta-chip-ico { font-size: 18px; }
 }
+
+/* ─── Reenviar correo (botones) ────────────────────────────── */
+.btn-reenviar,
+.preview-fwd-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--w);
+  color: var(--gd);
+  border: 1.5px solid var(--gm);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all .15s ease;
+  white-space: nowrap;
+}
+.btn-reenviar:hover,
+.preview-fwd-btn:hover {
+  background: var(--rl);
+  border-color: var(--r);
+  color: var(--r);
+  transform: translateY(-1px);
+}
+.preview-actions {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}

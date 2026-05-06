@@ -276,6 +276,49 @@ class IntentoLogin(models.Model):
         return f'{self.creado:%Y-%m-%d %H:%M} {"OK" if self.exito else "FAIL"} {self.motivo}'
 
 
+class ReenvioCorreo(models.Model):
+    """
+    Bitácora de cada vez que un UsuarioPortal reenvía un correo del archivo
+    a un destinatario externo.
+
+    Pensado para:
+      - Auditoría: quién reenvió qué y a quién (los Correos pueden ser
+        sensibles — facturas, contratos, etc.).
+      - Rate-limit: contar reenvíos de las últimas 24h por usuario y bloquear
+        si supera el cupo (30 normal, 100 admin).
+
+    El cuerpo del email reenviado se arma en el momento — no se persiste.
+    Los destinatarios SÍ se guardan (texto coma-separado).
+    """
+    correo          = models.ForeignKey(Correo, on_delete=models.CASCADE,
+                                        related_name='reenvios')
+    usuario         = models.ForeignKey(UsuarioPortal, on_delete=models.SET_NULL,
+                                        null=True, blank=True,
+                                        related_name='reenvios_realizados',
+                                        help_text='Usuario que disparó el reenvío. NULL si el usuario fue eliminado.')
+    destinatarios   = models.TextField(help_text='Emails coma-separados a los que se envió.')
+    mensaje_extra   = models.TextField(blank=True, max_length=2000,
+                                       help_text='Nota que el usuario agregó arriba del correo original.')
+    enviado_en      = models.DateTimeField(auto_now_add=True, db_index=True)
+    exito           = models.BooleanField(default=False, db_index=True,
+                                          help_text='True si el envío SMTP completó sin error.')
+    error_msg       = models.TextField(blank=True, max_length=500,
+                                       help_text='Mensaje de error si el envío falló.')
+    ip_hash         = models.CharField(max_length=64, blank=True, db_index=True)
+
+    class Meta:
+        verbose_name = 'Reenvío de correo'
+        verbose_name_plural = 'Reenvíos de correos'
+        ordering = ['-enviado_en']
+        indexes = [
+            models.Index(fields=['usuario', '-enviado_en']),
+            models.Index(fields=['exito', '-enviado_en']),
+        ]
+
+    def __str__(self):
+        return f'{self.enviado_en:%Y-%m-%d %H:%M} · {self.usuario_id} → {self.destinatarios[:60]}'
+
+
 class AdminTOTP(models.Model):
     """
     2FA del superuser de Django (auth.User). 1:1 con User.

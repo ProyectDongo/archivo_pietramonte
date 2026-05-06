@@ -4,7 +4,13 @@
 {% block title %}{{ correo.asunto|truncatechars:50 }}{% endblock %}
 
 {% block content %}
-<a href="{% url 'inbox' %}" class="back-link">← Volver a la bandeja</a>
+<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem">
+  <a href="{% url 'inbox' %}" class="back-link">← Volver a la bandeja</a>
+  <a href="{% url 'reenviar_correo' correo.id %}" class="btn-reenviar"
+     title="Reenviar este correo a un destinatario externo">
+    📤 Reenviar
+  </a>
+</div>
 
 <article class="correo-card">
   <header class="correo-head">
