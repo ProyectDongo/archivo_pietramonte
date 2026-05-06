@@ -17,6 +17,8 @@ de fuente `api_gob`. Si querés "abrir" un feriado excepcionalmente, desmarcá
 from __future__ import annotations
 
 import json
+import logging
+import ssl
 from datetime import datetime
 from urllib.error import URLError
 from urllib.request import Request, urlopen
@@ -27,25 +29,61 @@ from django.utils import timezone
 
 from taller.models import BloqueoCalendario
 
+logger = logging.getLogger('taller.cargar_feriados')
+
 
 API_BASE = 'https://apis.digital.gob.cl/fl/feriados'
+
+
+def _ssl_context_no_verify():
+    """
+    apis.digital.gob.cl históricamente tiene problemas con su cadena TLS
+    (certs vencidos, intermediates rotos). Los feriados son datos PÚBLICOS
+    sin riesgo de tampering — un atacante MitM podría a lo sumo alterar la
+    lista de feriados, lo cual el admin puede corregir manualmente. Por
+    eso aceptamos saltearnos verificación si la verificación normal falla.
+    """
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
 
 
 def _fetch_feriados_anio(anio: int) -> list[dict]:
     """
     Devuelve lista de feriados del año en el formato que devuelve la API:
       [{'fecha': 'YYYY-MM-DD', 'nombre': '...', 'tipo': '...', ...}, ...]
+
+    Intenta con verificación TLS estricta primero; si la cadena del server
+    está rota, reintenta sin verificación (ver `_ssl_context_no_verify`).
     """
     url = f'{API_BASE}/{anio}'
     req = Request(url, headers={
         'Accept': 'application/json',
         'User-Agent': 'PietramonteArchivo/1.0',
     })
+
+    # 1er intento: TLS normal
     try:
         with urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
+            raw = resp.read().decode('utf-8')
     except URLError as e:
-        raise CommandError(f'Error consultando API gob.cl: {e}')
+        msg = str(e).lower()
+        if 'certificate' in msg or 'ssl' in msg or 'expired' in msg:
+            logger.warning(
+                'TLS verification failed para %s — reintento sin verify '
+                '(API gob.cl sirve datos públicos): %s', url, e,
+            )
+            try:
+                with urlopen(req, timeout=10, context=_ssl_context_no_verify()) as resp:
+                    raw = resp.read().decode('utf-8')
+            except URLError as e2:
+                raise CommandError(f'Error consultando API gob.cl (también sin verify): {e2}')
+        else:
+            raise CommandError(f'Error consultando API gob.cl: {e}')
+
+    try:
+        data = json.loads(raw)
     except json.JSONDecodeError:
         raise CommandError('Respuesta inválida de API gob.cl')
 
