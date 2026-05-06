@@ -205,4 +205,38 @@ MEDIA_URL  = '/media-internal/'   # nunca se sirve directo, solo vía adjunto_vi
 PORTAL_ADMIN_EMAIL = os.getenv('PORTAL_ADMIN_EMAIL', 'soporte.dongo@gmail.com')
 
 
+# ─── Email (SMTP) ──────────────────────────────────────────────────────────
+# En dev por defecto: console backend (los emails se imprimen en stdout, no se mandan).
+# En prod: setear EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend en .env.
+#
+# Recetas:
+#  - Gmail con App Password: smtp.gmail.com:587 TLS, EMAIL_HOST_USER=la cuenta real,
+#    EMAIL_HOST_PASSWORD=los 16 chars del App Password (sin espacios).
+#  - Para que el From sea un alias (agenda@pietramonte.cl, etc.), configurá ese alias
+#    como "Send mail as" en la cuenta Gmail real y usá los EMAIL_*_FROM más abajo.
+EMAIL_BACKEND       = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST          = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT          = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_USE_TLS       = env_bool('EMAIL_USE_TLS', True)
+EMAIL_USE_SSL       = env_bool('EMAIL_USE_SSL', False)
+EMAIL_HOST_USER     = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+EMAIL_TIMEOUT       = int(os.getenv('EMAIL_TIMEOUT', '20'))     # segundos
+
+DEFAULT_FROM_EMAIL  = os.getenv('DEFAULT_FROM_EMAIL', 'Pietramonte <noreply@pietramonte.cl>')
+SERVER_EMAIL        = DEFAULT_FROM_EMAIL    # para los mails de error que Django dispara solo
+
+# Aliases por tipo de notificación. Cada uno cae a DEFAULT_FROM_EMAIL si no está seteado.
+# Los Reply-To apuntan a inboxes humanos (Cloudflare Email Routing los reenvía a Gmail).
+EMAIL_AGENDA_FROM           = os.getenv('EMAIL_AGENDA_FROM',           DEFAULT_FROM_EMAIL)
+EMAIL_COTIZACIONES_FROM     = os.getenv('EMAIL_COTIZACIONES_FROM',     DEFAULT_FROM_EMAIL)
+EMAIL_REENVIO_FROM          = os.getenv('EMAIL_REENVIO_FROM',          DEFAULT_FROM_EMAIL)
+EMAIL_REPLY_TO_AGENDA       = os.getenv('EMAIL_REPLY_TO_AGENDA',       '')
+EMAIL_REPLY_TO_COTIZACIONES = os.getenv('EMAIL_REPLY_TO_COTIZACIONES', '')
+
+# Listas de admins a notificar (CSV en env). Default: solo PORTAL_ADMIN_EMAIL.
+ADMIN_NOTIFY_AGENDA       = env_list('ADMIN_NOTIFY_AGENDA',       PORTAL_ADMIN_EMAIL)
+ADMIN_NOTIFY_COTIZACIONES = env_list('ADMIN_NOTIFY_COTIZACIONES', PORTAL_ADMIN_EMAIL)
+
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
