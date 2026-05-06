@@ -575,7 +575,7 @@ def inbox_view(request):
         messages.error(request, 'No tienes buzones asignados. Contacta al administrador.')
         return redirect('login')
 
-    correos_qs = buzon.correos.all().prefetch_related('etiquetas').order_by('-fecha')
+    correos_qs = buzon.correos.all().prefetch_related('etiquetas')
 
     # ─── Filtros ─────────────────────────────────────────────────────────
     query = (request.GET.get('q') or '').strip()[:200]
@@ -590,6 +590,10 @@ def inbox_view(request):
     if solo_destacados:
         correos_qs = correos_qs.filter(destacado=True)
 
+    solo_adjuntos = request.GET.get('adjuntos') == '1'
+    if solo_adjuntos:
+        correos_qs = correos_qs.filter(tiene_adjunto=True)
+
     etiqueta_actual = None
     try:
         etiqueta_id = int(request.GET.get('etiqueta') or 0)
@@ -599,10 +603,27 @@ def inbox_view(request):
     except (ValueError, Etiqueta.DoesNotExist):
         pass
 
+    # Filtro por rango de fechas (YYYY-MM-DD).
+    fecha_desde = (request.GET.get('desde') or '').strip()[:10]
+    fecha_hasta = (request.GET.get('hasta') or '').strip()[:10]
+    if fecha_desde:
+        correos_qs = correos_qs.filter(fecha__date__gte=fecha_desde)
+    if fecha_hasta:
+        correos_qs = correos_qs.filter(fecha__date__lte=fecha_hasta)
+
+    # Orden: 'desc' (default, más reciente arriba) o 'asc' (más antiguo arriba).
+    orden = (request.GET.get('orden') or 'desc').lower()
+    if orden not in ('asc', 'desc'):
+        orden = 'desc'
+    correos_qs = correos_qs.order_by('fecha' if orden == 'asc' else '-fecha')
+
     paginator = Paginator(correos_qs, 50)
     page = paginator.get_page(request.GET.get('page', 1))
 
-    hay_filtros_activos = bool(query or solo_destacados or etiqueta_actual)
+    hay_filtros_activos = bool(
+        query or solo_destacados or solo_adjuntos or etiqueta_actual
+        or fecha_desde or fecha_hasta
+    )
 
     return render(request, 'correos/inbox.html', {
         'buzon': buzon,
@@ -614,6 +635,10 @@ def inbox_view(request):
         'etiquetas_disponibles': buzon.etiquetas.all().order_by('nombre'),
         'etiqueta_actual': etiqueta_actual,
         'solo_destacados': solo_destacados,
+        'solo_adjuntos': solo_adjuntos,
+        'fecha_desde': fecha_desde,
+        'fecha_hasta': fecha_hasta,
+        'orden': orden,
         'cant_destacados': buzon.correos.filter(destacado=True).count(),
         'hay_filtros_activos': hay_filtros_activos,
     })

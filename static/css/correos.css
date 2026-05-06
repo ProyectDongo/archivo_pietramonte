@@ -1533,4 +1533,72 @@
   .avatar { width: 32px; height: 32px; font-size: 11px; }
   .preview-head, .preview-body { padding: 1rem; }
   .correo-head, .correo-body { padding: 1.25rem; }
+  .advanced-filters { flex-wrap: wrap; gap: 8px; }
+  .adv-field { flex: 1 1 calc(50% - 4px); min-width: 0; }
+}
+
+/* ─── Filtros avanzados (fechas + orden) ───────────────────── */
+.advanced-filters {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: .75rem;
+  padding: 10px 12px;
+  background: var(--gxl);
+  border: 1px solid var(--bdr);
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+.adv-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 1 auto;
+}
+.adv-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  color: var(--gm);
+}
+.adv-field input[type=date],
+.adv-field select {
+  padding: 7px 10px;
+  border: 1px solid var(--bdr);
+  border-radius: 8px;
+  font-family: var(--f);
+  font-size: 13px;
+  background: var(--w);
+  color: var(--gd);
+  min-width: 140px;
+}
+.adv-field input[type=date]:focus,
+.adv-field select:focus {
+  border-color: var(--r);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(200,12,15,.1);
+}
+.adv-apply {
+  padding: 8px 18px;
+  border: 1px solid var(--r);
+  background: var(--w);
+  color: var(--r);
+  border-radius: 8px;
+  font-family: var(--f);
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.adv-apply:hover { background: var(--rl); }
+.search-clear {
+  /* clarifica que es "limpiar" no "atrás" */
+  color: var(--gm);
+  font-size: 12px;
+}
+.filter-adjuntos.active {
+  border-color: #6c8eff;
+  background: #f0f4ff;
+  color: #2d4ed1;
 }

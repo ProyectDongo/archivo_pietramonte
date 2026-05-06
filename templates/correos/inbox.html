@@ -67,8 +67,8 @@
 </section>
 {% endif %}
 
-{# ─── Buscador ──────────────────────────────────────────────────── #}
-<form class="search-bar" method="get" action="{% url 'inbox' %}" role="search">
+{# ─── Buscador + filtros (form único: q + fechas + orden) ──────── #}
+<form class="search-bar" method="get" action="{% url 'inbox' %}" role="search" id="search-form">
   <input
     type="text"
     name="q"
@@ -80,13 +80,46 @@
   >
   <button type="submit">Buscar</button>
   {% if hay_filtros_activos %}
-  <a href="{% url 'inbox' %}">✕ Limpiar filtros</a>
+  <a href="{% url 'inbox' %}" class="search-clear">✕ Limpiar</a>
   {% endif %}
+
+  {# Mantener filtros vivos al buscar #}
+  {% if solo_destacados %}<input type="hidden" name="destacado" value="1">{% endif %}
+  {% if solo_adjuntos %}<input type="hidden" name="adjuntos" value="1">{% endif %}
+  {% if etiqueta_actual %}<input type="hidden" name="etiqueta" value="{{ etiqueta_actual.id }}">{% endif %}
+  {% if fecha_desde %}<input type="hidden" name="desde" value="{{ fecha_desde }}">{% endif %}
+  {% if fecha_hasta %}<input type="hidden" name="hasta" value="{{ fecha_hasta }}">{% endif %}
+  {% if orden and orden != 'desc' %}<input type="hidden" name="orden" value="{{ orden }}">{% endif %}
 </form>
 
-{# ─── Barra de filtros: destacados + etiquetas ──────────────────── #}
+{# ─── Filtros avanzados: fechas + orden ────────────────────────── #}
+<form class="advanced-filters" method="get" action="{% url 'inbox' %}" id="adv-filters">
+  {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
+  {% if solo_destacados %}<input type="hidden" name="destacado" value="1">{% endif %}
+  {% if solo_adjuntos %}<input type="hidden" name="adjuntos" value="1">{% endif %}
+  {% if etiqueta_actual %}<input type="hidden" name="etiqueta" value="{{ etiqueta_actual.id }}">{% endif %}
+
+  <label class="adv-field">
+    <span class="adv-label">Desde</span>
+    <input type="date" name="desde" value="{{ fecha_desde }}" max="{{ fecha_hasta|default:'' }}">
+  </label>
+  <label class="adv-field">
+    <span class="adv-label">Hasta</span>
+    <input type="date" name="hasta" value="{{ fecha_hasta }}" min="{{ fecha_desde|default:'' }}">
+  </label>
+  <label class="adv-field">
+    <span class="adv-label">Orden</span>
+    <select name="orden" onchange="this.form.submit()">
+      <option value="desc" {% if orden == 'desc' %}selected{% endif %}>Más recientes primero</option>
+      <option value="asc"  {% if orden == 'asc'  %}selected{% endif %}>Más antiguos primero</option>
+    </select>
+  </label>
+  <button type="submit" class="adv-apply">Aplicar</button>
+</form>
+
+{# ─── Barra de filtros rápidos: destacados + adjuntos + etiquetas ─ #}
 <div class="filter-bar">
-  <a href="?destacado=1{% if query %}&q={{ query|urlencode }}{% endif %}"
+  <a href="?{% if not solo_destacados %}destacado=1{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}"
      class="filter-pill filter-star {% if solo_destacados %}active{% endif %}"
      title="Ver solo destacados">
     <svg class="ico-star" viewBox="0 0 24 24" width="14" height="14"
@@ -97,8 +130,14 @@
     Destacados{% if cant_destacados %} <span class="filter-count">{{ cant_destacados }}</span>{% endif %}
   </a>
 
+  <a href="?{% if not solo_adjuntos %}adjuntos=1{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}"
+     class="filter-pill filter-adjuntos {% if solo_adjuntos %}active{% endif %}"
+     title="Ver solo correos con adjuntos">
+    📎 Con adjunto
+  </a>
+
   {% for et in etiquetas_disponibles %}
-  <a href="?etiqueta={{ et.id }}{% if query %}&q={{ query|urlencode }}{% endif %}"
+  <a href="?etiqueta={{ et.id }}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}"
      class="filter-pill filter-tag {% if etiqueta_actual.id == et.id %}active{% endif %}"
      data-color="{{ et.color }}">
     <span class="tag-dot"></span>{{ et.nombre }}
@@ -177,11 +216,11 @@
     {% if page.has_other_pages %}
     <nav class="paginacion" aria-label="Paginación">
       {% if page.has_previous %}
-      <a href="?page={{ page.previous_page_number }}{% if query %}&q={{ query|urlencode }}{% endif %}{% if solo_destacados %}&destacado=1{% endif %}{% if etiqueta_actual %}&etiqueta={{ etiqueta_actual.id }}{% endif %}">← Anterior</a>
+      <a href="?page={{ page.previous_page_number }}{% if query %}&q={{ query|urlencode }}{% endif %}{% if solo_destacados %}&destacado=1{% endif %}{% if solo_adjuntos %}&adjuntos=1{% endif %}{% if etiqueta_actual %}&etiqueta={{ etiqueta_actual.id }}{% endif %}{% if fecha_desde %}&desde={{ fecha_desde }}{% endif %}{% if fecha_hasta %}&hasta={{ fecha_hasta }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}">← Anterior</a>
       {% endif %}
-      <span class="actual">{{ page.number }} / {{ page.paginator.num_pages }}</span>
+      <span class="actual">{{ page.number }} / {{ page.paginator.num_pages }} · {{ total }} correo{{ total|pluralize:"s" }}</span>
       {% if page.has_next %}
-      <a href="?page={{ page.next_page_number }}{% if query %}&q={{ query|urlencode }}{% endif %}{% if solo_destacados %}&destacado=1{% endif %}{% if etiqueta_actual %}&etiqueta={{ etiqueta_actual.id }}{% endif %}">Siguiente →</a>
+      <a href="?page={{ page.next_page_number }}{% if query %}&q={{ query|urlencode }}{% endif %}{% if solo_destacados %}&destacado=1{% endif %}{% if solo_adjuntos %}&adjuntos=1{% endif %}{% if etiqueta_actual %}&etiqueta={{ etiqueta_actual.id }}{% endif %}{% if fecha_desde %}&desde={{ fecha_desde }}{% endif %}{% if fecha_hasta %}&hasta={{ fecha_hasta }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}">Siguiente →</a>
       {% endif %}
     </nav>
     {% endif %}
