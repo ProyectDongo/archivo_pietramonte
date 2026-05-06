@@ -164,10 +164,10 @@ class Command(BaseCommand):
             self.stdout.write(f'\nProcesando: {ruta.name}')
             try:
                 mbox = mailbox.mbox(str(ruta))
-                mensajes = list(mbox)
-                self.stdout.write(f'  {len(mensajes)} mensajes')
+                # Iteracion lazy: NO list(mbox) porque para archivos grandes (19+ GB)
+                # carga todos los mensajes parseados en RAM y mata el proceso.
 
-                for i, msg in enumerate(mensajes, 1):
+                for i, msg in enumerate(mbox, 1):
                     try:
                         asunto    = decodificar_header(msg.get('Subject', ''))
                         remitente = decodificar_header(msg.get('From', ''))
@@ -215,8 +215,8 @@ class Command(BaseCommand):
                             adj.save()
                             total_adjuntos += 1
 
-                        if i % 50 == 0:
-                            self.stdout.write(f'  ... {i}/{len(mensajes)}', ending='\r')
+                        if i % 100 == 0:
+                            self.stdout.write(f'  ... {i} procesados', ending='\r')
 
                     except Exception as e:
                         total_errores += 1

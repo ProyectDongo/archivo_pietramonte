@@ -13,6 +13,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         curl \
+        wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Instala deps en una capa cacheable
@@ -23,9 +24,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Genera estáticos (manifest hashed, comprimido vía whitenoise)
-# IMPORTANTE: durante el build no hay BD, así que necesitamos un SECRET_KEY
-# placeholder que NO se usa en runtime (lo sobrescribe el .env).
+# Forzamos SQLite efimera durante el build para que collectstatic no
+# intente conectarse al Postgres de runtime (no resoluble desde la red de build).
 RUN SECRET_KEY=build-only-not-used DEBUG=True \
+    DATABASE_URL=sqlite:////tmp/build.sqlite3 \
     python manage.py collectstatic --noinput
 
 # Carpetas persistentes — los volúmenes se montan acá

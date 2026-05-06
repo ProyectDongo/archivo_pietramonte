@@ -31,11 +31,6 @@
     });
   }
 
-  // ─── Marcador de tiempo del cliente ─────────────────────────────────────
-  // Lo seteamos al cargar para que sea más exacto que el del server-side.
-  const t0 = Date.now();
-  loadedAt.value = String(t0);
-
   // ─── Estado interno ─────────────────────────────────────────────────────
   const seleccionadas = new Set();
 
