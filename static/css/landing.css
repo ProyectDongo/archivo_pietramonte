@@ -612,3 +612,96 @@ footer {
   .sv-grid { grid-template-columns: 1fr; }
   footer { flex-direction: column; text-align: center; }
 }
+
+/* ─── Banner Agendar online ──────────────────────────────── */
+.banner-agendar {
+  background: linear-gradient(135deg, #C80C0F 0
+/* ─── Banner Agendar online ──────────────────────────────── */
+.banner-agendar {
+  background: linear-gradient(135deg, #C80C0F 0%, #8B0608 100%);
+  color: #fff;
+  padding: 28px 20px;
+  position: relative;
+  overflow: hidden;
+}
+.banner-agendar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 80% 50%, rgba(255,255,255,.08) 0%, transparent 50%);
+  pointer-events: none;
+}
+.banner-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  position: relative;
+  z-index: 1;
+}
+.banner-text { flex: 1; min-width: 280px; }
+.banner-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,.18);
+  padding: 5px 12px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  margin-bottom: 10px;
+  backdrop-filter: blur(6px);
+}
+.banner-h {
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1.1;
+  margin: 0 0 8px;
+  letter-spacing: -.5px;
+}
+.banner-h em {
+  font-style: normal;
+  background: linear-gradient(180deg, #fff 60%, #FFD54F 60%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  padding: 0 2px;
+}
+.banner-sub {
+  font-size: 14px;
+  opacity: .92;
+  max-width: 540px;
+  margin: 0;
+  line-height: 1.5;
+}
+.banner-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  color: #C80C0F;
+  padding: 14px 28px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 16px;
+  text-decoration: none;
+  box-shadow: 0 6px 20px rgba(0,0,0,.18);
+  transition: all .15s ease;
+  flex-shrink: 0;
+}
+.banner-cta:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(0,0,0,.25);
+  background: #FFD54F;
+}
+@media (max-width: 720px) {
+  .banner-h { font-size: 24px; }
+  .banner-cta { width: 100%; justify-content: center; }
+  .banner-inner { flex-direction: column; align-items: stretch; text-align: center; }
+  .banner-kicker { align-self: center; }
+}

@@ -34,7 +34,7 @@
       <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
     </a>
 
-    <button type="button" class="nav-cta" data-scroll-to="contacto">Agendar hora</button>
+    <a class="nav-cta" href="{% url 'agendar' %}">Agendar online</a>
   </div>
   <button class="ham" id="ham-btn" aria-label="Menú">
     <span></span><span></span><span></span>
@@ -61,8 +61,8 @@
     <h1 class="hero-h1 fx-blur d1">Tu vehículo<br>en las <span class="acc">mejores</span><br>manos</h1>
     <p class="hero-sub rv d3">Servicio técnico integral con más de 10 años en la Región de Atacama. Diagnóstico computarizado, mecánica general y repuestos con garantía.</p>
     <div class="hero-btns rv d4">
-      <button type="button" class="btn-p" data-scroll-to="servicios">Ver servicios</button>
-      <a class="btn-g" href="#contacto">Agendar hora →</a>
+      <a class="btn-p" href="{% url 'agendar' %}">Agendar online →</a>
+      <button type="button" class="btn-g" data-scroll-to="servicios">Ver servicios</button>
     </div>
   </div>
   <div class="hero-r fx-zoom d2">
@@ -74,6 +74,22 @@
       <div class="hm"><div class="hm-n">+500</div><div class="hm-l">Clientes</div></div>
       <div class="hm"><div class="hm-n">6</div><div class="hm-l">Días/sem</div></div>
     </div>
+  </div>
+</section>
+
+<section class="banner-agendar">
+  <div class="banner-inner">
+    <div class="banner-text">
+      <div class="banner-kicker">📅 Reservá tu cita en 1 minuto · sin llamar</div>
+      <h2 class="banner-h">Agendá tu hora <em>aquí</em></h2>
+      <p class="banner-sub">Elegí el servicio o repuesto, picá día y hora, y te confirmamos por email + llamada. Disponible 24/7.</p>
+    </div>
+    <a class="banner-cta" href="{% url 'agendar' %}">
+      Agendar online
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 12h14M13 5l7 7-7 7"/>
+      </svg>
+    </a>
   </div>
 </section>
 
@@ -197,8 +213,8 @@
     <div class="rvl">
       <div class="sec-tag tight"><div class="sec-bar"></div><span class="sec-tag-t">Atención</span></div>
       <h2 class="sec-h2 fx-blur tight-h">Horario de <em>atención</em></h2>
-      <p class="hor-sub">Disponibles de lunes a sábado. Le recomendamos agendar hora para garantizar atención inmediata sin esperas.</p>
-      <button type="button" class="btn-p" data-scroll-to="contacto">Agendar hora →</button>
+      <p class="hor-sub">Disponibles de lunes a sábado. Le recomendamos agendar hora online para garantizar atención inmediata sin esperas.</p>
+      <a class="btn-p" href="{% url 'agendar' %}">Agendar online →</a>
     </div>
     <div class="hor-card fx-tilt d2">
       <div class="hor-head">
