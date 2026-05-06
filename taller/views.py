@@ -364,17 +364,40 @@ def verificar_email_view(request):
         }, status=400)
 
     # ─── Código OK → confirmar ─────────────────────────────────────────
+    from archivo_pietramonte.email_utils import safe_send
+
     reserva.estado = Reserva.Estado.CONFIRMADA_EMAIL
     reserva.confirmada_email_en = timezone.now()
     reserva.save(update_fields=['estado', 'confirmada_email_en'])
     _log_intento(request, ip_h, reserva.cliente_email, 'exito', exito=True)
     anti_bot.rl_reserva(ip_h)
 
-    # Los emails de "confirmación cliente" + "alerta admin" los manda Commit H
-    # vía un signal o directamente acá. Para no bloquear este commit, los
-    # marcadores quedan listos.
+    # ─── Email de confirmación al cliente (con link al detalle) ────────
+    safe_send(
+        asunto=f'Reserva confirmada: {reserva.fecha:%d/%m/%Y} a las {reserva.hora_inicio:%H:%M}',
+        para=reserva.cliente_email,
+        template='taller/email/nueva_reserva_cliente',
+        contexto={
+            'reserva': reserva,
+            'token': token,
+            'site_url': request.build_absolute_uri('/').rstrip('/'),
+        },
+        from_alias=getattr(settings, 'EMAIL_AGENDA_FROM', None),
+        reply_to=[settings.EMAIL_REPLY_TO_AGENDA] if settings.EMAIL_REPLY_TO_AGENDA else None,
+    )
 
-    # Limpio token de sesión — el cliente entra al detalle por URL
+    # ─── Email de notificación a los admins ────────────────────────────
+    admin_emails = getattr(settings, 'ADMIN_NOTIFY_AGENDA', [])
+    if admin_emails:
+        safe_send(
+            asunto=f'🚗 Nueva reserva: {reserva.fecha:%d/%m} {reserva.hora_inicio:%H:%M} · {reserva.cliente_nombre} · {reserva.patente}',
+            para=admin_emails,
+            template='taller/email/nueva_reserva_admin',
+            contexto={'reserva': reserva, 'site_url': request.build_absolute_uri('/').rstrip('/')},
+            from_alias=getattr(settings, 'EMAIL_AGENDA_FROM', None),
+        )
+
+    # Limpio token de sesión — el cliente entra al detalle por URL del email
     request.session.pop('agendar_token', None)
 
     messages.success(request, '¡Reserva confirmada! Te llegará un correo con los detalles.')

@@ -322,6 +322,37 @@ Cada nuevo proyecto repite el flujo:
 
 ---
 
+## 11.5 Cron del taller (Hetzner host)
+
+El módulo de agendamiento necesita 2 jobs corriendo en el host (NO dentro
+del container, así sobreviven al rebuild). Editá el crontab con `crontab -e`:
+
+```cron
+# Reminders 24h/1h + cleanup de pendientes vencidas. Cada 5 min.
+*/5 * * * * docker exec $(docker ps --format '{{.Names}}' | grep o1rd | head -1) python manage.py enviar_recordatorios >> /var/log/pietramonte-recordatorios.log 2>&1
+
+# Carga feriados oficiales del año actual + siguiente. 1ro de enero, 4 AM.
+0 4 1 1 * docker exec $(docker ps --format '{{.Names}}' | grep o1rd | head -1) python manage.py cargar_feriados >> /var/log/pietramonte-feriados.log 2>&1
+```
+
+Setup inicial (después del primer deploy con la app `taller` activa):
+
+```bash
+ssh dongo
+docker exec $(docker ps --format '{{.Names}}' | grep o1rd | head -1) python manage.py setup_grupos_taller
+docker exec $(docker ps --format '{{.Names}}' | grep o1rd | head -1) python manage.py cargar_catalogo_inicial
+docker exec $(docker ps --format '{{.Names}}' | grep o1rd | head -1) python manage.py cargar_feriados
+```
+
+Verificación del cron a la hora siguiente de configurarlo:
+
+```bash
+tail -20 /var/log/pietramonte-recordatorios.log
+```
+
+
+---
+
 ## 12. Lo que sigue (cuando quieras seguir mejorando)
 
 - **Cloudflare Access frente al admin**: Zero Trust → Access Application → ruta `/admin-pm-*`. Solo emails específicos pasan, segunda capa de auth.
