@@ -1,4 +1,3 @@
-import mimetypes
 import time
 from datetime import timedelta
 from functools import wraps
@@ -563,6 +562,21 @@ def inbox_view(request):
     correos_qs = buzon.correos.all().prefetch_related('etiquetas')
 
     # ─── Filtros ─────────────────────────────────────────────────────────
+    # Filtro de carpeta (Inbox / Enviados / Otros / Todos). Default = todos.
+    carpeta = (request.GET.get('carpeta') or '').strip().lower()
+    if carpeta in ('inbox', 'enviados', 'otros'):
+        correos_qs = correos_qs.filter(tipo_carpeta=carpeta)
+    else:
+        carpeta = ''   # normaliza a vacío = "todos"
+
+    # Conteos por carpeta para mostrar en los chips. Cheap con el index nuevo.
+    counts_carpeta = {
+        'inbox':    buzon.correos.filter(tipo_carpeta='inbox').count(),
+        'enviados': buzon.correos.filter(tipo_carpeta='enviados').count(),
+        'otros':    buzon.correos.filter(tipo_carpeta='otros').count(),
+        'total':    buzon.correos.count(),
+    }
+
     query = (request.GET.get('q') or '').strip()[:200]
     if query:
         correos_qs = correos_qs.filter(
@@ -607,7 +621,7 @@ def inbox_view(request):
 
     hay_filtros_activos = bool(
         query or solo_destacados or solo_adjuntos or etiqueta_actual
-        or fecha_desde or fecha_hasta
+        or fecha_desde or fecha_hasta or carpeta
     )
 
     return render(request, 'correos/inbox.html', {
@@ -624,6 +638,8 @@ def inbox_view(request):
         'fecha_desde': fecha_desde,
         'fecha_hasta': fecha_hasta,
         'orden': orden,
+        'carpeta': carpeta,
+        'counts_carpeta': counts_carpeta,
         'cant_destacados': buzon.correos.filter(destacado=True).count(),
         'hay_filtros_activos': hay_filtros_activos,
     })

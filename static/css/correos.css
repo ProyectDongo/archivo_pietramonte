@@ -1818,3 +1818,71 @@
   .lightbox { padding: 16px; }
   .lightbox-close { top: 8px; right: 8px; width: 36px; height: 36px; }
 }
+
+
+/* ─── Carpetas (Inbox / Enviados / Otros / Todos) ─────────── */
+.carpeta-chips {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 14px;
+  flex-wrap: wrap;
+}
+.carpeta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border: 1.5px solid #e3e3e3;
+  border-radius: 999px;
+  background: var(--w);
+  color: var(--gd);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all .15s ease;
+  white-space: nowrap;
+  line-height: 1;
+}
+.carpeta-chip:hover {
+  border-color: var(--gm);
+  background: #fafafa;
+  transform: translateY(-1px);
+}
+.carpeta-chip.active {
+  border-color: var(--r);
+  background: var(--r);
+  color: var(--w);
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(200,12,15,.18);
+}
+.carpeta-chip-ico {
+  font-size: 15px;
+  line-height: 1;
+}
+.carpeta-chip-text {
+  font-size: 13px;
+}
+.carpeta-chip-count {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0,0,0,.07);
+  color: inherit;
+  font-weight: 700;
+  min-width: 22px;
+  text-align: center;
+}
+.carpeta-chip.active .carpeta-chip-count {
+  background: rgba(255,255,255,.22);
+  color: var(--w);
+}
+@media (max-width: 768px) {
+  .carpeta-chips {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 4px;
+  }
+  .carpeta-chip { flex-shrink: 0; }
+  .carpeta-chip-text { display: none; }
+  .carpeta-chip-ico { font-size: 18px; }
+}

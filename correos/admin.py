@@ -194,9 +194,9 @@ class EtiquetaAdmin(admin.ModelAdmin):
 # ─── Correo (read-only para datos importados, pero destacado/notas/etiquetas editables) ──
 @admin.register(Correo)
 class CorreoAdmin(admin.ModelAdmin):
-    list_display    = ('asunto_corto', 'remitente_corto', 'buzon', 'fecha',
-                       'tiene_adjunto', 'destacado', 'cantidad_etiquetas')
-    list_filter     = ('buzon', 'tiene_adjunto', 'destacado', 'etiquetas')
+    list_display    = ('asunto_corto', 'remitente_corto', 'buzon', 'tipo_carpeta',
+                       'fecha', 'tiene_adjunto', 'destacado', 'cantidad_etiquetas')
+    list_filter     = ('buzon', 'tipo_carpeta', 'tiene_adjunto', 'destacado', 'etiquetas')
     search_fields   = ('asunto', 'remitente', 'destinatario', 'cuerpo_texto', 'notas')
     date_hierarchy  = 'fecha'
     filter_horizontal = ('etiquetas',)
@@ -206,6 +206,10 @@ class CorreoAdmin(admin.ModelAdmin):
         ('Datos del correo (importados, no editables)', {
             'fields': ('buzon', 'mensaje_id', 'remitente', 'destinatario',
                        'asunto', 'fecha', 'cuerpo_texto', 'tiene_adjunto'),
+        }),
+        ('Clasificación', {
+            'fields': ('tipo_carpeta',),
+            'description': 'Bandeja a la que pertenece (Inbox/Enviados/Otros). Si está mal, corregilo acá.',
         }),
         ('Organización', {
             'fields': ('destacado', 'etiquetas', 'notas'),

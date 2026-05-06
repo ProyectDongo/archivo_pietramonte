@@ -30,6 +30,19 @@ MAX_ADJUNTO_BYTES = 25 * 1024 * 1024   # 25 MB
 _FILENAME_BAD = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
+def detectar_carpeta(filename: str) -> str:
+    """
+    Heurística por nombre de archivo .mbox para inferir si es Inbox / Sent / Otros.
+    Acepta variantes en español e inglés que produce Gmail Takeout y exports.
+    """
+    n = filename.lower()
+    if 'sent' in n or 'enviado' in n:
+        return 'enviados'
+    if 'inbox' in n or 'bandeja' in n or 'recibido' in n:
+        return 'inbox'
+    return 'otros'
+
+
 def decodificar_header(valor):
     if not valor:
         return ''
@@ -129,7 +142,11 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('email', type=str, help='Email del buzón a importar')
         parser.add_argument('--archivo', type=str, help='Ruta al archivo .mbox')
-        parser.add_argument('--carpeta', type=str, help='Carpeta con múltiples .mbox')
+        parser.add_argument('--dir', dest='dir', type=str,
+                            help='Directorio con múltiples .mbox (renombrado desde --carpeta para no chocar con --tipo-carpeta).')
+        parser.add_argument('--tipo-carpeta', dest='tipo_carpeta',
+                            choices=['inbox', 'enviados', 'otros'],
+                            help='Forzar el tipo de carpeta (sobreescribe la heurística por nombre de archivo).')
         parser.add_argument('--limpiar', action='store_true',
                             help='Eliminar correos previos del buzón')
         parser.add_argument('--sin-adjuntos', action='store_true',
@@ -138,6 +155,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         email_buzon = options['email'].lower().strip()
         skip_adj = options['sin_adjuntos']
+        tipo_carpeta_forzado = options.get('tipo_carpeta')
 
         buzon, creado = Buzon.objects.get_or_create(email=email_buzon)
         self.stdout.write(f'{"Creado" if creado else "Existente"}: {email_buzon}')
@@ -150,18 +168,19 @@ class Command(BaseCommand):
         archivos = []
         if options['archivo']:
             archivos.append(Path(options['archivo']))
-        elif options['carpeta']:
-            carpeta = Path(options['carpeta'])
+        elif options['dir']:
+            carpeta = Path(options['dir'])
             archivos = list(carpeta.glob('*.mbox')) + list(carpeta.glob('*.mbx'))
         else:
-            raise CommandError('Especifica --archivo o --carpeta')
+            raise CommandError('Especifica --archivo o --dir')
 
         total_correos = 0
         total_adjuntos = 0
         total_errores = 0
 
         for ruta in archivos:
-            self.stdout.write(f'\nProcesando: {ruta.name}')
+            tipo_carpeta = tipo_carpeta_forzado or detectar_carpeta(ruta.name)
+            self.stdout.write(f'\nProcesando: {ruta.name}  →  carpeta: {tipo_carpeta}')
             try:
                 mbox = mailbox.mbox(str(ruta))
                 # Iteracion lazy: NO list(mbox) porque para archivos grandes (19+ GB)
@@ -194,6 +213,7 @@ class Command(BaseCommand):
                         # Crear correo
                         correo = Correo.objects.create(
                             buzon=buzon,
+                            tipo_carpeta=tipo_carpeta,
                             mensaje_id=msg_id[:500],
                             remitente=remitente[:500],
                             destinatario=dest[:1000],

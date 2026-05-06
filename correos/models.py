@@ -60,7 +60,19 @@ class Etiqueta(models.Model):
 
 class Correo(models.Model):
     """Un correo electrónico individual indexado desde .mbox"""
+
+    class Carpeta(models.TextChoices):
+        INBOX    = 'inbox',    'Bandeja de entrada'
+        ENVIADOS = 'enviados', 'Enviados'
+        OTROS    = 'otros',    'Otros / sin clasificar'
+
     buzon = models.ForeignKey(Buzon, on_delete=models.CASCADE, related_name='correos')
+
+    # Tipo de carpeta dentro del buzón. Lo setea import_mbox a partir del
+    # nombre del archivo .mbox (heurística + override --carpeta). Para los
+    # correos viejos sin clasificar, ver clasificar_correos management cmd.
+    tipo_carpeta  = models.CharField(max_length=10, choices=Carpeta.choices,
+                                     default=Carpeta.OTROS, db_index=True)
 
     mensaje_id    = models.CharField(max_length=500, blank=True, db_index=True)
     remitente     = models.CharField(max_length=500, blank=True)
@@ -83,6 +95,7 @@ class Correo(models.Model):
         indexes = [
             models.Index(fields=['buzon', '-fecha']),
             models.Index(fields=['buzon', 'destacado']),
+            models.Index(fields=['buzon', 'tipo_carpeta', '-fecha']),
         ]
 
     def __str__(self):
