@@ -66,6 +66,8 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # Exige 2FA en /admin-* — debe ir DESPUÉS de AuthenticationMiddleware.
+    'archivo_pietramonte.admin_2fa.Admin2FAMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]

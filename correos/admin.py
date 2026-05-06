@@ -18,7 +18,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.utils.html import format_html
 
-from .models import Adjunto, Buzon, Correo, Etiqueta, IntentoLogin, UsuarioPortal
+from .models import AdminTOTP, Adjunto, Buzon, Correo, Etiqueta, IntentoLogin, UsuarioPortal
 
 
 # ─── UsuarioPortal ─────────────────────────────────────────────────────────
@@ -74,10 +74,12 @@ class UsuarioPortalForm(forms.ModelForm):
 @admin.register(UsuarioPortal)
 class UsuarioPortalAdmin(admin.ModelAdmin):
     form = UsuarioPortalForm
-    list_display  = ('email', 'es_admin', 'activo', 'cantidad_buzones', 'ultimo_login', 'creado')
-    list_filter   = ('es_admin', 'activo', 'buzones')
+    list_display  = ('email', 'es_admin', 'activo', 'estado_2fa',
+                     'cantidad_buzones', 'ultimo_login', 'creado')
+    list_filter   = ('es_admin', 'activo', 'totp_activo', 'buzones')
     search_fields = ('email',)
-    readonly_fields = ('creado', 'ultimo_login')
+    readonly_fields = ('creado', 'ultimo_login', 'totp_activo',
+                       'recovery_codes_restantes')
     filter_horizontal = ('buzones',)    # widget de doble lista
     fieldsets = (
         (None, {
@@ -86,6 +88,11 @@ class UsuarioPortalAdmin(admin.ModelAdmin):
         ('Contraseña', {
             'fields': ('password_nuevo', 'password_confirmar'),
             'description': 'Debe tener al menos 10 caracteres y no parecerse al email.',
+        }),
+        ('Autenticación en dos pasos (2FA)', {
+            'fields': ('totp_activo', 'recovery_codes_restantes'),
+            'description': 'Para resetear 2FA del usuario, usá la acción del listado. '
+                           'Tras resetear, el usuario configurará 2FA en su próximo login.',
         }),
         ('Acceso a buzones', {
             'fields': ('buzones',),
@@ -102,7 +109,17 @@ class UsuarioPortalAdmin(admin.ModelAdmin):
             return format_html('<strong>todos</strong>')
         return obj.buzones.count()
 
-    actions = ['desactivar_usuarios', 'activar_usuarios']
+    @admin.display(description='2FA', ordering='totp_activo')
+    def estado_2fa(self, obj):
+        if obj.totp_activo:
+            return format_html('<span style="color:#1b5e20;font-weight:700">✓ activo</span>')
+        return format_html('<span style="color:#b71c1c">✗ sin configurar</span>')
+
+    @admin.display(description='Recovery codes restantes')
+    def recovery_codes_restantes(self, obj):
+        return len(obj.recovery_codes_hash or [])
+
+    actions = ['desactivar_usuarios', 'activar_usuarios', 'resetear_2fa']
 
     @admin.action(description='Desactivar usuarios seleccionados')
     def desactivar_usuarios(self, request, queryset):
@@ -113,6 +130,35 @@ class UsuarioPortalAdmin(admin.ModelAdmin):
     def activar_usuarios(self, request, queryset):
         n = queryset.update(activo=True)
         self.message_user(request, f'{n} usuario(s) activado(s).', messages.SUCCESS)
+
+    @admin.action(description='Resetear 2FA (forzar reconfiguración)')
+    def resetear_2fa(self, request, queryset):
+        from .models import IntentoLogin, hash_ip
+        n = queryset.update(
+            totp_secret='',
+            totp_activo=False,
+            recovery_codes_hash=[],
+            totp_ultimo_codigo='',
+        )
+        # Auditoría
+        ip_h = hash_ip(request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip()
+                       or request.META.get('REMOTE_ADDR', ''))
+        for u in queryset:
+            try:
+                IntentoLogin.objects.create(
+                    ip_hash=ip_h,
+                    user_agent=(request.META.get('HTTP_USER_AGENT') or '')[:500],
+                    email_intentado=u.email[:254],
+                    motivo='totp_reset',
+                    exito=False,
+                )
+            except Exception:
+                pass
+        self.message_user(
+            request,
+            f'2FA reseteado para {n} usuario(s). En su próximo login lo configurarán de cero.',
+            messages.WARNING,
+        )
 
 
 # ─── Buzon ─────────────────────────────────────────────────────────────────
@@ -230,3 +276,44 @@ class IntentoLoginAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         # Permitir borrado en bloque para limpiar bitácora vieja
         return request.user.is_superuser
+
+
+# ─── 2FA del admin de Django ───────────────────────────────────────────────
+@admin.register(AdminTOTP)
+class AdminTOTPAdmin(admin.ModelAdmin):
+    list_display    = ('user', 'totp_activo', 'recovery_restantes',
+                       'ultima_2fa_ok', 'creado')
+    list_filter     = ('totp_activo',)
+    search_fields   = ('user__username', 'user__email')
+    readonly_fields = ('user', 'totp_activo', 'recovery_restantes',
+                       'ultima_2fa_ok', 'creado')
+    fieldsets = (
+        (None, {
+            'fields': ('user', 'totp_activo', 'recovery_restantes',
+                       'ultima_2fa_ok', 'creado'),
+        }),
+    )
+
+    @admin.display(description='Recovery codes restantes')
+    def recovery_restantes(self, obj):
+        return len(obj.recovery_codes_hash or [])
+
+    actions = ['resetear_admin_2fa']
+
+    @admin.action(description='Resetear 2FA (forzar reconfiguración)')
+    def resetear_admin_2fa(self, request, queryset):
+        n = queryset.update(
+            totp_secret='',
+            totp_activo=False,
+            recovery_codes_hash=[],
+            totp_ultimo_codigo='',
+        )
+        self.message_user(
+            request,
+            f'2FA reseteado para {n} admin(s). Próximo login los lleva a setup.',
+            messages.WARNING,
+        )
+
+    def has_add_permission(self, request):
+        # Se crean automáticamente cuando el admin entra por primera vez.
+        return False

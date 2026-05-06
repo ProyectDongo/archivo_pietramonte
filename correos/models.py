@@ -1,5 +1,6 @@
 import hashlib
 
+from django.conf import settings
 from django.db import models
 
 
@@ -109,6 +110,12 @@ class UsuarioPortal(models.Model):
     Acceso a buzones:
       - Si es_admin == True: ve TODOS los buzones del sistema (la M2M se ignora).
       - Si no: ve solo los buzones listados en `buzones`.
+
+    2FA (TOTP, RFC 6238):
+      - `totp_secret` base32 — generado en setup, nunca se vuelve a mostrar.
+      - `totp_activo` se marca True cuando el usuario confirma el primer código.
+      - `recovery_codes_hash` lista de PBKDF2-hashes; cada code se quema al usarse.
+      - `totp_ultimo_codigo` anti-replay del último código usado dentro de su ventana.
     """
     email          = models.EmailField(unique=True)
     password_hash  = models.CharField(max_length=256)
@@ -126,6 +133,12 @@ class UsuarioPortal(models.Model):
         blank=True,
         help_text='Buzones que este usuario puede consultar (ignorado para admins).',
     )
+
+    # 2FA (TOTP)
+    totp_secret           = models.CharField(max_length=64, blank=True, default='')
+    totp_activo           = models.BooleanField(default=False)
+    recovery_codes_hash   = models.JSONField(default=list, blank=True)
+    totp_ultimo_codigo    = models.CharField(max_length=10, blank=True, default='')
 
     class Meta:
         verbose_name = 'Usuario del portal'
@@ -218,6 +231,13 @@ class IntentoLogin(models.Model):
         ('buzon_inexist',     'Buzón no importado'),
         ('throttled',         'Bloqueado por rate-limit'),
         ('csrf',              'CSRF inválido'),
+        ('pwd_ok_2fa_pend',   'Password OK, 2FA pendiente'),
+        ('totp_fail',         'Código 2FA incorrecto'),
+        ('totp_ok',           '2FA verificado'),
+        ('recovery_used',     'Recovery code usado'),
+        ('recovery_inval',    'Recovery code inválido'),
+        ('totp_setup',        '2FA configurado por primera vez'),
+        ('totp_reset',        '2FA reseteado por admin'),
     ]
 
     ip_hash         = models.CharField(max_length=64, db_index=True)
@@ -241,3 +261,31 @@ class IntentoLogin(models.Model):
 
     def __str__(self):
         return f'{self.creado:%Y-%m-%d %H:%M} {"OK" if self.exito else "FAIL"} {self.motivo}'
+
+
+class AdminTOTP(models.Model):
+    """
+    2FA del superuser de Django (auth.User). 1:1 con User.
+    Se crea on-demand cuando el admin entra y todavía no tiene perfil.
+    Mismo esquema TOTP+recovery que UsuarioPortal pero separado para no
+    contaminar el modelo de Django auth.
+    """
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='totp',
+    )
+    totp_secret           = models.CharField(max_length=64, blank=True, default='')
+    totp_activo           = models.BooleanField(default=False)
+    recovery_codes_hash   = models.JSONField(default=list, blank=True)
+    totp_ultimo_codigo    = models.CharField(max_length=10, blank=True, default='')
+    creado                = models.DateTimeField(auto_now_add=True)
+    ultima_2fa_ok         = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = '2FA de admin'
+        verbose_name_plural = '2FA de admins'
+
+    def __str__(self):
+        estado = 'activo' if self.totp_activo else 'sin configurar'
+        return f'{self.user} · {estado}'

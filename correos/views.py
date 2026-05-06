@@ -16,8 +16,12 @@ from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_POST
 
-from . import captcha
+from . import captcha, totp as totp_helpers
 from .models import Adjunto, Buzon, Correo, Etiqueta, IntentoLogin, UsuarioPortal, hash_ip
+
+
+# Tiempo máximo entre password OK y completar 2FA (segundos).
+PRE_2FA_TTL = 5 * 60
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────────
@@ -237,18 +241,19 @@ def login_view(request):
     if primer_buzon is None:
         return fallo('buzon_inexist', captcha_cat=cat)
 
-    # ─── Éxito ────────────────────────────────────────────────────────────
-    usuario.ultimo_login = timezone.now()
-    usuario.save(update_fields=['ultimo_login'])
+    # ─── Password + captcha + buzones OK → pasamos a la fase 2FA ─────────
+    # Cycle de session id para evitar fixation, pero NO marcamos la sesión
+    # como autenticada todavía: solo dejamos un flag pre-2FA con expiración.
     request.session.cycle_key()
-    request.session['usuario_email']      = usuario.email
-    request.session['usuario_es_admin']   = usuario.es_admin
-    request.session['buzon_actual_id']    = primer_buzon.id
-    request.session['buzon_actual_email'] = primer_buzon.email
+    request.session['pre_2fa_user_id'] = usuario.id
+    request.session['pre_2fa_at']      = int(time.time())
     _rl_intento(ip_h, exito=True)
-    _log_intento(request, ip_h, email, motivo='exito', exito=True,
+    _log_intento(request, ip_h, email, motivo='pwd_ok_2fa_pend', exito=False,
                  tiempo_ms=tiempo_ms, captcha_cat=cat)
-    return redirect('inbox')
+
+    if not usuario.totp_activo:
+        return redirect('setup_2fa')
+    return redirect('verify_2fa')
 
 
 @require_POST
@@ -256,6 +261,257 @@ def logout_view(request):
     """Logout solo por POST (anti-CSRF: nadie puede desloguearte vía <img>)."""
     request.session.flush()
     return redirect('landing')
+
+
+# ─── 2FA (TOTP) ────────────────────────────────────────────────────────────
+def _get_pre_2fa_user(request) -> UsuarioPortal | None:
+    """
+    Devuelve el UsuarioPortal cuyo password ya pasó pero le falta 2FA.
+    Si el flag está caducado o ausente, limpia y devuelve None.
+    """
+    uid = request.session.get('pre_2fa_user_id')
+    started = request.session.get('pre_2fa_at', 0)
+    if not uid:
+        return None
+    try:
+        if int(time.time()) - int(started) > PRE_2FA_TTL:
+            for k in ('pre_2fa_user_id', 'pre_2fa_at', 'setup_secret'):
+                request.session.pop(k, None)
+            return None
+    except (TypeError, ValueError):
+        return None
+    try:
+        return UsuarioPortal.objects.get(id=uid, activo=True)
+    except UsuarioPortal.DoesNotExist:
+        return None
+
+
+def _promover_sesion(request, usuario: UsuarioPortal) -> None:
+    """Pasa una sesión pre-2FA a sesión completa (lo que antes hacía login_view)."""
+    for k in ('pre_2fa_user_id', 'pre_2fa_at', 'setup_secret'):
+        request.session.pop(k, None)
+    usuario.ultimo_login = timezone.now()
+    usuario.save(update_fields=['ultimo_login'])
+    request.session.cycle_key()
+    request.session['usuario_email']    = usuario.email
+    request.session['usuario_es_admin'] = usuario.es_admin
+    primer = usuario.buzones_visibles().first()
+    if primer:
+        request.session['buzon_actual_id']    = primer.id
+        request.session['buzon_actual_email'] = primer.email
+
+
+@never_cache
+@require_http_methods(['GET', 'POST'])
+def setup_2fa_view(request):
+    """
+    Setup obligatorio de TOTP para usuarios sin 2FA configurado.
+    GET → muestra QR + secret. POST con código → valida, activa, genera
+    recovery codes y promueve la sesión.
+    """
+    user = _get_pre_2fa_user(request)
+    if not user:
+        messages.error(request, 'Tu sesión expiró. Inicia sesión de nuevo.')
+        return redirect('login')
+    if user.totp_activo:
+        # Ya configurado → al verify, no al setup
+        return redirect('verify_2fa')
+
+    # Generamos un secret nuevo si todavía no hay uno tentativo en la sesión.
+    # Vive solo dentro de esta sesión hasta que el usuario confirme.
+    secret = request.session.get('setup_secret')
+    if not secret:
+        secret = totp_helpers.generar_secret()
+        request.session['setup_secret'] = secret
+
+    ip_h = hash_ip(_get_ip(request))
+
+    if request.method == 'POST':
+        codigo = request.POST.get('codigo') or ''
+        if not totp_helpers.verificar_totp(secret, codigo, valid_window=1):
+            _log_intento(request, ip_h, user.email, motivo='totp_fail', exito=False)
+            messages.error(request, 'Código inválido. Verifica que la hora del teléfono esté sincronizada.')
+            return _render_setup(request, user, secret, status=400)
+
+        # OK: activar 2FA y generar recovery codes.
+        codes_planos = totp_helpers.generar_recovery_codes_planos()
+        user.totp_secret = secret
+        user.totp_activo = True
+        user.recovery_codes_hash = totp_helpers.hashear_codes(codes_planos)
+        user.totp_ultimo_codigo = totp_helpers.normalizar_codigo_totp(codigo)
+        user.save(update_fields=[
+            'totp_secret', 'totp_activo', 'recovery_codes_hash', 'totp_ultimo_codigo',
+        ])
+        _log_intento(request, ip_h, user.email, motivo='totp_setup', exito=True)
+        _log_intento(request, ip_h, user.email, motivo='totp_ok', exito=True)
+
+        _promover_sesion(request, user)
+        # Los códigos van por sesión y se muestran en la próxima vista.
+        # Se quedan ahí (con TTL) para que el user pueda descargar PDF, imprimir,
+        # o copiar antes de confirmar. Se borran al confirmar o tras 30 min.
+        request.session['recovery_codes_a_mostrar']    = codes_planos
+        request.session['recovery_codes_a_mostrar_at'] = int(time.time())
+        return redirect('mostrar_recovery_codes')
+
+    return _render_setup(request, user, secret)
+
+
+def _render_setup(request, user, secret, status=200):
+    url = totp_helpers.url_otpauth(secret, user.email)
+    return render(request, 'correos/2fa_setup.html', {
+        'qr_svg':     totp_helpers.qr_svg(url),
+        'secret':     secret,
+        'user_email': user.email,
+    }, status=status)
+
+
+@never_cache
+@require_http_methods(['GET', 'POST'])
+def verify_2fa_view(request):
+    """
+    Verifica el código TOTP (o un recovery code) tras login con password.
+    Misma lógica de rate-limit por IP que login_view.
+    """
+    user = _get_pre_2fa_user(request)
+    if not user:
+        messages.error(request, 'Tu sesión expiró. Inicia sesión de nuevo.')
+        return redirect('login')
+    if not user.totp_activo:
+        return redirect('setup_2fa')
+
+    ip_h = hash_ip(_get_ip(request))
+    if _rl_bloqueado(ip_h):
+        _log_intento(request, ip_h, user.email, motivo='throttled', exito=False)
+        messages.error(request, 'Demasiados intentos. Espera unos minutos antes de volver a intentar.')
+        return render(request, 'correos/2fa_verify.html', {'modo': 'totp'}, status=429)
+
+    if request.method == 'POST':
+        modo = (request.POST.get('modo') or 'totp').lower()
+        codigo = request.POST.get('codigo') or ''
+
+        if modo == 'recovery':
+            ok, nueva_lista = totp_helpers.consumir_recovery_code(
+                list(user.recovery_codes_hash or []), codigo,
+            )
+            if not ok:
+                _rl_intento(ip_h, exito=False)
+                _log_intento(request, ip_h, user.email, motivo='recovery_inval', exito=False)
+                messages.error(request, 'Código de recuperación inválido.')
+                return render(request, 'correos/2fa_verify.html', {'modo': 'recovery'}, status=400)
+            user.recovery_codes_hash = nueva_lista
+            user.save(update_fields=['recovery_codes_hash'])
+            _log_intento(request, ip_h, user.email, motivo='recovery_used', exito=True)
+        else:
+            if not totp_helpers.verificar_totp(
+                user.totp_secret, codigo, ultimo_usado=user.totp_ultimo_codigo,
+            ):
+                _rl_intento(ip_h, exito=False)
+                _log_intento(request, ip_h, user.email, motivo='totp_fail', exito=False)
+                messages.error(request, 'Código incorrecto.')
+                return render(request, 'correos/2fa_verify.html', {'modo': 'totp'}, status=400)
+            user.totp_ultimo_codigo = totp_helpers.normalizar_codigo_totp(codigo)
+            user.save(update_fields=['totp_ultimo_codigo'])
+            _log_intento(request, ip_h, user.email, motivo='totp_ok', exito=True)
+
+        _rl_intento(ip_h, exito=True)
+        _promover_sesion(request, user)
+        return redirect('inbox')
+
+    return render(request, 'correos/2fa_verify.html', {
+        'modo':            request.GET.get('modo', 'totp'),
+        'recovery_count':  len(user.recovery_codes_hash or []),
+    })
+
+
+RECOVERY_DISPLAY_TTL = 30 * 60     # 30 min de ventana para descargar/imprimir/confirmar
+
+
+def _codes_de_sesion(request) -> list[str] | None:
+    codes = request.session.get('recovery_codes_a_mostrar')
+    at    = request.session.get('recovery_codes_a_mostrar_at', 0)
+    if not codes:
+        return None
+    try:
+        if int(time.time()) - int(at) > RECOVERY_DISPLAY_TTL:
+            request.session.pop('recovery_codes_a_mostrar', None)
+            request.session.pop('recovery_codes_a_mostrar_at', None)
+            return None
+    except (TypeError, ValueError):
+        return None
+    return list(codes)
+
+
+@portal_login_required
+@never_cache
+def mostrar_recovery_codes_view(request):
+    """
+    Muestra los recovery codes recién generados. NO los borra de la sesión:
+    el usuario tiene 30 min para descargarlos en PDF, imprimirlos y
+    confirmar con "Listo, los guardé". Tras confirmar (o vencer el TTL)
+    se borran de la sesión.
+    """
+    codes = _codes_de_sesion(request)
+    if not codes:
+        messages.info(request, 'Tus códigos ya no están disponibles para mostrar. Si los necesitás de nuevo, regenerá desde tu perfil.')
+        return redirect('inbox')
+    return render(request, 'correos/2fa_recovery_codes.html', {'codes': codes})
+
+
+@portal_login_required
+@require_POST
+def confirmar_recovery_codes_view(request):
+    """POST 'ya los guardé' → borra los códigos de la sesión y redirige al inbox."""
+    request.session.pop('recovery_codes_a_mostrar', None)
+    request.session.pop('recovery_codes_a_mostrar_at', None)
+    return redirect('inbox')
+
+
+@portal_login_required
+@never_cache
+def descargar_recovery_pdf_view(request):
+    """Sirve los recovery codes recién generados como PDF descargable."""
+    codes = _codes_de_sesion(request)
+    if not codes:
+        return redirect('inbox')
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+
+    pdf_bytes = totp_helpers.pdf_recovery_codes(codes, usuario.email)
+    from django.http import HttpResponse
+    resp = HttpResponse(pdf_bytes, content_type='application/pdf')
+    resp['Content-Disposition'] = (
+        'attachment; filename="recovery_codes_pietramonte.pdf"'
+    )
+    resp['X-Content-Type-Options'] = 'nosniff'
+    return resp
+
+
+@portal_login_required
+@never_cache
+@require_http_methods(['GET', 'POST'])
+def regenerar_recovery_codes_view(request):
+    """
+    Permite al usuario logueado regenerar sus 8 recovery codes.
+    Requiere reingreso de password (defensa contra session-hijack).
+    """
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+
+    if request.method == 'POST':
+        password = request.POST.get('password') or ''
+        if not usuario.check_password(password):
+            messages.error(request, 'Contraseña incorrecta.')
+            return render(request, 'correos/2fa_regenerar_codes.html', status=400)
+        codes_planos = totp_helpers.generar_recovery_codes_planos()
+        usuario.recovery_codes_hash = totp_helpers.hashear_codes(codes_planos)
+        usuario.save(update_fields=['recovery_codes_hash'])
+        request.session['recovery_codes_a_mostrar']    = codes_planos
+        request.session['recovery_codes_a_mostrar_at'] = int(time.time())
+        return redirect('mostrar_recovery_codes')
+
+    return render(request, 'correos/2fa_regenerar_codes.html')
 
 
 @require_http_methods(['GET'])
