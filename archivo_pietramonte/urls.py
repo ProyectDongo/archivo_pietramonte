@@ -21,5 +21,6 @@ urlpatterns = [
     # En producción ponerlo detrás de Cloudflare Access además.
     path(settings.ADMIN_URL_PATH, admin.site.urls),
 
+    path('', include('taller.urls')),
     path('', include('correos.urls')),
 ]
