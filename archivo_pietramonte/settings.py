@@ -239,4 +239,17 @@ ADMIN_NOTIFY_AGENDA       = env_list('ADMIN_NOTIFY_AGENDA',       PORTAL_ADMIN_E
 ADMIN_NOTIFY_COTIZACIONES = env_list('ADMIN_NOTIFY_COTIZACIONES', PORTAL_ADMIN_EMAIL)
 
 
+# ─── Anti-bot del form público de reservas ────────────────────────────────
+# Cloudflare Turnstile: gratis, invisible para humanos legítimos. Sacá las
+# claves en https://dash.cloudflare.com/ → Turnstile → Add Site.
+# El "Site Key" es público (va al HTML); el "Secret Key" se queda en el server.
+# En dev, dejarlas vacías → la verificación se bypass-ea automáticamente.
+TURNSTILE_SITE_KEY   = os.getenv('TURNSTILE_SITE_KEY', '')
+TURNSTILE_SECRET_KEY = os.getenv('TURNSTILE_SECRET_KEY', '')
+
+# Dominios extras a bloquear como desechables, sumados a la lista base bundlada.
+# CSV en env. Útil cuando aparece un nuevo dominio temporal masivo.
+DISPOSABLE_DOMAINS_EXTRA = env_list('DISPOSABLE_DOMAINS_EXTRA', '')
+
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
