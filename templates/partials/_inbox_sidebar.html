@@ -1,7 +1,6 @@
 {% load correos_tags %}
-{# Sidebar vertical de buzones — reemplaza el dropdown del nav en el inbox.
-   Cada item es un mini-form POST a cambiar_buzon (mantiene la protección CSRF
-   del endpoint existente sin cambiar a GET). #}
+{# Sidebar vertical de buzones — reemplaza el dropdown del nav del inbox. #}
+{# Cada item es un mini-form POST a cambiar_buzon (mantiene CSRF). #}
 <aside class="inbox-sidebar" id="inbox-sidebar" aria-label="Buzones">
   <div class="sidebar-head">
     <span class="sidebar-label">Buzones</span>
