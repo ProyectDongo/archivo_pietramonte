@@ -1437,7 +1437,11 @@
   font-size: 12px;
   color: var(--gl);
   margin-top: 2px;
-  word-break: break-all;
+  /* Antes word-break: break-all rompía el email char por char en columnas
+     angostas. Mejor truncar con … y dejar el title con el email completo. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .preview-date {
   font-size: 11px;
@@ -2481,7 +2485,28 @@
   transform: translateY(-1px);
 }
 .preview-actions {
-  display: inline-flex;
+  display: flex;
   gap: 6px;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  max-width: 100%;
+}
+/* En anchos chicos del preview (cuando el split achica), ocultamos los
+   labels de los botones de acción y dejamos solo los iconos. Así caben
+   los 5 botones sin pisar la columna del meta del correo. */
+@media (max-width: 1280px) {
+  .preview-actions .preview-reply-btn span,
+  .preview-actions .preview-fwd-btn span,
+  .preview-actions .preview-unread-btn span,
+  .preview-actions .preview-open-btn span {
+    display: none;
+  }
+  .preview-actions .preview-reply-btn,
+  .preview-actions .preview-fwd-btn,
+  .preview-actions .preview-unread-btn,
+  .preview-actions .preview-open-btn {
+    padding: 8px 10px;
+  }
 }

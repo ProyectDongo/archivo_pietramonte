@@ -12,8 +12,8 @@
       </button>
       <span class="avatar avatar-lg" data-color="{{ correo.remitente|avatar_color }}">{{ correo.remitente|avatar_iniciales }}</span>
       <div class="preview-meta-main">
-        <div class="preview-from">{{ correo.remitente_nombre|default:correo.remitente }}</div>
-        <div class="preview-from-mail">{{ correo.remitente_email }}</div>
+        <div class="preview-from" title="{{ correo.remitente }}">{{ correo.remitente_nombre|default:correo.remitente }}</div>
+        <div class="preview-from-mail" title="{{ correo.remitente_email }}">{{ correo.remitente_email }}</div>
         <div class="preview-date">{{ correo.fecha|fecha_amigable }}{% if correo.fecha %} · {{ correo.fecha|date:"d/m/Y H:i" }}{% endif %}</div>
       </div>
       <div class="preview-actions">

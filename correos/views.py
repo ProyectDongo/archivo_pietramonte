@@ -829,7 +829,6 @@ def reenviar_correo_view(request, correo_id):
     GET  → form con destinatarios + mensaje extra opcional.
     POST → valida + rate-limit + envía + loguea ReenvioCorreo + redirige al detalle.
     """
-    from django.conf import settings
     from django.core.exceptions import ValidationError
 
     from archivo_pietramonte.email_utils import safe_send
@@ -884,6 +883,12 @@ def reenviar_correo_view(request, correo_id):
             continue
 
     # ─── Send ──────────────────────────────────────────────────────────
+    # From = la dirección del BUZÓN (consistente con responder). Antes usaba
+    # EMAIL_REENVIO_FROM global → caía en soporte.dongo@gmail.com y se veía
+    # raro porque el destinatario externo no entiende qué es esa cuenta.
+    # Reply-To = el usuario portal: las respuestas del destinatario externo
+    # vuelven al usuario que reenvió, NO al archivo (intencional, distinto
+    # de responder).
     asunto = f'Fwd: {correo.asunto or "(sin asunto)"}'
     resultado = safe_send(
         asunto=asunto,
@@ -894,8 +899,8 @@ def reenviar_correo_view(request, correo_id):
             'mensaje_extra': nota,
             'reenviado_por': usuario.email,
         },
-        from_alias=settings.EMAIL_REENVIO_FROM,
-        reply_to=[usuario.email],     # las respuestas vuelven al usuario portal
+        from_alias=_from_alias_buzon(correo.buzon),
+        reply_to=[usuario.email],
         adjuntos=adjuntos_payload,
     )
 
