@@ -218,7 +218,8 @@
              data-href="{% url 'detalle' correo.id %}"
              data-preview-url="{% url 'correo_preview' correo.id %}">
           <button type="button" class="row-star" data-correo-id="{{ correo.id }}"
-                  title="{% if correo.destacado %}Quitar destacado{% else %}Destacar{% endif %}">
+                  title="{% if correo.destacado %}Quitar destacado{% else %}Destacar{% endif %}"
+                  aria-label="{% if correo.destacado %}Quitar destacado{% else %}Destacar{% endif %}">
             <svg viewBox="0 0 24 24" width="16" height="16"
                  fill="{% if correo.destacado %}currentColor{% else %}none{% endif %}"
                  stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
@@ -226,24 +227,17 @@
             </svg>
           </button>
           <span class="avatar" data-color="{{ correo.remitente|avatar_color }}">{{ correo.remitente|avatar_iniciales }}</span>
-          <span class="correo-body">
-            <span class="correo-r">
-              <span class="correo-from">{{ correo.remitente_nombre|default:correo.remitente|truncatechars:30 }}</span>
-              <span class="correo-date" title="{{ correo.fecha|fecha_iso }}">{{ correo.fecha|fecha_amigable }}</span>
-            </span>
-            <span class="correo-r">
-              <span class="correo-subject">{{ correo.asunto|default:"(sin asunto)"|truncatechars:60 }}</span>
-              {% if correo.tiene_adjunto %}<span class="adj-pill" title="Con adjunto">📎</span>{% endif %}
-            </span>
-            <span class="correo-snippet">{{ correo.cuerpo_texto|truncatechars:90 }}</span>
-            {% if correo.etiquetas.all %}
-            <span class="row-tags">
-              {% for et in correo.etiquetas.all %}
-              <span class="tag-chip-mini" data-color="{{ et.color }}">{{ et.nombre }}</span>
-              {% endfor %}
-            </span>
-            {% endif %}
+          <span class="correo-from" title="{{ correo.remitente }}">{{ correo.remitente_nombre|default:correo.remitente|truncatechars:28 }}</span>
+          <span class="correo-content">
+            <span class="correo-subject">{{ correo.asunto|default:"(sin asunto)" }}</span>
+            <span class="correo-sep">—</span>
+            <span class="correo-snippet">{{ correo.cuerpo_texto|truncatechars:200 }}</span>
+            {% for et in correo.etiquetas.all %}
+            <span class="tag-chip-mini" data-color="{{ et.color }}">{{ et.nombre }}</span>
+            {% endfor %}
           </span>
+          {% if correo.tiene_adjunto %}<span class="adj-pill" title="Con adjunto">📎</span>{% endif %}
+          <span class="correo-date" title="{{ correo.fecha|fecha_iso }}">{{ correo.fecha|fecha_amigable }}</span>
         </div>
       </li>
       {% endfor %}
