@@ -17,13 +17,18 @@ from django.conf import settings
 # - 'unsafe-inline' en style-src queda por compatibilidad con backdrop-filter
 #   y algunos estilos inyectados por Django. Si se quiere endurecer en el futuro,
 #   se puede pasar a hashes/nonces.
+# - challenges.cloudflare.com habilitado para Turnstile (login + agendamiento
+#   público). Es el endpoint oficial de Cloudflare; carga un widget en iframe
+#   y verifica el token. Sin esto la CSP bloqueaba el script y el captcha era
+#   invisible para el usuario.
 _CSP_DEFAULT = (
     "default-src 'self'; "
-    "script-src 'self'; "
+    "script-src 'self' https://challenges.cloudflare.com; "
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "font-src 'self' https://fonts.gstatic.com; "
     "img-src 'self' data: blob:; "
-    "connect-src 'self'; "
+    "connect-src 'self' https://challenges.cloudflare.com; "
+    "frame-src https://challenges.cloudflare.com; "
     "frame-ancestors 'none'; "
     "form-action 'self'; "
     "base-uri 'self'; "

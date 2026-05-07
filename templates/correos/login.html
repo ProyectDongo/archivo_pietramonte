@@ -6,6 +6,9 @@
 {% block extra_head %}
 <meta name="robots" content="noindex,nofollow">
 <link rel="stylesheet" href="{% static 'css/correos.css' %}">
+{% if turnstile_site_key %}
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+{% endif %}
 {% endblock %}
 
 {% block body %}
@@ -79,31 +82,17 @@
         </div>
       </div>
 
-      {# ─── CAPTCHA visual ─────────────────────────────────────────────── #}
-      <div class="captcha-wrap" id="captcha-wrap" data-grid-size="9">
-        <div class="captcha-head">
-          <span class="captcha-pregunta" id="captcha-pregunta">{{ challenge.pregunta }}</span>
-          <button type="button" class="captcha-refresh" id="captcha-refresh" aria-label="Cambiar desafío">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="23 4 23 10 17 10"/>
-              <polyline points="1 20 1 14 7 14"/>
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-            </svg>
-          </button>
-        </div>
-        <div class="captcha-grid" id="captcha-grid">
-          {% for celda in challenge.celdas %}
-          <button type="button" class="captcha-cell" data-idx="{{ forloop.counter0 }}" aria-label="{{ celda.nombre }}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{{ celda.svg|safe }}</svg>
-          </button>
-          {% endfor %}
-        </div>
-        <input type="hidden" name="captcha_token" id="captcha-token" value="{{ challenge.token }}">
-        <input type="hidden" name="page_loaded_at" id="page-loaded-at" value="{{ page_loaded_at }}">
-        <p class="captcha-hint" id="captcha-hint">Toca todas las casillas correctas y luego ingresa.</p>
+      {# ─── Cloudflare Turnstile (invisible para humanos legítimos) ────── #}
+      <input type="hidden" name="page_loaded_at" id="page-loaded-at" value="{{ page_loaded_at }}">
+      {% if turnstile_site_key %}
+      <div class="cf-turnstile-wrap">
+        <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}" data-theme="light"></div>
       </div>
+      {% else %}
+      <p class="form-hint" style="color:#888;font-size:12px"><em>(Captcha en modo dev — sin Turnstile configurado)</em></p>
+      {% endif %}
 
-      <button type="submit" class="btn-acceder" id="btn-acceder" disabled>
+      <button type="submit" class="btn-acceder" id="btn-acceder">
         <span class="btn-label">Ver mi bandeja →</span>
       </button>
     </form>

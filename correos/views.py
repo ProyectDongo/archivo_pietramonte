@@ -2,6 +2,7 @@ import time
 from datetime import timedelta
 from functools import wraps
 
+from django.conf import settings
 from django.contrib import messages
 from django.core.cache import cache
 from django.core.paginator import Paginator
@@ -15,6 +16,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from . import captcha, totp as totp_helpers
 from .models import Adjunto, Buzon, Correo, Etiqueta, IntentoLogin, ReenvioCorreo, UsuarioPortal, hash_ip
+from taller.anti_bot import verify_turnstile
 
 
 # Tiempo máximo entre password OK y completar 2FA (segundos).
@@ -149,28 +151,31 @@ def login_view(request):
 
     ip_h = hash_ip(_get_ip(request))
 
+    # Helper: contexto base para renderizar el login (siempre incluye site key).
+    def _ctx(extra=None):
+        ctx = {
+            'turnstile_site_key': getattr(settings, 'TURNSTILE_SITE_KEY', ''),
+            'page_loaded_at':     int(time.time() * 1000),
+        }
+        if extra:
+            ctx.update(extra)
+        return ctx
+
     # ─── Rate limit a nivel app (la otra capa la pone Cloudflare) ─────────
     if _rl_bloqueado(ip_h):
         _log_intento(request, ip_h, '', motivo='throttled', exito=False)
         messages.error(request, 'Demasiados intentos. Espera unos minutos antes de volver a intentar.')
-        return render(request, 'correos/login.html', {
-            'challenge': captcha.generar_challenge(),
-            'page_loaded_at': int(time.time() * 1000),
-        }, status=429)
+        return render(request, 'correos/login.html', _ctx(), status=429)
 
     if request.method == 'GET':
-        return render(request, 'correos/login.html', {
-            'challenge': captcha.generar_challenge(),
-            'page_loaded_at': int(time.time() * 1000),
-        })
+        return render(request, 'correos/login.html', _ctx())
 
     # ─── POST ─────────────────────────────────────────────────────────────
     email = (request.POST.get('email') or '').strip().lower()
     password = request.POST.get('password') or ''
     honeypot = (request.POST.get('website') or '').strip()      # campo trampa
     page_loaded_at = request.POST.get('page_loaded_at') or '0'
-    captcha_token = request.POST.get('captcha_token') or ''
-    captcha_seleccion = request.POST.getlist('captcha_seleccion[]')
+    cf_token = request.POST.get('cf-turnstile-response') or ''
 
     try:
         tiempo_ms = max(0, int(time.time() * 1000) - int(page_loaded_at))
@@ -178,17 +183,13 @@ def login_view(request):
         tiempo_ms = 0
 
     # Función helper para fallar con respuesta UNIFORME (anti-enumeración)
-    def fallo(motivo: str, captcha_cat: str = ''):
+    def fallo(motivo: str):
         _rl_intento(ip_h, exito=False)
         _log_intento(request, ip_h, email, motivo=motivo, exito=False,
-                     tiempo_ms=tiempo_ms, captcha_cat=captcha_cat,
-                     honeypot=bool(honeypot))
+                     tiempo_ms=tiempo_ms, honeypot=bool(honeypot))
         messages.error(request, ERROR_GENERICO)
-        return render(request, 'correos/login.html', {
-            'challenge': captcha.generar_challenge(),
-            'page_loaded_at': int(time.time() * 1000),
-            'last_email': email[:254],
-        }, status=400)
+        return render(request, 'correos/login.html',
+                      _ctx({'last_email': email[:254]}), status=400)
 
     # 1. Honeypot — bots tienden a rellenar TODO. Humanos no ven el campo.
     if honeypot:
@@ -198,13 +199,12 @@ def login_view(request):
     if not email or '@' not in email or len(email) > 254 or not password:
         return fallo('email_invalido')
 
-    # 4. Captcha (firma HMAC + match).
-    try:
-        cat = captcha.verificar(captcha_token, captcha_seleccion)
-    except captcha.CaptchaError:
+    # 3. Cloudflare Turnstile — verificación server-side del token.
+    #    En dev sin TURNSTILE_SECRET_KEY, verify_turnstile devuelve True.
+    if not verify_turnstile(cf_token, ip=_get_ip(request)):
         return fallo('captcha_fail')
 
-    # 5. Usuario existe + activo + password correcto.
+    # 4. Usuario existe + activo + password correcto.
     #    Hacemos check_password contra un hash dummy si el usuario no existe
     #    para que el tiempo de respuesta sea similar (anti-timing-enumeration).
     try:
@@ -212,18 +212,18 @@ def login_view(request):
         if not usuario.activo:
             # Igual hace check_password (timing-safe), pero falla con motivo correcto
             usuario.check_password(password)
-            return fallo('usuario_inactivo', captcha_cat=cat)
+            return fallo('usuario_inactivo')
         if not usuario.check_password(password):
-            return fallo('password_invalida', captcha_cat=cat)
+            return fallo('password_invalida')
     except UsuarioPortal.DoesNotExist:
         # Run check_password on a known hash for timing parity
         UsuarioPortal(password_hash='pbkdf2_sha256$600000$dummy$dummy').check_password(password)
-        return fallo('email_no_lista', captcha_cat=cat)
+        return fallo('email_no_lista')
 
-    # 6. Tiene al menos un buzón visible (o es admin → ve todos).
+    # 5. Tiene al menos un buzón visible (o es admin → ve todos).
     primer_buzon = usuario.buzones_visibles().first()
     if primer_buzon is None:
-        return fallo('buzon_inexist', captcha_cat=cat)
+        return fallo('buzon_inexist')
 
     # ─── Password + captcha + buzones OK → pasamos a la fase 2FA ─────────
     # Cycle de session id para evitar fixation, pero NO marcamos la sesión
@@ -233,7 +233,7 @@ def login_view(request):
     request.session['pre_2fa_at']      = int(time.time())
     _rl_intento(ip_h, exito=True)
     _log_intento(request, ip_h, email, motivo='pwd_ok_2fa_pend', exito=False,
-                 tiempo_ms=tiempo_ms, captcha_cat=cat)
+                 tiempo_ms=tiempo_ms)
 
     if not usuario.totp_activo:
         return redirect('setup_2fa')
