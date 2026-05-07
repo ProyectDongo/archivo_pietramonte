@@ -151,11 +151,15 @@ class Command(BaseCommand):
                             help='Eliminar correos previos del buzón')
         parser.add_argument('--sin-adjuntos', action='store_true',
                             help='Saltarse extracción de adjuntos (más rápido, menos disco)')
+        parser.add_argument('--allow-duplicates', dest='allow_duplicates', action='store_true',
+                            help='Desactiva el dedup por (buzon, mensaje_id). Por default se '
+                                 'skip-ean correos cuyo Message-ID ya existe en este buzón.')
 
     def handle(self, *args, **options):
         email_buzon = options['email'].lower().strip()
         skip_adj = options['sin_adjuntos']
         tipo_carpeta_forzado = options.get('tipo_carpeta')
+        dedup = not options['allow_duplicates']
 
         buzon, creado = Buzon.objects.get_or_create(email=email_buzon)
         self.stdout.write(f'{"Creado" if creado else "Existente"}: {email_buzon}')
@@ -163,6 +167,22 @@ class Command(BaseCommand):
         if options['limpiar']:
             n, _ = buzon.correos.all().delete()
             self.stdout.write(self.style.WARNING(f'  Eliminados {n} correos previos'))
+
+        # ─── Dedup por (buzon, mensaje_id) ──────────────────────────────────
+        # Cargamos los mensaje_id ya importados para este buzón en memoria una
+        # sola vez al inicio. Luego cada nuevo correo lo chequeamos contra el
+        # set en O(1) antes de insertar. Esto evita duplicados cuando se
+        # importan archivos que se solapan (ej. INBOX + carpeta-archivo donde
+        # el dueño copió correos en vez de moverlos).
+        # Mensajes con mensaje_id='' NO dedupean (se insertan siempre).
+        existing_msgids: set[str] = set()
+        if dedup and not options['limpiar']:
+            existing_msgids = set(
+                buzon.correos.exclude(mensaje_id='').values_list('mensaje_id', flat=True)
+            )
+            self.stdout.write(
+                f'  Dedup activo · {len(existing_msgids)} mensaje_id ya en BD'
+            )
 
         # Resuelve archivos
         archivos = []
@@ -177,6 +197,7 @@ class Command(BaseCommand):
         total_correos = 0
         total_adjuntos = 0
         total_errores = 0
+        total_dedup = 0
 
         for ruta in archivos:
             tipo_carpeta = tipo_carpeta_forzado or detectar_carpeta(ruta.name)
@@ -207,6 +228,15 @@ class Command(BaseCommand):
                             except Exception:
                                 pass
 
+                        # Dedup: si ya importamos este mensaje_id en este buzón, skip.
+                        # No dedupea cuando msg_id=='' (sin Message-ID).
+                        msg_id_short = msg_id[:500]
+                        if dedup and msg_id_short and msg_id_short in existing_msgids:
+                            total_dedup += 1
+                            if i % 100 == 0:
+                                self.stdout.write(f'  ... {i} procesados', ending='\r')
+                            continue
+
                         texto = extraer_texto(msg).replace('\x00', '')
                         adjuntos_data = [] if skip_adj else extraer_adjuntos(msg)
 
@@ -214,7 +244,7 @@ class Command(BaseCommand):
                         correo = Correo.objects.create(
                             buzon=buzon,
                             tipo_carpeta=tipo_carpeta,
-                            mensaje_id=msg_id[:500],
+                            mensaje_id=msg_id_short,
                             remitente=remitente[:500],
                             destinatario=dest[:1000],
                             asunto=asunto[:1000],
@@ -223,6 +253,10 @@ class Command(BaseCommand):
                             tiene_adjunto=bool(adjuntos_data),
                         )
                         total_correos += 1
+                        # Sumamos al set para dedupear también dentro del mismo import
+                        # (correos repetidos en el mismo .mbox).
+                        if dedup and msg_id_short:
+                            existing_msgids.add(msg_id_short)
 
                         # Guardar adjuntos en el filesystem + crear registros
                         for nombre, mime, payload in adjuntos_data:
@@ -255,8 +289,9 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(
             f'\nImportación completada:\n'
-            f'  Correos:  {total_correos}\n'
-            f'  Adjuntos: {total_adjuntos}\n'
+            f'  Correos nuevos:    {total_correos}\n'
+            f'  Adjuntos:          {total_adjuntos}\n'
+            f'  Duplicados skip:   {total_dedup}\n'
             f'  Errores:  {total_errores}\n'
             f'  Total en BD: {buzon.total_correos}'
         ))
