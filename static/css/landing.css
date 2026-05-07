@@ -615,9 +615,6 @@ footer {
 
 /* ─── Banner Agendar online ──────────────────────────────── */
 .banner-agendar {
-  background: linear-gradient(135deg, #C80C0F 0
-/* ─── Banner Agendar online ──────────────────────────────── */
-.banner-agendar {
   background: linear-gradient(135deg, #C80C0F 0%, #8B0608 100%);
   color: #fff;
   padding: 28px 20px;

@@ -30,11 +30,16 @@ _MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun',
 @register.filter
 def fecha_amigable(dt):
     """
-    Convierte una fecha en algo legible:
+    Devuelve la fecha legible. SIEMPRE incluye día/mes (y año cuando aplica).
+    No oculta la fecha real para correos viejos: el usuario debe poder ver
+    cuándo es un correo SIN tener que abrirlo.
+
+    Formato:
       - Hoy 14:32
       - Ayer 09:15
-      - Lun 12 may
-      - 13/03/2024
+      - Lun 12 may · 14:32      (esta semana, dentro del año)
+      - 12 may · 14:32          (este año, fuera de la última semana)
+      - 12 may 2024 · 14:32     (años anteriores, fecha completa)
     """
     if not dt:
         return '—'
@@ -43,15 +48,26 @@ def fecha_amigable(dt):
     dt_local = timezone.localtime(dt)
     delta = ahora.date() - dt_local.date()
 
+    hora = f'{dt_local:%H:%M}'
+
     if delta.days == 0:
-        return f'Hoy {dt_local:%H:%M}'
+        return f'Hoy {hora}'
     if delta.days == 1:
-        return f'Ayer {dt_local:%H:%M}'
-    if 0 < delta.days < 7:
-        return f'{_DIAS[dt_local.weekday()]} {dt_local:%H:%M}'
+        return f'Ayer {hora}'
+    if 0 < delta.days < 7 and dt_local.year == ahora.year:
+        return f'{_DIAS[dt_local.weekday()]} {dt_local.day} {_MESES[dt_local.month - 1]} · {hora}'
     if dt_local.year == ahora.year:
-        return f'{dt_local.day} {_MESES[dt_local.month - 1]}'
-    return dt_local.strftime('%d/%m/%Y')
+        return f'{dt_local.day} {_MESES[dt_local.month - 1]} · {hora}'
+    return f'{dt_local.day} {_MESES[dt_local.month - 1]} {dt_local.year} · {hora}'
+
+
+@register.filter
+def fecha_iso(dt):
+    """Fecha completa para tooltips: '2024-05-12 14:32:18 (-04)'."""
+    if not dt:
+        return ''
+    dt_local = timezone.localtime(dt)
+    return dt_local.strftime('%Y-%m-%d %H:%M:%S (%z)')
 
 
 @register.filter

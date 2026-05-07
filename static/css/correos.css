@@ -1026,10 +1026,12 @@
   text-overflow: ellipsis;
 }
 .correo-date {
-  font-size: 11px;
-  color: var(--gl);
+  font-size: 12px;
+  color: var(--gm);
   font-weight: 500;
   flex-shrink: 0;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;     /* dígitos alineados como en Gmail */
 }
 .correo-subject {
   flex: 1;

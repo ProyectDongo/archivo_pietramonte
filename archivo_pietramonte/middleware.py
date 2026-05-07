@@ -23,11 +23,15 @@ from django.conf import settings
 #   invisible para el usuario.
 _CSP_DEFAULT = (
     "default-src 'self'; "
-    "script-src 'self' https://challenges.cloudflare.com; "
+    # Cloudflare:
+    #  - challenges.cloudflare.com → widget Turnstile (login + agendar)
+    #  - static.cloudflareinsights.com → Cloudflare Web Analytics (RUM beacon
+    #    auto-inyectado por el proxy de CF si está activo en el panel)
+    "script-src 'self' https://challenges.cloudflare.com https://static.cloudflareinsights.com; "
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "font-src 'self' https://fonts.gstatic.com; "
     "img-src 'self' data: blob:; "
-    "connect-src 'self' https://challenges.cloudflare.com; "
+    "connect-src 'self' https://challenges.cloudflare.com https://cloudflareinsights.com; "
     "frame-src https://challenges.cloudflare.com; "
     "frame-ancestors 'none'; "
     "form-action 'self'; "

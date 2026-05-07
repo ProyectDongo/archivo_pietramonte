@@ -229,7 +229,7 @@
           <span class="correo-body">
             <span class="correo-r">
               <span class="correo-from">{{ correo.remitente_nombre|default:correo.remitente|truncatechars:30 }}</span>
-              <span class="correo-date">{{ correo.fecha|fecha_amigable }}</span>
+              <span class="correo-date" title="{{ correo.fecha|fecha_iso }}">{{ correo.fecha|fecha_amigable }}</span>
             </span>
             <span class="correo-r">
               <span class="correo-subject">{{ correo.asunto|default:"(sin asunto)"|truncatechars:60 }}</span>
