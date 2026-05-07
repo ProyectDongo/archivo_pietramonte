@@ -18,7 +18,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.utils.html import format_html
 
-from .models import AdminTOTP, Adjunto, Buzon, Correo, Etiqueta, IntentoLogin, ReenvioCorreo, UsuarioPortal
+from .models import AdminTOTP, Adjunto, Buzon, BuzonGmailLabel, Correo, Etiqueta, IntentoLogin, ReenvioCorreo, UsuarioPortal
 
 
 # ─── UsuarioPortal ─────────────────────────────────────────────────────────
@@ -363,3 +363,90 @@ class AdminTOTPAdmin(admin.ModelAdmin):
     def has_add_permission(self, request):
         # Se crean automáticamente cuando el admin entra por primera vez.
         return False
+
+
+# ─── Sync Gmail por label → buzón ─────────────────────────────────────────
+@admin.register(BuzonGmailLabel)
+class BuzonGmailLabelAdmin(admin.ModelAdmin):
+    list_display    = ('label_name', 'buzon', 'tipo_carpeta', 'activo',
+                       'last_uid', 'correos_sincronizados', 'last_sync_at',
+                       'estado_error')
+    list_filter     = ('activo', 'tipo_carpeta', 'buzon')
+    search_fields   = ('label_name', 'buzon__email')
+    readonly_fields = ('last_uid', 'last_sync_at', 'correos_sincronizados',
+                       'error_msg', 'creado')
+    autocomplete_fields = ()    # no needed por ahora; buzón se elige del select
+    fieldsets = (
+        (None, {
+            'fields': ('buzon', 'label_name', 'tipo_carpeta', 'activo'),
+            'description': (
+                'Mapea un label de Gmail (en la cuenta soporte centralizadora) '
+                'al buzón del archivo. La primera corrida del cron trae toda la '
+                'historia del label (last_uid=0). Después solo trae lo nuevo.'
+            ),
+        }),
+        ('Estado del sync (read-only)', {
+            'fields': ('last_uid', 'last_sync_at', 'correos_sincronizados',
+                       'error_msg', 'creado'),
+        }),
+    )
+
+    @admin.display(description='Estado', ordering='error_msg')
+    def estado_error(self, obj):
+        if obj.error_msg:
+            return format_html(
+                '<span style="color:#b71c1c" title="{}">⚠ error</span>',
+                obj.error_msg[:120],
+            )
+        if obj.last_sync_at:
+            return format_html('<span style="color:#1b5e20">✓ ok</span>')
+        return format_html('<span style="color:#888">— sin correr</span>')
+
+    actions = ['listar_labels_gmail', 'reset_uid', 'sincronizar_ahora']
+
+    @admin.action(description='Listar labels disponibles en Gmail (ver mensaje)')
+    def listar_labels_gmail(self, request, queryset):
+        # No usa queryset; es una utility action
+        from .gmail_sync import ImapError, listar_labels
+        try:
+            labels = listar_labels()
+        except ImapError as e:
+            self.message_user(request, f'IMAP error: {e}', messages.ERROR)
+            return
+        if not labels:
+            self.message_user(request, 'Gmail no devolvió labels.', messages.WARNING)
+            return
+        self.message_user(
+            request,
+            f'Labels en Gmail ({len(labels)}): ' + ', '.join(sorted(labels)[:30])
+            + ('  ... +más' if len(labels) > 30 else ''),
+            messages.SUCCESS,
+        )
+
+    @admin.action(description='Resetear last_uid=0 (re-fetch completo en próxima corrida)')
+    def reset_uid(self, request, queryset):
+        n = queryset.update(last_uid=0)
+        self.message_user(
+            request,
+            f'{n} sync(s) reseteados. Próxima corrida del cron trae toda la historia del label.',
+            messages.WARNING,
+        )
+
+    @admin.action(description='Sincronizar AHORA (sincroniza los seleccionados)')
+    def sincronizar_ahora(self, request, queryset):
+        from django.core.management import call_command
+        from io import StringIO
+        nombres = list(queryset.values_list('label_name', flat=True))
+        if not nombres:
+            return
+        out = StringIO()
+        for label in nombres:
+            try:
+                call_command('sincronizar_gmail', label=label, stdout=out)
+            except Exception as e:
+                self.message_user(request, f'{label}: {e}', messages.ERROR)
+                return
+        # Resumen amigable
+        lineas = [l for l in out.getvalue().splitlines() if 'nuevos' in l or 'sin novedades' in l]
+        msg = ' · '.join(lineas[:5]) or 'Sync corrió. Ver detalles en BD.'
+        self.message_user(request, msg, messages.SUCCESS)

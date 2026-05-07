@@ -239,6 +239,15 @@ ADMIN_NOTIFY_AGENDA       = env_list('ADMIN_NOTIFY_AGENDA',       PORTAL_ADMIN_E
 ADMIN_NOTIFY_COTIZACIONES = env_list('ADMIN_NOTIFY_COTIZACIONES', PORTAL_ADMIN_EMAIL)
 
 
+# ─── Sync de Gmail vía IMAP (correos nuevos por label) ────────────────────
+# Reusa EMAIL_HOST_USER + EMAIL_HOST_PASSWORD (la misma cuenta soporte y la
+# misma App Password de Gmail). El comando `sincronizar_gmail` corre por cron
+# cada N min, fetchea cada label configurado en BuzonGmailLabel y mete los
+# mensajes nuevos en su buzón. Dedup por mensaje_id heredado de import_mbox.
+GMAIL_IMAP_HOST = os.getenv('GMAIL_IMAP_HOST', 'imap.gmail.com')
+GMAIL_IMAP_PORT = int(os.getenv('GMAIL_IMAP_PORT', '993'))
+
+
 # ─── Anti-bot del form público de reservas ────────────────────────────────
 # Cloudflare Turnstile: gratis, invisible para humanos legítimos. Sacá las
 # claves en https://dash.cloudflare.com/ → Turnstile → Add Site.

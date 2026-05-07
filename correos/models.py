@@ -319,6 +319,48 @@ class ReenvioCorreo(models.Model):
         return f'{self.enviado_en:%Y-%m-%d %H:%M} · {self.usuario_id} → {self.destinatarios[:60]}'
 
 
+class BuzonGmailLabel(models.Model):
+    """
+    Mapea un label de Gmail (en la cuenta soporte central) → un Buzon del
+    archivo. El management command `sincronizar_gmail` corre por cron, abre
+    una conexión IMAP a Gmail, y por cada label activo fetchea los mensajes
+    con UID > last_uid → los inserta como Correo en el buzón asociado.
+
+    El dedup por (buzon, mensaje_id) ya está garantizado por el flow de
+    import_mbox (mismo código). Si el cron corre 2 veces no duplica.
+
+    last_uid arranca en 0 → primera corrida importa TODA la historia del
+    label. Después solo entra lo nuevo (UID monotónicamente creciente).
+    """
+    buzon         = models.ForeignKey(Buzon, on_delete=models.CASCADE, related_name='gmail_labels')
+    label_name    = models.CharField(max_length=200,
+                                     help_text='Nombre EXACTO del label en Gmail. Case-sensitive. '
+                                               'Para ver los disponibles, usá la action '
+                                               '"Listar labels disponibles" en este admin.')
+    tipo_carpeta  = models.CharField(max_length=10, choices=Correo.Carpeta.choices,
+                                     default=Correo.Carpeta.INBOX,
+                                     help_text='Bajo qué pestaña aparecen estos correos en el portal.')
+    activo        = models.BooleanField(default=True)
+    last_uid      = models.PositiveBigIntegerField(default=0,
+                                                   help_text='UID del último mensaje IMAP sincronizado. '
+                                                             '0 = traer toda la historia del label en la próxima corrida.')
+    last_sync_at  = models.DateTimeField(null=True, blank=True)
+    correos_sincronizados = models.IntegerField(default=0)
+    error_msg     = models.TextField(blank=True, max_length=1000,
+                                     help_text='Último error de sync (si hay).')
+    creado        = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Sync Gmail label → buzón'
+        verbose_name_plural = 'Sync Gmail labels → buzones'
+        unique_together = [('buzon', 'label_name')]
+        ordering = ['buzon__email', 'label_name']
+
+    def __str__(self):
+        estado = '' if self.activo else ' (inactivo)'
+        return f'{self.label_name} → {self.buzon.email}{estado}'
+
+
 class AdminTOTP(models.Model):
     """
     2FA del superuser de Django (auth.User). 1:1 con User.
