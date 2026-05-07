@@ -323,19 +323,18 @@
     }
   });
 
-  // ─── Sidebar de buzones: badge helpers + drawer en mobile ──────────────
-  function badgeNodoActivo() {
-    const item = document.querySelector('.sidebar-buzon-item.active');
-    return item ? item.querySelector('.sidebar-buzon-badge') : null;
-  }
+  // ─── Strip de buzones (tabs horizontales): helpers de badge ────────────
+  // El tab activo lleva la clase .active; el badge de no-leídos vive a su
+  // derecha. Estos helpers se llaman cuando abrimos un correo (decrement)
+  // o lo marcamos no-leído (set explícito al valor que devuelve el server).
   function setBadgeBuzonActivo(n) {
-    const item = document.querySelector('.sidebar-buzon-item.active');
+    const item = document.querySelector('.buzon-tab.active');
     if (!item) return;
-    let badge = item.querySelector('.sidebar-buzon-badge');
+    let badge = item.querySelector('.buzon-tab-badge');
     if (n > 0) {
       if (!badge) {
         badge = document.createElement('span');
-        badge.className = 'sidebar-buzon-badge';
+        badge.className = 'buzon-tab-badge';
         item.appendChild(badge);
       }
       badge.textContent = n;
@@ -346,53 +345,10 @@
     }
   }
   function ajustarBadgeBuzonActivo(delta) {
-    const badge = badgeNodoActivo();
+    const item = document.querySelector('.buzon-tab.active');
+    const badge = item ? item.querySelector('.buzon-tab-badge') : null;
     const actual = badge ? parseInt(badge.textContent, 10) || 0 : 0;
     setBadgeBuzonActivo(Math.max(0, actual + delta));
-  }
-
-  const sidebar = document.getElementById('inbox-sidebar');
-  const sidebarToggle = document.getElementById('sidebar-toggle');
-  const sidebarClose = document.getElementById('sidebar-close');
-  const backdrop = document.getElementById('sidebar-backdrop');
-
-  function abrirSidebar() {
-    if (!sidebar) return;
-    sidebar.classList.add('open');
-    if (backdrop) backdrop.hidden = false;
-  }
-  function cerrarSidebar() {
-    if (!sidebar) return;
-    sidebar.classList.remove('open');
-    if (backdrop) backdrop.hidden = true;
-  }
-  if (sidebarToggle)  sidebarToggle.addEventListener('click', abrirSidebar);
-  if (sidebarClose)   sidebarClose.addEventListener('click', cerrarSidebar);
-  if (backdrop)       backdrop.addEventListener('click', cerrarSidebar);
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && sidebar && sidebar.classList.contains('open')) {
-      cerrarSidebar();
-    }
-  });
-
-  // ─── Sidebar colapsable (desktop): chevron + persistencia localStorage ──
-  // Default: colapsado para que el usuario tenga máxima pantalla. Si lo expande,
-  // se recuerda. Si en mobile el sidebar es drawer, esto no aplica visualmente
-  // porque el @media (max-width:900px) sobrescribe el grid template.
-  const COLLAPSE_KEY = 'pm-inbox-sidebar-collapsed';
-  const layout = document.querySelector('.inbox-layout');
-  const collapseBtn = document.getElementById('sidebar-collapse-btn');
-
-  if (layout) {
-    const stored = localStorage.getItem(COLLAPSE_KEY);
-    const shouldCollapse = stored === null ? true : stored === '1';
-    if (shouldCollapse) layout.classList.add('sidebar-collapsed');
-  }
-  if (collapseBtn && layout) {
-    collapseBtn.addEventListener('click', function () {
-      const isCollapsed = layout.classList.toggle('sidebar-collapsed');
-      try { localStorage.setItem(COLLAPSE_KEY, isCollapsed ? '1' : '0'); } catch (e) {}
-    });
   }
 
   // ─── Restaurar al volver atrás ──────────────────────────────────────────

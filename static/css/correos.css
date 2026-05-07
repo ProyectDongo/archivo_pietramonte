@@ -444,252 +444,107 @@
 }
 
 /* ==========================================================================
-   INBOX layout: sidebar de buzones (izq) + main (centro/derecha)
+   INBOX: strip horizontal de buzones arriba (reemplaza el viejo sidebar)
    ========================================================================== */
 
-/* En inbox el dropdown del nav es redundante: la sidebar lo reemplaza */
+/* En inbox el dropdown del nav es redundante: las tabs lo reemplazan. */
 .page-inbox .app-nav-center { display: none; }
 
-.inbox-layout {
-  display: grid;
-  grid-template-columns: 240px 1fr;
-  gap: 20px;
-  align-items: flex-start;
-}
-
-.inbox-sidebar {
-  position: sticky;
-  top: 80px;
-  max-height: calc(100vh - 100px);
-  overflow-y: auto;
+.inbox-buzon-tabs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   background: var(--w);
   border: 1px solid var(--bdr);
   border-radius: 12px;
+  padding: 6px 12px;
+  margin-bottom: 14px;
   box-shadow: var(--sh);
-  padding: 12px 8px;
 }
-.sidebar-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 8px 10px;
-  border-bottom: 1px solid var(--off2);
-  margin-bottom: 8px;
-}
-.sidebar-label {
+.buzon-tabs-label {
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 2px;
   text-transform: uppercase;
   color: var(--gl);
-}
-.sidebar-close {
-  display: none;
-  background: transparent;
-  border: none;
-  color: var(--gl);
-  cursor: pointer;
-  font-size: 16px;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-.sidebar-close:hover { color: var(--r); background: var(--off); }
-
-/* Botón chevron para colapsar/expandir el sidebar en desktop */
-.sidebar-collapse-btn {
-  background: transparent;
-  border: 1px solid var(--bdr);
-  border-radius: 6px;
-  width: 26px;
-  height: 26px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: var(--gm);
-  padding: 0;
-  transition: all .15s;
   flex-shrink: 0;
 }
-.sidebar-collapse-btn:hover {
-  border-color: var(--r);
-  color: var(--r);
-}
-.sidebar-collapse-btn svg {
-  transition: transform .25s var(--ease);
-}
-.inbox-layout.sidebar-collapsed .sidebar-collapse-btn svg {
-  transform: rotate(180deg);
-}
-
-/* ─── Estado COLAPSADO: solo avatares + badges (~56px) ─── */
-.inbox-layout.sidebar-collapsed {
-  grid-template-columns: 56px 1fr;
-}
-.inbox-layout.sidebar-collapsed .inbox-sidebar {
-  padding: 8px 4px;
-}
-.inbox-layout.sidebar-collapsed .sidebar-head {
-  justify-content: center;
-  padding: 4px 0 8px;
-}
-.inbox-layout.sidebar-collapsed .sidebar-label {
-  display: none;
-}
-.inbox-layout.sidebar-collapsed .sidebar-buzon-meta {
-  display: none;
-}
-.inbox-layout.sidebar-collapsed .sidebar-buzon-item {
-  grid-template-columns: 1fr;
-  justify-items: center;
-  padding: 6px 4px;
-  position: relative;
-  gap: 0;
-}
-.inbox-layout.sidebar-collapsed .sidebar-buzon-item.active::before {
-  left: -4px; top: 4px; bottom: 4px;
-}
-.inbox-layout.sidebar-collapsed .sidebar-buzon-badge {
-  position: absolute;
-  top: -2px;
-  right: 0;
-  font-size: 9px;
-  font-weight: 700;
-  padding: 1px 5px;
-  min-width: 16px;
-  border: 2px solid var(--w);
-  line-height: 1.3;
-}
-
-.sidebar-buzon-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.buzon-tabs-scroll {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.sidebar-buzon-form { margin: 0; padding: 0; }
-.sidebar-buzon-item {
-  display: grid;
-  grid-template-columns: 28px 1fr auto;
   align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 10px;
+  gap: 4px;
+  overflow-x: auto;
+  flex: 1;
+  min-width: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bdr) transparent;
+  scroll-behavior: smooth;
+  padding: 2px 0;
+}
+.buzon-tabs-scroll::-webkit-scrollbar { height: 6px; }
+.buzon-tabs-scroll::-webkit-scrollbar-track { background: transparent; }
+.buzon-tabs-scroll::-webkit-scrollbar-thumb {
+  background: var(--bdr);
+  border-radius: 3px;
+}
+.buzon-tabs-scroll::-webkit-scrollbar-thumb:hover { background: var(--gm); }
+
+.buzon-tab-form { margin: 0; padding: 0; flex-shrink: 0; }
+
+.buzon-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 6px 6px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 99px;
   cursor: pointer;
-  text-align: left;
   font-family: var(--f);
   transition: background .15s, border-color .15s;
-  position: relative;
+  white-space: nowrap;
+  color: var(--gd);
 }
-.sidebar-buzon-item:hover {
+.buzon-tab:hover {
   background: var(--off);
+  border-color: var(--bdr);
 }
-.sidebar-buzon-item.active {
-  background: rgba(200,12,15,.06);
-  border-color: rgba(200,12,15,.18);
+.buzon-tab.active {
+  background: rgba(200,12,15,.08);
+  border-color: rgba(200,12,15,.25);
 }
-.sidebar-buzon-item.active::before {
-  content: "";
-  position: absolute;
-  left: -8px; top: 8px; bottom: 8px;
-  width: 3px;
-  background: var(--r);
-  border-radius: 0 3px 3px 0;
+.buzon-tab .avatar {
+  width: 24px; height: 24px; font-size: 10px;
 }
-.sidebar-buzon-item .avatar {
-  width: 28px; height: 28px; font-size: 11px;
-}
-.sidebar-buzon-meta {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.2;
-}
-.sidebar-buzon-name {
+.buzon-tab-name {
   font-size: 12px;
   font-weight: 500;
-  color: var(--gd);
+  color: inherit;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.sidebar-buzon-item.has-unread .sidebar-buzon-name {
-  font-weight: 700;
-}
-.sidebar-buzon-sub {
-  font-size: 10px;
-  color: var(--gl);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.sidebar-buzon-badge {
+.buzon-tab.active .buzon-tab-name { font-weight: 700; }
+.buzon-tab.has-unread .buzon-tab-name { font-weight: 700; }
+.buzon-tab-badge {
   background: var(--r);
   color: var(--w);
   font-size: 10px;
   font-weight: 700;
-  padding: 2px 7px;
+  padding: 1px 6px;
   border-radius: 99px;
-  min-width: 22px;
+  min-width: 18px;
   text-align: center;
   line-height: 1.4;
   letter-spacing: .3px;
 }
 
-/* Hamburguesa: solo visible en mobile */
-.sidebar-toggle {
-  display: none;
-  align-items: center;
-  gap: 6px;
-  background: var(--w);
-  border: 1px solid var(--bdr);
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-family: var(--f);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--gd);
-  cursor: pointer;
-  margin-bottom: 12px;
-  transition: border-color .15s;
-}
-.sidebar-toggle:hover { border-color: var(--r); color: var(--r); }
-
-.sidebar-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,.4);
-  z-index: 90;
-  animation: bd-in .2s ease-out;
-}
-@keyframes bd-in { from { opacity: 0; } to { opacity: 1; } }
-
-@media (max-width: 900px) {
-  .inbox-layout { grid-template-columns: 1fr; }
-  .sidebar-toggle { display: inline-flex; }
-  .inbox-sidebar {
-    position: fixed;
-    top: 64px;
-    left: 0;
-    bottom: 0;
-    width: 280px;
-    max-height: none;
-    z-index: 100;
-    transform: translateX(-100%);
-    transition: transform .25s var(--ease);
-    border-radius: 0;
-    border-right: 2px solid var(--r);
-    border-top: none;
-    border-bottom: none;
-    border-left: none;
-  }
-  .inbox-sidebar.open { transform: translateX(0); }
-  .sidebar-close { display: inline-flex; }
+@media (max-width: 600px) {
+  .inbox-buzon-tabs { padding: 5px 8px; gap: 6px; }
+  .buzon-tabs-label { display: none; }
+  .buzon-tab { padding: 5px 8px 5px 5px; }
+  .buzon-tab-name { max-width: 90px; font-size: 11px; }
+  .buzon-tab .avatar { width: 22px; height: 22px; }
 }
 
 /* ==========================================================================
@@ -2420,6 +2275,24 @@
   .active-filters { padding: 8px 10px; }
   .active-chip { max-width: 100%; }
   .active-filters-count { margin-left: 0; width: 100%; padding-top: 2px; }
+}
+
+/* ─── Form de reenvío/responder: overrides en contexto claro ──
+   Las clases .meta-label / .meta-value vienen del header oscuro de
+   detalle.html (texto blanco-ish sobre fondo oscuro). Cuando las
+   reusamos en .reenvio-summary con fondo CLARO, el texto era invisible.
+   También el .btn-acceder hereda width:100% del login form, lo limitamos
+   acá a auto para que conviva con el botón "Cancelar". */
+.reenvio-summary .meta-label {
+  color: var(--gl);
+}
+.reenvio-summary .meta-value {
+  color: var(--gd);
+}
+.reenvio-form .btn-acceder {
+  width: auto;
+  padding: 13px 28px;
+  margin-top: 0;
 }
 
 /* ─── Filter pill "Sin leer" + botón "marcar no leído" ────── */

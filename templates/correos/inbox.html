@@ -6,23 +6,8 @@
 
 {% block content %}
 
-<div class="inbox-layout">
-
-{# ─── Sidebar de buzones (drawer en mobile) ───────────────────── #}
-{% include 'partials/_inbox_sidebar.html' %}
-
-<div class="inbox-main">
-
-{# Botón hamburguesa: solo visible en mobile, abre el drawer #}
-<button type="button" class="sidebar-toggle" id="sidebar-toggle" aria-label="Abrir buzones">
-  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
-       stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <line x1="3" y1="6"  x2="21" y2="6"/>
-    <line x1="3" y1="12" x2="21" y2="12"/>
-    <line x1="3" y1="18" x2="21" y2="18"/>
-  </svg>
-  <span>Buzones</span>
-</button>
+{# ─── Strip horizontal de buzones (arriba, ancho completo) ─────── #}
+{% include 'partials/_inbox_buzon_tabs.html' %}
 
 {# ─── HERO con stats (solo cuando NO hay filtros activos) ───────── #}
 {% if stats %}
@@ -388,12 +373,6 @@
 <script id="etiquetas-disponibles-data" type="application/json">
 [{% for et in etiquetas_disponibles %}{"id":{{ et.id }},"nombre":"{{ et.nombre|escapejs }}","color":"{{ et.color }}"}{% if not forloop.last %},{% endif %}{% endfor %}]
 </script>
-
-</div>{# /.inbox-main #}
-</div>{# /.inbox-layout #}
-
-{# Backdrop del drawer mobile — FUERA del grid para que no le tome celda #}
-<div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
 {% endblock %}
 
 {% block extra_js %}

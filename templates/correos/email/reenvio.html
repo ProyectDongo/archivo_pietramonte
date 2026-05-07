@@ -1,3 +1,4 @@
+{% load correos_tags %}
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -43,8 +44,15 @@
         </td></tr>
 
         {# ─── Cuerpo del correo original ─────────────────────── #}
+        {# Si el original tenía HTML, lo incluimos (sanitizado, pero deja imgs   #}
+        {# para que el destinatario vea el formato como en Gmail). Si solo       #}
+        {# había texto plano, fallback al rendering anterior.                    #}
         <tr><td style="padding:0 24px 24px">
+          {% if correo.cuerpo_html %}
+          <div style="font-size:14px;line-height:1.6;color:#222">{{ correo.cuerpo_html|sanitizar_email_html_outbound|safe }}</div>
+          {% else %}
           <div style="font-size:14px;line-height:1.6;white-space:pre-wrap;color:#222">{{ correo.cuerpo_texto|default:"(este correo no tiene cuerpo de texto plano)" }}</div>
+          {% endif %}
         </td></tr>
 
         {# ─── Footer ─────────────────────────────────────────── #}

@@ -1,3 +1,4 @@
+{% load correos_tags %}
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -23,9 +24,15 @@
         </td></tr>
 
         {# ─── Cuerpo del original quoteado ────────────────────── #}
+        {# Si el original tenía HTML, lo embebemos sanitizado (con imgs)         #}
+        {# para preservar formato. Fallback a texto plano.                       #}
         <tr><td style="padding:0 24px 24px">
           <blockquote style="margin:0;padding:0 0 0 14px;border-left:3px solid #d0d0d0;color:#555">
+            {% if correo_original.cuerpo_html %}
+            <div style="font-size:13px;line-height:1.6">{{ correo_original.cuerpo_html|sanitizar_email_html_outbound|safe }}</div>
+            {% else %}
             <div style="font-size:13px;line-height:1.6;white-space:pre-wrap">{{ correo_original.cuerpo_texto|default:"(este correo no tiene cuerpo de texto plano)" }}</div>
+            {% endif %}
           </blockquote>
         </td></tr>
 
