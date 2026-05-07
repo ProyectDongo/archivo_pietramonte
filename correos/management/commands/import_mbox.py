@@ -65,32 +65,77 @@ def decodificar_header(valor):
         return str(valor)
 
 
-def extraer_texto(msg):
-    """Cuerpo en texto plano del mensaje."""
-    texto = []
+def _decodear_payload(parte) -> str:
+    """Decodifica el payload de una parte respetando charset, con fallbacks."""
+    payload = parte.get_payload(decode=True)
+    if not payload:
+        return ''
+    charset = parte.get_content_charset() or 'utf-8'
+    try:
+        return payload.decode(charset, errors='replace')
+    except (LookupError, UnicodeDecodeError):
+        detected = chardet.detect(payload)
+        enc = detected.get('encoding') or 'utf-8'
+        try:
+            return payload.decode(enc, errors='replace')
+        except Exception:
+            return payload.decode('latin-1', errors='replace')
+
+
+def extraer_cuerpos(msg) -> tuple[str, str]:
+    """
+    Devuelve (cuerpo_texto, cuerpo_html). Reglas:
+      - Multipart: junta TODAS las partes text/plain en `texto` y todas las
+        text/html en `html`. Las que tienen Content-Disposition: attachment
+        se ignoran (esas son adjuntos).
+      - No-multipart: clasifica por content_type del mensaje completo.
+      - Si NO hay text/plain pero SÍ hay HTML, deriva el texto con strip_tags
+        (para que la búsqueda en cuerpo_texto siga funcionando con esos
+        correos HTML-only).
+      - Trunca texto a 50 KB y HTML a 200 KB.
+    """
+    from django.utils.html import strip_tags
+
+    textos: list[str] = []
+    htmls: list[str] = []
+
     if msg.is_multipart():
         for parte in msg.walk():
             content_type = parte.get_content_type()
-            disposition = str(parte.get('Content-Disposition', ''))
-            if content_type == 'text/plain' and 'attachment' not in disposition:
-                payload = parte.get_payload(decode=True)
-                if payload:
-                    charset = parte.get_content_charset() or 'utf-8'
-                    try:
-                        texto.append(payload.decode(charset, errors='replace'))
-                    except (LookupError, UnicodeDecodeError):
-                        detected = chardet.detect(payload)
-                        enc = detected.get('encoding') or 'utf-8'
-                        texto.append(payload.decode(enc, errors='replace'))
+            disposition = str(parte.get('Content-Disposition', '')).lower()
+            if 'attachment' in disposition:
+                continue
+            if content_type == 'text/plain':
+                t = _decodear_payload(parte)
+                if t:
+                    textos.append(t)
+            elif content_type == 'text/html':
+                h = _decodear_payload(parte)
+                if h:
+                    htmls.append(h)
     else:
-        payload = msg.get_payload(decode=True)
-        if payload:
-            charset = msg.get_content_charset() or 'utf-8'
-            try:
-                texto.append(payload.decode(charset, errors='replace'))
-            except Exception:
-                texto.append(payload.decode('latin-1', errors='replace'))
-    return '\n'.join(texto)[:50000]
+        content_type = msg.get_content_type()
+        body = _decodear_payload(msg)
+        if body:
+            if content_type == 'text/html':
+                htmls.append(body)
+            else:
+                textos.append(body)
+
+    texto_final = '\n'.join(textos)[:50000]
+    html_final = '\n'.join(htmls)[:200000]
+
+    # Si solo hay HTML, derivá texto plano para que la búsqueda lo encuentre.
+    if not texto_final and html_final:
+        texto_final = strip_tags(html_final)[:50000]
+
+    return texto_final, html_final
+
+
+# Compat: algunas comandos legacy importan extraer_texto. Dejamos un wrapper
+# que devuelve solo el texto (descarta el HTML) para no romper nada.
+def extraer_texto(msg) -> str:
+    return extraer_cuerpos(msg)[0]
 
 
 def _nombre_seguro(nombre: str, fallback: str = 'archivo.bin') -> str:
@@ -237,7 +282,9 @@ class Command(BaseCommand):
                                 self.stdout.write(f'  ... {i} procesados', ending='\r')
                             continue
 
-                        texto = extraer_texto(msg).replace('\x00', '')
+                        texto, html = extraer_cuerpos(msg)
+                        texto = texto.replace('\x00', '')
+                        html  = html.replace('\x00', '')
                         adjuntos_data = [] if skip_adj else extraer_adjuntos(msg)
 
                         # Crear correo
@@ -250,6 +297,7 @@ class Command(BaseCommand):
                             asunto=asunto[:1000],
                             fecha=fecha,
                             cuerpo_texto=texto,
+                            cuerpo_html=html,
                             tiene_adjunto=bool(adjuntos_data),
                         )
                         total_correos += 1

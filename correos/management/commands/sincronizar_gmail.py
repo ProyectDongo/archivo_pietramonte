@@ -37,7 +37,7 @@ from correos.models import Adjunto, BuzonGmailLabel, Correo
 from correos.management.commands.import_mbox import (
     decodificar_header,
     extraer_adjuntos,
-    extraer_texto,
+    extraer_cuerpos,
 )
 
 
@@ -165,7 +165,9 @@ class Command(BaseCommand):
                     except Exception:
                         pass
 
-                texto = extraer_texto(msg).replace('\x00', '')
+                texto, html = extraer_cuerpos(msg)
+                texto = texto.replace('\x00', '')
+                html  = html.replace('\x00', '')
                 adjuntos_data = extraer_adjuntos(msg)
 
                 with transaction.atomic():
@@ -178,6 +180,7 @@ class Command(BaseCommand):
                         asunto=asunto[:1000],
                         fecha=fecha,
                         cuerpo_texto=texto,
+                        cuerpo_html=html,
                         tiene_adjunto=bool(adjuntos_data),
                     )
                     for nombre, mime, payload in adjuntos_data:

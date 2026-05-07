@@ -47,7 +47,11 @@
 
   <div class="correo-body">
     <div class="cuerpo-label">Contenido del mensaje</div>
-    {% if correo.cuerpo_texto %}
+    {% if correo.cuerpo_html %}
+    {# bleach + CSSSanitizer matan <script>, eventos on*, javascript: URLs e <img>. #}
+    {# Después es seguro emitir como HTML con |safe. #}
+    <div class="cuerpo-html">{{ correo.cuerpo_html|sanitizar_email_html|safe }}</div>
+    {% elif correo.cuerpo_texto %}
     {# Django autoescapa por defecto: <, >, &, ', " quedan neutralizados → no XSS #}
     <div class="cuerpo-texto">{{ correo.cuerpo_texto }}</div>
     {% else %}

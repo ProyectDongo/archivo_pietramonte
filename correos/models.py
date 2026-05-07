@@ -80,6 +80,11 @@ class Correo(models.Model):
     asunto        = models.CharField(max_length=1000, blank=True)
     fecha         = models.DateTimeField(null=True, blank=True, db_index=True)
     cuerpo_texto  = models.TextField(blank=True)   # texto plano para búsqueda
+    cuerpo_html   = models.TextField(
+        blank=True, default='',
+        help_text='Cuerpo en HTML si el correo lo tenía. Vacío si era solo texto plano. '
+                  'Se sanitiza con bleach al renderizar (no acá) — guardarse crudo está bien.',
+    )
     tiene_adjunto = models.BooleanField(default=False)
 
     # Organización del archivo (compartido entre todos los usuarios del buzón)

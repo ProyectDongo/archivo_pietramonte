@@ -82,7 +82,9 @@
   </header>
 
   <div class="preview-body">
-    {% if correo.cuerpo_texto %}
+    {% if correo.cuerpo_html %}
+    <div class="preview-content preview-content-html">{{ correo.cuerpo_html|sanitizar_email_html|safe }}</div>
+    {% elif correo.cuerpo_texto %}
     <div class="preview-content">{{ correo.cuerpo_texto }}</div>
     {% else %}
     <div class="preview-empty-body">Este correo no tiene cuerpo en texto plano o es solo adjunto.</div>

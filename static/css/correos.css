@@ -1488,6 +1488,106 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ─── Render de HTML de email (post-bleach) ──────────────────────
+   El email original puede traer estilos inline que ya validamos con
+   bleach + CSSSanitizer, pero igualmente lo aislamos visualmente para
+   que no rompa el layout de la app. */
+.preview-content-html,
+.cuerpo-html {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--gd);
+  word-break: break-word;
+  overflow-x: auto;          /* tablas anchas no rompen el split, scrollean */
+  max-width: 100%;
+}
+.cuerpo-html {
+  background: var(--w);
+  padding: 1.25rem;
+  border-radius: 8px;
+  border: 1px solid var(--bdr);
+}
+/* Reset agresivo de elementos bloqueantes */
+.preview-content-html *,
+.cuerpo-html * {
+  max-width: 100%;
+}
+.preview-content-html img,
+.cuerpo-html img {
+  max-width: 100%;
+  height: auto;
+}
+.preview-content-html table,
+.cuerpo-html table {
+  max-width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+}
+.preview-content-html td,
+.preview-content-html th,
+.cuerpo-html td,
+.cuerpo-html th {
+  padding: 4px 8px;
+}
+.preview-content-html a,
+.cuerpo-html a {
+  color: var(--r);
+  text-decoration: underline;
+  word-break: break-all;
+}
+.preview-content-html a:hover,
+.cuerpo-html a:hover {
+  color: var(--rd);
+}
+.preview-content-html blockquote,
+.cuerpo-html blockquote {
+  border-left: 3px solid #d0d0d0;
+  margin: 8px 0;
+  padding: 4px 0 4px 14px;
+  color: #555;
+  font-size: 13px;
+}
+.preview-content-html pre,
+.cuerpo-html pre {
+  background: var(--off);
+  border: 1px solid var(--bdr);
+  border-radius: 6px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  font-size: 12px;
+}
+.preview-content-html code,
+.cuerpo-html code {
+  background: var(--off);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 12.5px;
+}
+.preview-content-html h1, .preview-content-html h2, .preview-content-html h3,
+.preview-content-html h4, .preview-content-html h5, .preview-content-html h6,
+.cuerpo-html h1, .cuerpo-html h2, .cuerpo-html h3,
+.cuerpo-html h4, .cuerpo-html h5, .cuerpo-html h6 {
+  margin: 12px 0 6px;
+  line-height: 1.25;
+  color: var(--gd);
+}
+.preview-content-html ul, .preview-content-html ol,
+.cuerpo-html ul, .cuerpo-html ol {
+  padding-left: 22px;
+  margin: 6px 0;
+}
+.preview-content-html hr,
+.cuerpo-html hr {
+  border: none;
+  border-top: 1px solid var(--bdr);
+  margin: 14px 0;
+}
+.preview-content-html p,
+.cuerpo-html p {
+  margin: 6px 0;
+}
 .preview-empty-body {
   font-size: 13px;
   font-style: italic;
