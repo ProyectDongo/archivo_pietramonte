@@ -59,6 +59,7 @@ def enviar_mail(
     cc: Iterable[str] | str | None = None,
     bcc: Iterable[str] | str | None = None,
     adjuntos: list[tuple[str, bytes, str]] | None = None,
+    headers: dict | None = None,    # ej {'In-Reply-To': '<xxx>', 'References': '<xxx>'}
     fail_silently: bool = False,
 ) -> int:
     """
@@ -104,6 +105,7 @@ def enviar_mail(
         cc=cc_list,
         bcc=bcc_list,
         reply_to=reply_to_list,
+        headers=headers or None,
     )
     msg.attach_alternative(html_body, 'text/html')
 

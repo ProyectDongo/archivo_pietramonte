@@ -345,6 +345,69 @@ class ReenvioCorreo(models.Model):
         return f'{self.enviado_en:%Y-%m-%d %H:%M} · {self.usuario_id} → {self.destinatarios[:60]}'
 
 
+class CorreoEnviado(models.Model):
+    """
+    Bitácora de cada respuesta o composición nueva enviada desde el portal.
+
+    Distinto de `ReenvioCorreo` (que es solo "forward de un correo del archivo
+    a externos sin que el destinatario pueda responder al hilo"), este modelo
+    cubre el caso "responder al remitente / responder a todos / componer
+    nuevo" donde el From es la dirección del buzón y el destinatario puede
+    responder y la respuesta vuelve via sync IMAP al mismo buzón.
+
+    El `Correo` saved-to-sent se crea aparte (con `tipo_carpeta='enviados'`)
+    para que el usuario lo vea en la pestaña "Enviados". Esta tabla es para
+    auditoría: incluye errores de envío, IP, etc.
+    """
+    class Tipo(models.TextChoices):
+        RESPONDER       = 'responder',        'Responder'
+        RESPONDER_TODOS = 'responder_todos',  'Responder a todos'
+        COMPOSE         = 'compose',          'Composición nueva'
+
+    buzon            = models.ForeignKey('Buzon', on_delete=models.CASCADE,
+                                         related_name='correos_enviados',
+                                         help_text='Buzón desde el que se envió (define el From).')
+    usuario          = models.ForeignKey('UsuarioPortal', on_delete=models.SET_NULL,
+                                         null=True, blank=True,
+                                         related_name='enviados_realizados')
+    correo_original  = models.ForeignKey('Correo', on_delete=models.SET_NULL,
+                                         null=True, blank=True,
+                                         related_name='respuestas',
+                                         help_text='Correo al que se respondió. NULL si fue compose nuevo.')
+    correo_guardado  = models.ForeignKey('Correo', on_delete=models.SET_NULL,
+                                         null=True, blank=True,
+                                         related_name='entrada_envio',
+                                         help_text='Copia guardada en BD con tipo_carpeta=enviados.')
+    tipo             = models.CharField(max_length=20, choices=Tipo.choices,
+                                        default=Tipo.RESPONDER, db_index=True)
+    destinatarios    = models.TextField(help_text='Emails del To, coma-separados.')
+    cc               = models.TextField(blank=True, help_text='Emails del Cc, coma-separados.')
+    asunto           = models.CharField(max_length=1000)
+    cuerpo           = models.TextField(blank=True,
+                                        help_text='Body que escribió el usuario (sin el quote del original).')
+    mensaje_id       = models.CharField(max_length=500, blank=True,
+                                        help_text='Message-ID que generamos para este envío.')
+    in_reply_to      = models.CharField(max_length=500, blank=True,
+                                        help_text='Message-ID del correo al que respondemos.')
+    enviado_en       = models.DateTimeField(auto_now_add=True, db_index=True)
+    exito            = models.BooleanField(default=False, db_index=True)
+    error_msg        = models.TextField(blank=True, max_length=500)
+    ip_hash          = models.CharField(max_length=64, blank=True, db_index=True)
+
+    class Meta:
+        verbose_name = 'Correo enviado desde el portal'
+        verbose_name_plural = 'Correos enviados desde el portal'
+        ordering = ['-enviado_en']
+        indexes = [
+            models.Index(fields=['usuario', '-enviado_en']),
+            models.Index(fields=['buzon', '-enviado_en']),
+            models.Index(fields=['exito', '-enviado_en']),
+        ]
+
+    def __str__(self):
+        return f'{self.enviado_en:%Y-%m-%d %H:%M} · {self.tipo} · {self.buzon_id} → {self.destinatarios[:60]}'
+
+
 class BuzonGmailLabel(models.Model):
     """
     Mapea un label de Gmail (en la cuenta soporte central) → un Buzon del

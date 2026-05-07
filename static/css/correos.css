@@ -2352,9 +2352,10 @@
   transform: translateY(-1px);
 }
 
-/* ─── Reenviar correo (botones) ────────────────────────────── */
+/* ─── Botones de envío (reenviar, responder) ─────────────── */
 .btn-reenviar,
-.preview-fwd-btn {
+.preview-fwd-btn,
+.preview-reply-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -2368,9 +2369,12 @@
   text-decoration: none;
   transition: all .15s ease;
   white-space: nowrap;
+  font-family: var(--f);
+  cursor: pointer;
 }
 .btn-reenviar:hover,
-.preview-fwd-btn:hover {
+.preview-fwd-btn:hover,
+.preview-reply-btn:hover {
   background: var(--rl);
   border-color: var(--r);
   color: var(--r);

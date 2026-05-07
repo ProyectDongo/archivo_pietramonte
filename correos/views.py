@@ -16,7 +16,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from . import captcha, totp as totp_helpers
 from .models import (
-    Adjunto, Buzon, Correo, CorreoLeido, Etiqueta, IntentoLogin,
+    Adjunto, Buzon, Correo, CorreoEnviado, CorreoLeido, Etiqueta, IntentoLogin,
     ReenvioCorreo, UsuarioPortal, hash_ip,
 )
 from taller.anti_bot import verify_turnstile
@@ -919,6 +919,249 @@ def reenviar_correo_view(request, correo_id):
     return render(request, 'correos/reenviar.html', {
         'correo': correo, 'limite': limite, 'usados': usados + 1, 'restantes': max(0, restantes - 1),
         'destinatarios': raw_dest, 'mensaje_extra': nota,
+    }, status=500)
+
+
+# ─── Responder / Responder a todos ──────────────────────────────────────────
+# Mismo motor SMTP que reenvío, pero el From es la dirección del BUZÓN (no la
+# del usuario portal) y agregamos los headers de threading In-Reply-To/References
+# para que Gmail agrupe la conversación. La copia se guarda en BD con
+# tipo_carpeta=enviados para que aparezca en la pestaña "Enviados" del buzón.
+#
+# Setup imprescindible (lo hace el cliente, una vez por alias): "Send mail as"
+# en la cuenta Gmail centralizadora para cada email del buzón. Sin esto, Gmail
+# rechaza el envío o lo manda con el From de la cuenta centralizadora.
+RESP_RL_HORAS    = 24
+RESP_LIMIT_USER  = 30
+RESP_LIMIT_ADMIN = 100
+RESP_MAX_DEST    = 10        # poco más que reenvío porque reply-all suma varios
+RESP_MAX_BODY    = 50000     # 50 KB de texto plano del usuario
+
+
+def _enviados_recientes(usuario: UsuarioPortal) -> int:
+    """Cantidad de respuestas/composiciones del usuario en las últimas RESP_RL_HORAS."""
+    desde = timezone.now() - timedelta(hours=RESP_RL_HORAS)
+    return CorreoEnviado.objects.filter(usuario=usuario, enviado_en__gte=desde).count()
+
+
+def _from_alias_buzon(buzon: Buzon) -> str:
+    """Construye el From del envío. Usa el nombre del buzón si está, si no solo el email."""
+    if buzon.nombre:
+        return f'{buzon.nombre} <{buzon.email}>'
+    return buzon.email
+
+
+def _prefill_responder(correo: Correo, modo: str) -> dict:
+    """
+    Devuelve {to, cc, asunto} pre-llenados para el form de responder.
+    modo='todos' incluye en Cc a los demás destinatarios del original
+    (excluyendo el buzón mismo y el remitente original).
+    """
+    from email.utils import getaddresses, parseaddr
+
+    original_from = parseaddr(correo.remitente or '')[1] or correo.remitente or ''
+    buzon_email = (correo.buzon.email or '').lower()
+
+    cc_str = ''
+    if modo == 'todos' and correo.destinatario:
+        addrs = getaddresses([correo.destinatario])
+        cc_default = [
+            a for _name, a in addrs
+            if a and a.lower() != buzon_email and a.lower() != original_from.lower()
+        ]
+        cc_str = ', '.join(cc_default)
+
+    asunto_default = (correo.asunto or '').strip()
+    if asunto_default:
+        if not asunto_default.lower().startswith('re:'):
+            asunto_default = f'Re: {asunto_default}'
+    else:
+        asunto_default = 'Re: (sin asunto)'
+
+    return {
+        'to':     original_from,
+        'cc':     cc_str,
+        'asunto': asunto_default,
+    }
+
+
+@portal_login_required
+@never_cache
+@require_http_methods(['GET', 'POST'])
+def responder_correo_view(request, correo_id):
+    """
+    Responde a un correo del archivo. Modo 'simple' (default) responde solo
+    al remitente original; modo 'todos' incluye también a los destinatarios
+    originales en Cc.
+
+    GET  ?modo=simple|todos → form pre-llenado
+    POST → valida + envía + guarda copia en buzon como 'enviados' + audit
+    """
+    from email.utils import make_msgid
+
+    from django.core.exceptions import ValidationError
+
+    from archivo_pietramonte.email_utils import safe_send
+
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+
+    correo = get_object_or_404(Correo, id=correo_id)
+    if not usuario.puede_ver(correo.buzon):
+        raise Http404
+
+    modo = (request.GET.get('modo') or request.POST.get('modo') or 'simple').lower()
+    if modo not in ('simple', 'todos'):
+        modo = 'simple'
+
+    limite = RESP_LIMIT_ADMIN if usuario.es_admin else RESP_LIMIT_USER
+    usados = _enviados_recientes(usuario)
+    restantes = max(0, limite - usados)
+
+    if request.method == 'GET':
+        prefill = _prefill_responder(correo, modo)
+        return render(request, 'correos/responder.html', {
+            'correo': correo,
+            'modo':   modo,
+            'to':     prefill['to'],
+            'cc':     prefill['cc'],
+            'asunto': prefill['asunto'],
+            'cuerpo': '',
+            'limite': limite, 'usados': usados, 'restantes': restantes,
+        })
+
+    # ─── POST ───────────────────────────────────────────────────────────
+    if usados >= limite:
+        messages.error(request, f'Llegaste al límite de {limite} envíos en {RESP_RL_HORAS}h. Esperá unas horas o pedile a un admin.')
+        return render(request, 'correos/responder.html', {
+            'correo': correo, 'modo': modo,
+            'to': request.POST.get('to') or '', 'cc': request.POST.get('cc') or '',
+            'asunto': request.POST.get('asunto') or '', 'cuerpo': request.POST.get('cuerpo') or '',
+            'limite': limite, 'usados': usados, 'restantes': 0,
+        }, status=429)
+
+    raw_to     = request.POST.get('to')     or ''
+    raw_cc     = request.POST.get('cc')     or ''
+    asunto     = (request.POST.get('asunto') or '').strip()[:1000]
+    cuerpo     = (request.POST.get('cuerpo') or '')[:RESP_MAX_BODY]
+
+    # Validación de destinatarios (reusamos _parse_destinatarios pero permitimos vacío en cc)
+    try:
+        to_addrs = _parse_destinatarios(raw_to)
+    except ValidationError as e:
+        for m in (e.messages if hasattr(e, 'messages') else [str(e)]):
+            messages.error(request, f'To: {m}')
+        return render(request, 'correos/responder.html', {
+            'correo': correo, 'modo': modo,
+            'to': raw_to, 'cc': raw_cc, 'asunto': asunto, 'cuerpo': cuerpo,
+            'limite': limite, 'usados': usados, 'restantes': restantes,
+        }, status=400)
+
+    cc_addrs: list[str] = []
+    if raw_cc.strip():
+        try:
+            cc_addrs = _parse_destinatarios(raw_cc)
+        except ValidationError as e:
+            for m in (e.messages if hasattr(e, 'messages') else [str(e)]):
+                messages.error(request, f'Cc: {m}')
+            return render(request, 'correos/responder.html', {
+                'correo': correo, 'modo': modo,
+                'to': raw_to, 'cc': raw_cc, 'asunto': asunto, 'cuerpo': cuerpo,
+                'limite': limite, 'usados': usados, 'restantes': restantes,
+            }, status=400)
+
+    if len(to_addrs) + len(cc_addrs) > RESP_MAX_DEST:
+        messages.error(request, f'Máximo {RESP_MAX_DEST} destinatarios (To + Cc) por envío.')
+        return render(request, 'correos/responder.html', {
+            'correo': correo, 'modo': modo,
+            'to': raw_to, 'cc': raw_cc, 'asunto': asunto, 'cuerpo': cuerpo,
+            'limite': limite, 'usados': usados, 'restantes': restantes,
+        }, status=400)
+
+    if not asunto:
+        asunto = 'Re: (sin asunto)'
+
+    # ─── Threading headers ─────────────────────────────────────────────
+    new_msg_id = make_msgid(domain='pietramonte.cl')
+    headers = {'Message-ID': new_msg_id}
+    if correo.mensaje_id:
+        # In-Reply-To y References apuntan al Message-ID del correo original.
+        # Si el original ya estaba en un hilo más largo no tenemos las
+        # References anteriores guardadas — Gmail tolera References parcial.
+        headers['In-Reply-To'] = correo.mensaje_id
+        headers['References']  = correo.mensaje_id
+
+    # ─── Send ──────────────────────────────────────────────────────────
+    resultado = safe_send(
+        asunto=asunto,
+        para=to_addrs,
+        cc=cc_addrs or None,
+        template='correos/email/respuesta',
+        contexto={
+            'correo_original': correo,
+            'cuerpo_usuario':  cuerpo,
+            'enviado_por':     correo.buzon.email,
+        },
+        from_alias=_from_alias_buzon(correo.buzon),
+        # NO Reply-To: queremos que las respuestas vuelvan al BUZÓN (no al
+        # usuario portal). Gmail sync IMAP las trae al archivo automáticamente.
+        headers=headers,
+    )
+
+    # ─── Guardar copia en BD como 'enviados' (solo si se mandó OK) ────
+    sent_correo = None
+    if resultado['ok']:
+        try:
+            sent_correo = Correo.objects.create(
+                buzon=correo.buzon,
+                tipo_carpeta=Correo.Carpeta.ENVIADOS,
+                mensaje_id=new_msg_id[:500],
+                remitente=_from_alias_buzon(correo.buzon)[:500],
+                destinatario=', '.join(to_addrs + cc_addrs)[:1000],
+                asunto=asunto[:1000],
+                fecha=timezone.now(),
+                cuerpo_texto=cuerpo,
+                tiene_adjunto=False,
+            )
+            # Marcado como leído por el que lo envió (es su propio mensaje)
+            CorreoLeido.objects.get_or_create(usuario=usuario, correo=sent_correo)
+        except Exception:
+            # No bloquear el flujo si el save falla — el envío ya pasó.
+            sent_correo = None
+
+    # ─── Audit ─────────────────────────────────────────────────────────
+    ip_h = hash_ip(_get_ip(request))
+    CorreoEnviado.objects.create(
+        buzon=correo.buzon,
+        usuario=usuario,
+        correo_original=correo,
+        correo_guardado=sent_correo,
+        tipo=(CorreoEnviado.Tipo.RESPONDER_TODOS if modo == 'todos'
+              else CorreoEnviado.Tipo.RESPONDER),
+        destinatarios=', '.join(to_addrs),
+        cc=', '.join(cc_addrs),
+        asunto=asunto,
+        cuerpo=cuerpo,
+        mensaje_id=new_msg_id,
+        in_reply_to=(correo.mensaje_id or '')[:500],
+        exito=resultado['ok'],
+        error_msg=(resultado.get('error') or '')[:500],
+        ip_hash=ip_h,
+    )
+
+    if resultado['ok']:
+        msg_dest = ', '.join(to_addrs)
+        if cc_addrs:
+            msg_dest += f' (cc: {", ".join(cc_addrs)})'
+        messages.success(request, f'Respuesta enviada a {msg_dest}.')
+        return redirect('detalle', correo_id=correo.id)
+
+    messages.error(request, f'No se pudo enviar la respuesta: {resultado.get("error", "error desconocido")}')
+    return render(request, 'correos/responder.html', {
+        'correo': correo, 'modo': modo,
+        'to': raw_to, 'cc': raw_cc, 'asunto': asunto, 'cuerpo': cuerpo,
+        'limite': limite, 'usados': usados + 1, 'restantes': max(0, restantes - 1),
     }, status=500)
 
 

@@ -17,6 +17,20 @@
         <div class="preview-date">{{ correo.fecha|fecha_amigable }}{% if correo.fecha %} · {{ correo.fecha|date:"d/m/Y H:i" }}{% endif %}</div>
       </div>
       <div class="preview-actions">
+        <a href="{% url 'responder_correo' correo.id %}" class="preview-reply-btn" title="Responder al remitente">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>
+          </svg>
+          <span>Responder</span>
+        </a>
+        <a href="{% url 'responder_correo' correo.id %}?modo=todos" class="preview-reply-btn" title="Responder a todos los destinatarios">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="7 17 2 12 7 7"/><polyline points="12 17 7 12 12 7"/><path d="M22 18v-2a4 4 0 0 0-4-4H7"/>
+          </svg>
+          <span>Resp. todos</span>
+        </a>
         <button type="button" class="preview-unread-btn" data-correo-id="{{ correo.id }}"
                 title="Marcar como no leído">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"

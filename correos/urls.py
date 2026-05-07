@@ -30,6 +30,7 @@ urlpatterns = [
     path('intranet/correo/<int:correo_id>/notas/',       views.actualizar_notas_view, name='actualizar_notas'),
     path('intranet/correo/<int:correo_id>/etiqueta/',    views.asignar_etiqueta_view, name='asignar_etiqueta'),
     path('intranet/correo/<int:correo_id>/reenviar/',    views.reenviar_correo_view,  name='reenviar_correo'),
+    path('intranet/correo/<int:correo_id>/responder/',   views.responder_correo_view, name='responder_correo'),
     path('intranet/correo/<int:correo_id>/',             views.detalle_view,          name='detalle'),
     path('intranet/adjunto/<int:adjunto_id>/',           views.adjunto_view,          name='adjunto'),
     path('intranet/buzon/etiqueta-nueva/',               views.crear_etiqueta_view,   name='crear_etiqueta'),
