@@ -495,6 +495,72 @@
 }
 .sidebar-close:hover { color: var(--r); background: var(--off); }
 
+/* Botón chevron para colapsar/expandir el sidebar en desktop */
+.sidebar-collapse-btn {
+  background: transparent;
+  border: 1px solid var(--bdr);
+  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--gm);
+  padding: 0;
+  transition: all .15s;
+  flex-shrink: 0;
+}
+.sidebar-collapse-btn:hover {
+  border-color: var(--r);
+  color: var(--r);
+}
+.sidebar-collapse-btn svg {
+  transition: transform .25s var(--ease);
+}
+.inbox-layout.sidebar-collapsed .sidebar-collapse-btn svg {
+  transform: rotate(180deg);
+}
+
+/* ─── Estado COLAPSADO: solo avatares + badges (~56px) ─── */
+.inbox-layout.sidebar-collapsed {
+  grid-template-columns: 56px 1fr;
+}
+.inbox-layout.sidebar-collapsed .inbox-sidebar {
+  padding: 8px 4px;
+}
+.inbox-layout.sidebar-collapsed .sidebar-head {
+  justify-content: center;
+  padding: 4px 0 8px;
+}
+.inbox-layout.sidebar-collapsed .sidebar-label {
+  display: none;
+}
+.inbox-layout.sidebar-collapsed .sidebar-buzon-meta {
+  display: none;
+}
+.inbox-layout.sidebar-collapsed .sidebar-buzon-item {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  padding: 6px 4px;
+  position: relative;
+  gap: 0;
+}
+.inbox-layout.sidebar-collapsed .sidebar-buzon-item.active::before {
+  left: -4px; top: 4px; bottom: 4px;
+}
+.inbox-layout.sidebar-collapsed .sidebar-buzon-badge {
+  position: absolute;
+  top: -2px;
+  right: 0;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  min-width: 16px;
+  border: 2px solid var(--w);
+  line-height: 1.3;
+}
+
 .sidebar-buzon-list {
   list-style: none;
   margin: 0;

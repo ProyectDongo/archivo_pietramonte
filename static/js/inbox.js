@@ -375,6 +375,26 @@
     }
   });
 
+  // ─── Sidebar colapsable (desktop): chevron + persistencia localStorage ──
+  // Default: colapsado para que el usuario tenga máxima pantalla. Si lo expande,
+  // se recuerda. Si en mobile el sidebar es drawer, esto no aplica visualmente
+  // porque el @media (max-width:900px) sobrescribe el grid template.
+  const COLLAPSE_KEY = 'pm-inbox-sidebar-collapsed';
+  const layout = document.querySelector('.inbox-layout');
+  const collapseBtn = document.getElementById('sidebar-collapse-btn');
+
+  if (layout) {
+    const stored = localStorage.getItem(COLLAPSE_KEY);
+    const shouldCollapse = stored === null ? true : stored === '1';
+    if (shouldCollapse) layout.classList.add('sidebar-collapsed');
+  }
+  if (collapseBtn && layout) {
+    collapseBtn.addEventListener('click', function () {
+      const isCollapsed = layout.classList.toggle('sidebar-collapsed');
+      try { localStorage.setItem(COLLAPSE_KEY, isCollapsed ? '1' : '0'); } catch (e) {}
+    });
+  }
+
   // ─── Restaurar al volver atrás ──────────────────────────────────────────
   window.addEventListener('popstate', function (ev) {
     if (ev.state && ev.state.correoId) {
