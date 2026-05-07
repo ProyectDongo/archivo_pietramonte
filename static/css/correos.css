@@ -444,6 +444,189 @@
 }
 
 /* ==========================================================================
+   INBOX layout: sidebar de buzones (izq) + main (centro/derecha)
+   ========================================================================== */
+
+/* En inbox el dropdown del nav es redundante: la sidebar lo reemplaza */
+.page-inbox .app-nav-center { display: none; }
+
+.inbox-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.inbox-sidebar {
+  position: sticky;
+  top: 80px;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  background: var(--w);
+  border: 1px solid var(--bdr);
+  border-radius: 12px;
+  box-shadow: var(--sh);
+  padding: 12px 8px;
+}
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 10px;
+  border-bottom: 1px solid var(--off2);
+  margin-bottom: 8px;
+}
+.sidebar-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--gl);
+}
+.sidebar-close {
+  display: none;
+  background: transparent;
+  border: none;
+  color: var(--gl);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.sidebar-close:hover { color: var(--r); background: var(--off); }
+
+.sidebar-buzon-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sidebar-buzon-form { margin: 0; padding: 0; }
+.sidebar-buzon-item {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--f);
+  transition: background .15s, border-color .15s;
+  position: relative;
+}
+.sidebar-buzon-item:hover {
+  background: var(--off);
+}
+.sidebar-buzon-item.active {
+  background: rgba(200,12,15,.06);
+  border-color: rgba(200,12,15,.18);
+}
+.sidebar-buzon-item.active::before {
+  content: "";
+  position: absolute;
+  left: -8px; top: 8px; bottom: 8px;
+  width: 3px;
+  background: var(--r);
+  border-radius: 0 3px 3px 0;
+}
+.sidebar-buzon-item .avatar {
+  width: 28px; height: 28px; font-size: 11px;
+}
+.sidebar-buzon-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
+}
+.sidebar-buzon-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--gd);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-buzon-item.has-unread .sidebar-buzon-name {
+  font-weight: 700;
+}
+.sidebar-buzon-sub {
+  font-size: 10px;
+  color: var(--gl);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-buzon-badge {
+  background: var(--r);
+  color: var(--w);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 99px;
+  min-width: 22px;
+  text-align: center;
+  line-height: 1.4;
+  letter-spacing: .3px;
+}
+
+/* Hamburguesa: solo visible en mobile */
+.sidebar-toggle {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  background: var(--w);
+  border: 1px solid var(--bdr);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-family: var(--f);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gd);
+  cursor: pointer;
+  margin-bottom: 12px;
+  transition: border-color .15s;
+}
+.sidebar-toggle:hover { border-color: var(--r); color: var(--r); }
+
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.4);
+  z-index: 90;
+  animation: bd-in .2s ease-out;
+}
+@keyframes bd-in { from { opacity: 0; } to { opacity: 1; } }
+
+@media (max-width: 900px) {
+  .inbox-layout { grid-template-columns: 1fr; }
+  .sidebar-toggle { display: inline-flex; }
+  .inbox-sidebar {
+    position: fixed;
+    top: 64px;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    max-height: none;
+    z-index: 100;
+    transform: translateX(-100%);
+    transition: transform .25s var(--ease);
+    border-radius: 0;
+    border-right: 2px solid var(--r);
+    border-top: none;
+    border-bottom: none;
+    border-left: none;
+  }
+  .inbox-sidebar.open { transform: translateX(0); }
+  .sidebar-close { display: inline-flex; }
+}
+
+/* ==========================================================================
    INBOX (dashboard hero + split layout)
    ========================================================================== */
 
@@ -1942,6 +2125,165 @@
   .carpeta-chip { flex-shrink: 0; }
   .carpeta-chip-text { display: none; }
   .carpeta-chip-ico { font-size: 18px; }
+}
+
+/* ─── Chips de filtros aplicados (estado actual, removibles) ─── */
+.active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: linear-gradient(to right, var(--rl) 0%, var(--off) 60%);
+  border: 1px solid #ffd0d0;
+  border-radius: 10px;
+  border-left: 3px solid var(--r);
+}
+.active-filters-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--gm);
+  margin-right: 4px;
+}
+.active-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 10px;
+  background: var(--w);
+  border: 1px solid var(--bdr);
+  border-radius: 99px;
+  text-decoration: none;
+  color: var(--gd);
+  font-size: 12px;
+  font-weight: 500;
+  transition: border-color .15s, transform .1s;
+  white-space: nowrap;
+  max-width: 280px;
+  overflow: hidden;
+}
+.active-chip:hover {
+  border-color: var(--r);
+  transform: translateY(-1px);
+}
+.active-chip-key {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--gl);
+  margin-right: 2px;
+}
+.active-chip-val {
+  font-weight: 600;
+  color: var(--gd);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.active-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: var(--off);
+  color: var(--gm);
+  font-size: 11px;
+  line-height: 1;
+  transition: background .15s, color .15s;
+  flex-shrink: 0;
+}
+.active-chip:hover .active-chip-x {
+  background: var(--r);
+  color: var(--w);
+}
+.active-chip-unread {
+  border-color: rgba(25,118,210,.3);
+  background: #EFF4FF;
+  color: #1957B5;
+}
+.active-chip-unread .active-chip-val { color: #1957B5; }
+.active-chip-star {
+  border-color: rgba(251,192,45,.4);
+  background: #FFFCF0;
+  color: #8a6d00;
+}
+.active-chip-star .active-chip-val { color: #8a6d00; }
+.active-chip-tag {
+  border-color: currentColor;
+}
+.active-chip-tag .active-chip-val { color: currentColor; }
+
+.active-chip-clearall {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  background: transparent;
+  border: 1px dashed var(--gm);
+  border-radius: 99px;
+  text-decoration: none;
+  color: var(--gm);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.active-chip-clearall:hover {
+  border-color: var(--r);
+  color: var(--r);
+  border-style: solid;
+}
+.active-filters-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--gm);
+  letter-spacing: .3px;
+}
+
+@media (max-width: 600px) {
+  .active-filters { padding: 8px 10px; }
+  .active-chip { max-width: 100%; }
+  .active-filters-count { margin-left: 0; width: 100%; padding-top: 2px; }
+}
+
+/* ─── Filter pill "Sin leer" + botón "marcar no leído" ────── */
+.filter-unread.active {
+  border-color: #1976D2;
+  background: #EFF4FF;
+  color: #1957B5;
+}
+.filter-unread.active .filter-count {
+  background: rgba(25,118,210,.18);
+  color: #1957B5;
+}
+
+.preview-unread-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--w);
+  color: var(--gm);
+  border: 1.5px solid var(--bdr);
+  border-radius: 8px;
+  font-family: var(--f);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s ease;
+  white-space: nowrap;
+}
+.preview-unread-btn:hover {
+  background: #EFF4FF;
+  border-color: #1976D2;
+  color: #1957B5;
+  transform: translateY(-1px);
 }
 
 /* ─── Reenviar correo (botones) ────────────────────────────── */

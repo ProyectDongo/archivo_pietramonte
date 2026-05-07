@@ -17,6 +17,15 @@
         <div class="preview-date">{{ correo.fecha|fecha_amigable }}{% if correo.fecha %} · {{ correo.fecha|date:"d/m/Y H:i" }}{% endif %}</div>
       </div>
       <div class="preview-actions">
+        <button type="button" class="preview-unread-btn" data-correo-id="{{ correo.id }}"
+                title="Marcar como no leído">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 4h16v16H4z"/>
+            <path d="M4 4l8 8 8-8"/>
+          </svg>
+          <span>No leído</span>
+        </button>
         <a href="{% url 'reenviar_correo' correo.id %}" class="preview-fwd-btn" title="Reenviar a un destinatario externo">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 0 1 4-4h12"/>

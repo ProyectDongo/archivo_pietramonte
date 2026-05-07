@@ -183,6 +183,32 @@ class UsuarioPortal(models.Model):
         return self.buzones.filter(id=buzon.id).exists()
 
 
+class CorreoLeido(models.Model):
+    """
+    Marca per-usuario de "este correo lo leí". El estado de lectura es
+    POR USUARIO (no compartido entre el equipo): si Anghelo abre un correo
+    no debería marcarse leído para soporte.dongo.
+
+    Existencia del registro = leído. Borrar el registro = volver a no-leído.
+    """
+    usuario   = models.ForeignKey('UsuarioPortal', on_delete=models.CASCADE,
+                                  related_name='correos_leidos')
+    correo    = models.ForeignKey('Correo', on_delete=models.CASCADE,
+                                  related_name='leidos_por')
+    leido_en  = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Correo leído'
+        verbose_name_plural = 'Correos leídos'
+        unique_together = [('usuario', 'correo')]
+        indexes = [
+            models.Index(fields=['usuario', 'correo']),
+        ]
+
+    def __str__(self):
+        return f'{self.usuario.email} leyó #{self.correo_id}'
+
+
 class Adjunto(models.Model):
     """
     Archivo adjunto extraído de un correo .mbox y guardado en MEDIA_ROOT.

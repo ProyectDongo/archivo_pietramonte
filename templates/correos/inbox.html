@@ -2,8 +2,27 @@
 {% load correos_tags %}
 
 {% block title %}Bandeja — {{ buzon.email }}{% endblock %}
+{% block body_class %}page-inbox{% endblock %}
 
 {% block content %}
+
+<div class="inbox-layout">
+
+{# ─── Sidebar de buzones (drawer en mobile) ───────────────────── #}
+{% include 'partials/_inbox_sidebar.html' %}
+
+<div class="inbox-main">
+
+{# Botón hamburguesa: solo visible en mobile, abre el drawer #}
+<button type="button" class="sidebar-toggle" id="sidebar-toggle" aria-label="Abrir buzones">
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+       stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="3" y1="6"  x2="21" y2="6"/>
+    <line x1="3" y1="12" x2="21" y2="12"/>
+    <line x1="3" y1="18" x2="21" y2="18"/>
+  </svg>
+  <span>Buzones</span>
+</button>
 
 {# ─── HERO con stats (solo cuando NO hay filtros activos) ───────── #}
 {% if stats %}
@@ -121,6 +140,7 @@
   {% if carpeta %}<input type="hidden" name="carpeta" value="{{ carpeta }}">{% endif %}
   {% if solo_destacados %}<input type="hidden" name="destacado" value="1">{% endif %}
   {% if solo_adjuntos %}<input type="hidden" name="adjuntos" value="1">{% endif %}
+  {% if solo_no_leidos %}<input type="hidden" name="no_leidos" value="1">{% endif %}
   {% if etiqueta_actual %}<input type="hidden" name="etiqueta" value="{{ etiqueta_actual.id }}">{% endif %}
   {% if fecha_desde %}<input type="hidden" name="desde" value="{{ fecha_desde }}">{% endif %}
   {% if fecha_hasta %}<input type="hidden" name="hasta" value="{{ fecha_hasta }}">{% endif %}
@@ -133,6 +153,7 @@
   {% if carpeta %}<input type="hidden" name="carpeta" value="{{ carpeta }}">{% endif %}
   {% if solo_destacados %}<input type="hidden" name="destacado" value="1">{% endif %}
   {% if solo_adjuntos %}<input type="hidden" name="adjuntos" value="1">{% endif %}
+  {% if solo_no_leidos %}<input type="hidden" name="no_leidos" value="1">{% endif %}
   {% if etiqueta_actual %}<input type="hidden" name="etiqueta" value="{{ etiqueta_actual.id }}">{% endif %}
 
   <label class="adv-field">
@@ -153,9 +174,20 @@
   <button type="submit" class="adv-apply">Aplicar</button>
 </form>
 
-{# ─── Barra de filtros rápidos: destacados + adjuntos + etiquetas ─ #}
+{# ─── Barra de filtros rápidos: sin leer + destacados + adjuntos + etiquetas ─ #}
 <div class="filter-bar">
-  <a href="?{% if not solo_destacados %}destacado=1{% endif %}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}"
+  <a href="?{% if not solo_no_leidos %}no_leidos=1{% endif %}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}"
+     class="filter-pill filter-unread {% if solo_no_leidos %}active{% endif %}"
+     title="Ver solo correos sin leer">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+         stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 4h16v16H4z"/>
+      <path d="M4 4l8 8 8-8"/>
+    </svg>
+    Sin leer{% if no_leidos_buzon_actual %} <span class="filter-count">{{ no_leidos_buzon_actual }}</span>{% endif %}
+  </a>
+
+  <a href="?{% if not solo_destacados %}destacado=1{% endif %}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}{% if solo_no_leidos %}&no_leidos=1{% endif %}"
      class="filter-pill filter-star {% if solo_destacados %}active{% endif %}"
      title="Ver solo destacados">
     <svg class="ico-star" viewBox="0 0 24 24" width="14" height="14"
@@ -166,14 +198,14 @@
     Destacados{% if cant_destacados %} <span class="filter-count">{{ cant_destacados }}</span>{% endif %}
   </a>
 
-  <a href="?{% if not solo_adjuntos %}adjuntos=1{% endif %}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}"
+  <a href="?{% if not solo_adjuntos %}adjuntos=1{% endif %}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}{% if solo_no_leidos %}&no_leidos=1{% endif %}"
      class="filter-pill filter-adjuntos {% if solo_adjuntos %}active{% endif %}"
      title="Ver solo correos con adjuntos">
     📎 Con adjunto
   </a>
 
   {% for et in etiquetas_disponibles %}
-  <a href="?etiqueta={{ et.id }}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}"
+  <a href="?etiqueta={{ et.id }}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}{% if solo_no_leidos %}&no_leidos=1{% endif %}"
      class="filter-pill filter-tag {% if etiqueta_actual.id == et.id %}active{% endif %}"
      data-color="{{ et.color }}">
     <span class="tag-dot"></span>{{ et.nombre }}
@@ -200,9 +232,83 @@
   <button type="button" class="filter-pill" id="new-tag-cancel">Cancelar</button>
 </div>
 
-{% if query %}
-<div class="search-info">
-  🔍 {{ total }} resultado{{ total|pluralize:"s" }} para "<strong>{{ query }}</strong>"
+{% if hay_filtros_activos %}
+<div class="active-filters" role="region" aria-label="Filtros aplicados">
+  <span class="active-filters-label">Filtros:</span>
+
+  {% if query %}
+  <a href="{% url_sin_filtros 'q' %}" class="active-chip" title="Quitar búsqueda">
+    <span class="active-chip-key">Búsqueda</span>
+    <span class="active-chip-val">"{{ query|truncatechars:40 }}"</span>
+    <span class="active-chip-x" aria-hidden="true">✕</span>
+  </a>
+  {% endif %}
+
+  {% if carpeta %}
+  <a href="{% url_sin_filtros 'carpeta' %}" class="active-chip" title="Quitar carpeta">
+    <span class="active-chip-key">Carpeta</span>
+    <span class="active-chip-val">{% if carpeta == 'inbox' %}Recibidos{% elif carpeta == 'enviados' %}Enviados{% else %}Otros{% endif %}</span>
+    <span class="active-chip-x" aria-hidden="true">✕</span>
+  </a>
+  {% endif %}
+
+  {% if solo_no_leidos %}
+  <a href="{% url_sin_filtros 'no_leidos' %}" class="active-chip active-chip-unread" title="Quitar 'sin leer'">
+    <span class="active-chip-val">Sin leer</span>
+    <span class="active-chip-x" aria-hidden="true">✕</span>
+  </a>
+  {% endif %}
+
+  {% if solo_destacados %}
+  <a href="{% url_sin_filtros 'destacado' %}" class="active-chip active-chip-star" title="Quitar 'destacados'">
+    <span class="active-chip-val">★ Destacados</span>
+    <span class="active-chip-x" aria-hidden="true">✕</span>
+  </a>
+  {% endif %}
+
+  {% if solo_adjuntos %}
+  <a href="{% url_sin_filtros 'adjuntos' %}" class="active-chip" title="Quitar 'con adjunto'">
+    <span class="active-chip-val">📎 Con adjunto</span>
+    <span class="active-chip-x" aria-hidden="true">✕</span>
+  </a>
+  {% endif %}
+
+  {% if etiqueta_actual %}
+  <a href="{% url_sin_filtros 'etiqueta' %}" class="active-chip active-chip-tag"
+     data-color="{{ etiqueta_actual.color }}" title="Quitar etiqueta">
+    <span class="active-chip-key">Etiqueta</span>
+    <span class="active-chip-val">{{ etiqueta_actual.nombre }}</span>
+    <span class="active-chip-x" aria-hidden="true">✕</span>
+  </a>
+  {% endif %}
+
+  {% if fecha_desde or fecha_hasta %}
+  <a href="{% url_sin_filtros 'desde' 'hasta' %}" class="active-chip" title="Quitar rango de fechas">
+    <span class="active-chip-key">Fechas</span>
+    <span class="active-chip-val">
+      {% if fecha_desde and fecha_hasta %}{{ fecha_desde }} → {{ fecha_hasta }}
+      {% elif fecha_desde %}desde {{ fecha_desde }}
+      {% else %}hasta {{ fecha_hasta }}{% endif %}
+    </span>
+    <span class="active-chip-x" aria-hidden="true">✕</span>
+  </a>
+  {% endif %}
+
+  {% if orden and orden != 'desc' %}
+  <a href="{% url_sin_filtros 'orden' %}" class="active-chip" title="Volver a orden por defecto">
+    <span class="active-chip-key">Orden</span>
+    <span class="active-chip-val">Antiguos primero</span>
+    <span class="active-chip-x" aria-hidden="true">✕</span>
+  </a>
+  {% endif %}
+
+  <a href="{% url 'inbox' %}" class="active-chip-clearall" title="Quitar todos los filtros">
+    Limpiar todo
+  </a>
+
+  <span class="active-filters-count">
+    {{ total }} resultado{{ total|pluralize:"s" }}
+  </span>
 </div>
 {% endif %}
 
@@ -213,7 +319,7 @@
     <ul class="correos-list" role="list">
       {% for correo in page.object_list %}
       <li>
-        <div class="correo-row {% if correo.destacado %}is-starred{% endif %}"
+        <div class="correo-row {% if correo.destacado %}is-starred{% endif %} {% if correo.is_leido %}is-read{% endif %}"
              data-correo-id="{{ correo.id }}"
              data-href="{% url 'detalle' correo.id %}"
              data-preview-url="{% url 'correo_preview' correo.id %}">
@@ -246,11 +352,11 @@
     {% if page.has_other_pages %}
     <nav class="paginacion" aria-label="Paginación">
       {% if page.has_previous %}
-      <a href="?page={{ page.previous_page_number }}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if solo_destacados %}&destacado=1{% endif %}{% if solo_adjuntos %}&adjuntos=1{% endif %}{% if etiqueta_actual %}&etiqueta={{ etiqueta_actual.id }}{% endif %}{% if fecha_desde %}&desde={{ fecha_desde }}{% endif %}{% if fecha_hasta %}&hasta={{ fecha_hasta }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}">← Anterior</a>
+      <a href="?page={{ page.previous_page_number }}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if solo_destacados %}&destacado=1{% endif %}{% if solo_adjuntos %}&adjuntos=1{% endif %}{% if solo_no_leidos %}&no_leidos=1{% endif %}{% if etiqueta_actual %}&etiqueta={{ etiqueta_actual.id }}{% endif %}{% if fecha_desde %}&desde={{ fecha_desde }}{% endif %}{% if fecha_hasta %}&hasta={{ fecha_hasta }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}">← Anterior</a>
       {% endif %}
       <span class="actual">{{ page.number }} / {{ page.paginator.num_pages }} · {{ total }} correo{{ total|pluralize:"s" }}</span>
       {% if page.has_next %}
-      <a href="?page={{ page.next_page_number }}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if solo_destacados %}&destacado=1{% endif %}{% if solo_adjuntos %}&adjuntos=1{% endif %}{% if etiqueta_actual %}&etiqueta={{ etiqueta_actual.id }}{% endif %}{% if fecha_desde %}&desde={{ fecha_desde }}{% endif %}{% if fecha_hasta %}&hasta={{ fecha_hasta }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}">Siguiente →</a>
+      <a href="?page={{ page.next_page_number }}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if solo_destacados %}&destacado=1{% endif %}{% if solo_adjuntos %}&adjuntos=1{% endif %}{% if solo_no_leidos %}&no_leidos=1{% endif %}{% if etiqueta_actual %}&etiqueta={{ etiqueta_actual.id }}{% endif %}{% if fecha_desde %}&desde={{ fecha_desde }}{% endif %}{% if fecha_hasta %}&hasta={{ fecha_hasta }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}">Siguiente →</a>
       {% endif %}
     </nav>
     {% endif %}
@@ -282,6 +388,9 @@
 <script id="etiquetas-disponibles-data" type="application/json">
 [{% for et in etiquetas_disponibles %}{"id":{{ et.id }},"nombre":"{{ et.nombre|escapejs }}","color":"{{ et.color }}"}{% if not forloop.last %},{% endif %}{% endfor %}]
 </script>
+
+</div>{# /.inbox-main #}
+</div>{# /.inbox-layout #}
 {% endblock %}
 
 {% block extra_js %}

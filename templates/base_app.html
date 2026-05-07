@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="{% static 'css/correos.css' %}">
   {% block extra_head %}{% endblock %}
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
   {% include 'partials/_nav_app.html' %}
 
   <main class="app-main">

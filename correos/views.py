@@ -6,7 +6,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.core.cache import cache
 from django.core.paginator import Paginator
-from django.db.models import Count, Q
+from django.db.models import Count, Exists, OuterRef, Q
 from django.db.models.functions import TruncMonth
 from django.http import FileResponse, Http404, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
@@ -15,7 +15,10 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_POST
 
 from . import captcha, totp as totp_helpers
-from .models import Adjunto, Buzon, Correo, Etiqueta, IntentoLogin, ReenvioCorreo, UsuarioPortal, hash_ip
+from .models import (
+    Adjunto, Buzon, Correo, CorreoLeido, Etiqueta, IntentoLogin,
+    ReenvioCorreo, UsuarioPortal, hash_ip,
+)
 from taller.anti_bot import verify_turnstile
 
 
@@ -547,6 +550,30 @@ def _stats_de(buzon: Buzon) -> dict:
     }
 
 
+def _no_leidos_por_buzon(usuario: UsuarioPortal, buzones) -> dict:
+    """
+    {buzon_id: cantidad de correos NO leídos por este usuario en ese buzón}.
+    Hace 2 queries (totales + leídos) y resta — barato incluso con muchos buzones.
+    """
+    buzones_ids = [b.id for b in buzones]
+    if not buzones_ids:
+        return {}
+
+    totales = dict(
+        Correo.objects.filter(buzon_id__in=buzones_ids)
+        .values_list('buzon_id')
+        .annotate(n=Count('id'))
+        .values_list('buzon_id', 'n')
+    )
+    leidos = dict(
+        CorreoLeido.objects.filter(usuario=usuario, correo__buzon_id__in=buzones_ids)
+        .values_list('correo__buzon_id')
+        .annotate(n=Count('id'))
+        .values_list('correo__buzon_id', 'n')
+    )
+    return {bid: max(0, totales.get(bid, 0) - leidos.get(bid, 0)) for bid in buzones_ids}
+
+
 @portal_login_required
 @never_cache
 def inbox_view(request):
@@ -559,7 +586,11 @@ def inbox_view(request):
         messages.error(request, 'No tienes buzones asignados. Contacta al administrador.')
         return redirect('login')
 
-    correos_qs = buzon.correos.all().prefetch_related('etiquetas')
+    correos_qs = buzon.correos.all().prefetch_related('etiquetas').annotate(
+        is_leido=Exists(
+            CorreoLeido.objects.filter(usuario=usuario, correo=OuterRef('pk'))
+        )
+    )
 
     # ─── Filtros ─────────────────────────────────────────────────────────
     # Filtro de carpeta (Inbox / Enviados / Otros / Todos). Default = todos.
@@ -593,6 +624,10 @@ def inbox_view(request):
     if solo_adjuntos:
         correos_qs = correos_qs.filter(tiene_adjunto=True)
 
+    solo_no_leidos = request.GET.get('no_leidos') == '1'
+    if solo_no_leidos:
+        correos_qs = correos_qs.filter(is_leido=False)
+
     etiqueta_actual = None
     try:
         etiqueta_id = int(request.GET.get('etiqueta') or 0)
@@ -620,9 +655,12 @@ def inbox_view(request):
     page = paginator.get_page(request.GET.get('page', 1))
 
     hay_filtros_activos = bool(
-        query or solo_destacados or solo_adjuntos or etiqueta_actual
+        query or solo_destacados or solo_adjuntos or solo_no_leidos or etiqueta_actual
         or fecha_desde or fecha_hasta or carpeta
     )
+
+    visibles = list(usuario.buzones_visibles())
+    no_leidos = _no_leidos_por_buzon(usuario, visibles)
 
     return render(request, 'correos/inbox.html', {
         'buzon': buzon,
@@ -630,11 +668,14 @@ def inbox_view(request):
         'query': query,
         'total': paginator.count,
         'stats': _stats_de(buzon) if not hay_filtros_activos else None,
-        'buzones_visibles': usuario.buzones_visibles(),
+        'buzones_visibles': visibles,
+        'no_leidos_por_buzon': no_leidos,
+        'no_leidos_buzon_actual': no_leidos.get(buzon.id, 0),
         'etiquetas_disponibles': buzon.etiquetas.all().order_by('nombre'),
         'etiqueta_actual': etiqueta_actual,
         'solo_destacados': solo_destacados,
         'solo_adjuntos': solo_adjuntos,
+        'solo_no_leidos': solo_no_leidos,
         'fecha_desde': fecha_desde,
         'fecha_hasta': fecha_hasta,
         'orden': orden,
@@ -659,6 +700,9 @@ def detalle_view(request, correo_id):
     if correo.buzon_id != request.session.get('buzon_actual_id'):
         request.session['buzon_actual_id']    = correo.buzon.id
         request.session['buzon_actual_email'] = correo.buzon.email
+
+    # Marca como leído per-usuario (idempotente).
+    CorreoLeido.objects.get_or_create(usuario=usuario, correo=correo)
 
     return render(request, 'correos/detalle.html', {
         'buzon': correo.buzon,
@@ -934,7 +978,13 @@ def correo_preview_view(request, correo_id):
     if not usuario.puede_ver(correo.buzon):
         raise Http404
 
-    return render(request, 'correos/_correo_preview.html', {'correo': correo})
+    # Marca como leído per-usuario al abrir el preview (idempotente).
+    CorreoLeido.objects.get_or_create(usuario=usuario, correo=correo)
+
+    return render(request, 'correos/_correo_preview.html', {
+        'correo': correo,
+        'is_leido': True,     # acabamos de marcar; el preview lo refleja
+    })
 
 
 # ─── AJAX: organización del archivo ────────────────────────────────────────
@@ -957,6 +1007,35 @@ def toggle_destacado_view(request, correo_id):
     correo.destacado = not correo.destacado
     correo.save(update_fields=['destacado'])
     return JsonResponse({'destacado': correo.destacado})
+
+
+@portal_login_required
+@require_POST
+def toggle_leido_view(request, correo_id):
+    """
+    POST → invierte el estado leído per-usuario del correo. Devuelve JSON
+    con el estado nuevo y el conteo no-leídos del buzón (para refrescar el
+    badge del sidebar sin recargar).
+    """
+    usuario, correo = _correo_si_visible(request, correo_id)
+    rec = CorreoLeido.objects.filter(usuario=usuario, correo=correo).first()
+    if rec:
+        rec.delete()
+        is_leido = False
+    else:
+        CorreoLeido.objects.create(usuario=usuario, correo=correo)
+        is_leido = True
+
+    no_leidos_buzon = max(
+        0,
+        correo.buzon.correos.count() -
+        CorreoLeido.objects.filter(usuario=usuario, correo__buzon=correo.buzon).count()
+    )
+    return JsonResponse({
+        'is_leido':         is_leido,
+        'buzon_id':         correo.buzon_id,
+        'no_leidos_buzon':  no_leidos_buzon,
+    })
 
 
 @portal_login_required

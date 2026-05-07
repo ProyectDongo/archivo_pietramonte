@@ -137,3 +137,35 @@ def es_imagen(adjunto):
     """True si el adjunto es una imagen renderizable inline."""
     mime = (getattr(adjunto, 'mime_type', '') or '').lower()
     return mime.startswith('image/')
+
+
+@register.filter
+def dict_get(d, key):
+    """Subscript con clave variable: {{ mi_dict|dict_get:obj.id }}."""
+    if not d:
+        return None
+    try:
+        return d.get(key)
+    except AttributeError:
+        return None
+
+
+@register.simple_tag(takes_context=True)
+def url_sin_filtros(context, *quitar):
+    """
+    Devuelve la URL del inbox con la querystring actual menos las keys listadas.
+    Siempre quita `page` también (cambiar un filtro debe llevar a página 1).
+
+    Uso en template:
+        <a href="{% url_sin_filtros 'q' %}">Quitar búsqueda</a>
+        <a href="{% url_sin_filtros 'desde' 'hasta' %}">Quitar rango fechas</a>
+    """
+    request = context.get('request')
+    if request is None:
+        return '?'
+    qs = request.GET.copy()
+    for key in quitar:
+        qs.pop(key, None)
+    qs.pop('page', None)
+    encoded = qs.urlencode()
+    return '?' + encoded if encoded else '?'

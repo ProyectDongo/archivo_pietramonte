@@ -16,9 +16,11 @@
 
   // ─── Pintar mini chips de etiqueta con su color ─────────────────────────
   function pintarTagChips(scope) {
-    (scope || document).querySelectorAll('.tag-chip-mini[data-color], .tag-chip[data-color], .filter-tag[data-color]').forEach(function (el) {
+    (scope || document).querySelectorAll(
+      '.tag-chip-mini[data-color], .tag-chip[data-color], .filter-tag[data-color], .active-chip-tag[data-color]'
+    ).forEach(function (el) {
       const color = el.dataset.color;
-      if (el.classList.contains('filter-tag')) {
+      if (el.classList.contains('filter-tag') || el.classList.contains('active-chip-tag')) {
         el.style.color = color;
         el.style.borderColor = color;
       } else {
@@ -109,6 +111,11 @@
         pintarAvatares(preview);
         pintarTagChips(preview);
         wireUpPreview();
+        // El server marcó como leído al servir el preview. Reflejarlo en la
+        // fila y, si era no-leído, decrementar el badge del buzón actual.
+        const wasUnread = !row.classList.contains('is-read');
+        row.classList.add('is-read');
+        if (wasUnread) ajustarBadgeBuzonActivo(-1);
         if (opts.pushState !== false) {
           history.pushState({ correoId: row.dataset.correoId }, '', row.dataset.href);
         }
@@ -240,6 +247,30 @@
       });
     }
 
+    // Botón "marcar como no leído" → vuelve la fila a negrita y suma al badge.
+    const unreadBtn = preview.querySelector('.preview-unread-btn');
+    if (unreadBtn) {
+      unreadBtn.addEventListener('click', function () {
+        const cid = unreadBtn.dataset.correoId;
+        PM.post('/intranet/correo/' + cid + '/leido/').then(function (data) {
+          const row = lista.querySelector('.correo-row[data-correo-id="' + cid + '"]');
+          if (row) row.classList.toggle('is-read', data.is_leido);
+          // Refresca el badge del buzón actual al valor exacto que devolvió el server
+          setBadgeBuzonActivo(data.no_leidos_buzon);
+          // Si lo dejamos en no leído, cerramos el preview para refuerzo visual
+          if (!data.is_leido) {
+            preview.innerHTML = '<div class="preview-empty"><div class="preview-empty-icon">✉️</div>' +
+              '<p>Marcado como no leído.</p></div>';
+            if (window.innerWidth <= 900) preview.classList.remove('show');
+            history.replaceState(null, '', '/intranet/bandeja/');
+            lista.querySelectorAll('.correo-row.active').forEach(function (r) {
+              r.classList.remove('active');
+            });
+          }
+        }).catch(function () { /* silencio: el usuario reintentará */ });
+      });
+    }
+
     // Notas: autosave al perder foco
     const nota = preview.querySelector('.preview-notas-input');
     const status = preview.querySelector('#notas-status');
@@ -289,6 +320,58 @@
     } else if (e.key === 's' && idx >= 0) {
       e.preventDefault();
       toggleStarRow(filas[idx].dataset.correoId, filas[idx]);
+    }
+  });
+
+  // ─── Sidebar de buzones: badge helpers + drawer en mobile ──────────────
+  function badgeNodoActivo() {
+    const item = document.querySelector('.sidebar-buzon-item.active');
+    return item ? item.querySelector('.sidebar-buzon-badge') : null;
+  }
+  function setBadgeBuzonActivo(n) {
+    const item = document.querySelector('.sidebar-buzon-item.active');
+    if (!item) return;
+    let badge = item.querySelector('.sidebar-buzon-badge');
+    if (n > 0) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'sidebar-buzon-badge';
+        item.appendChild(badge);
+      }
+      badge.textContent = n;
+      item.classList.add('has-unread');
+    } else if (badge) {
+      badge.remove();
+      item.classList.remove('has-unread');
+    }
+  }
+  function ajustarBadgeBuzonActivo(delta) {
+    const badge = badgeNodoActivo();
+    const actual = badge ? parseInt(badge.textContent, 10) || 0 : 0;
+    setBadgeBuzonActivo(Math.max(0, actual + delta));
+  }
+
+  const sidebar = document.getElementById('inbox-sidebar');
+  const sidebarToggle = document.getElementById('sidebar-toggle');
+  const sidebarClose = document.getElementById('sidebar-close');
+  const backdrop = document.getElementById('sidebar-backdrop');
+
+  function abrirSidebar() {
+    if (!sidebar) return;
+    sidebar.classList.add('open');
+    if (backdrop) backdrop.hidden = false;
+  }
+  function cerrarSidebar() {
+    if (!sidebar) return;
+    sidebar.classList.remove('open');
+    if (backdrop) backdrop.hidden = true;
+  }
+  if (sidebarToggle)  sidebarToggle.addEventListener('click', abrirSidebar);
+  if (sidebarClose)   sidebarClose.addEventListener('click', cerrarSidebar);
+  if (backdrop)       backdrop.addEventListener('click', cerrarSidebar);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && sidebar && sidebar.classList.contains('open')) {
+      cerrarSidebar();
     }
   });
 

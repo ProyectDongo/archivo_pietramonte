@@ -26,6 +26,7 @@ urlpatterns = [
     path('intranet/bandeja/',                views.inbox_view,        name='inbox'),
     path('intranet/correo/<int:correo_id>/preview/',     views.correo_preview_view,   name='correo_preview'),
     path('intranet/correo/<int:correo_id>/destacar/',    views.toggle_destacado_view, name='toggle_destacado'),
+    path('intranet/correo/<int:correo_id>/leido/',       views.toggle_leido_view,     name='toggle_leido'),
     path('intranet/correo/<int:correo_id>/notas/',       views.actualizar_notas_view, name='actualizar_notas'),
     path('intranet/correo/<int:correo_id>/etiqueta/',    views.asignar_etiqueta_view, name='asignar_etiqueta'),
     path('intranet/correo/<int:correo_id>/reenviar/',    views.reenviar_correo_view,  name='reenviar_correo'),
