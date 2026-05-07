@@ -206,8 +206,12 @@ class CorreoLeido(models.Model):
         verbose_name = 'Correo leído'
         verbose_name_plural = 'Correos leídos'
         unique_together = [('usuario', 'correo')]
+        # Nombre explícito del índice — debe coincidir con el de la migration
+        # 0010_correoleido (donde lo hardcodeé en vez de dejar que Django
+        # autogenere). Sin este name=, el modelo y la migración divergen y
+        # `makemigrations` propone una migración de rename eterna.
         indexes = [
-            models.Index(fields=['usuario', 'correo']),
+            models.Index(fields=['usuario', 'correo'], name='correos_cor_usuario_e8d39e_idx'),
         ]
 
     def __str__(self):
@@ -403,10 +407,12 @@ class CorreoEnviado(models.Model):
         verbose_name = 'Correo enviado desde el portal'
         verbose_name_plural = 'Correos enviados desde el portal'
         ordering = ['-enviado_en']
+        # Nombres explícitos para que matcheen con la migration 0011_correoenviado
+        # (donde los hardcodeé). Mismo motivo que CorreoLeido.
         indexes = [
-            models.Index(fields=['usuario', '-enviado_en']),
-            models.Index(fields=['buzon', '-enviado_en']),
-            models.Index(fields=['exito', '-enviado_en']),
+            models.Index(fields=['usuario', '-enviado_en'], name='correos_cor_usuario_4f8d2a_idx'),
+            models.Index(fields=['buzon', '-enviado_en'],   name='correos_cor_buzon_i_e1c39b_idx'),
+            models.Index(fields=['exito', '-enviado_en'],   name='correos_cor_exito_3a7e4f_idx'),
         ]
 
     def __str__(self):
