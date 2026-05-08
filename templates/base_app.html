@@ -37,6 +37,42 @@
     </figure>
   </div>
 
+  <div id="compose-fab" class="compose-fab" hidden role="dialog" aria-label="Redactar correo">
+    <header class="compose-fab-head">
+      <span class="compose-fab-title">Mensaje nuevo</span>
+      <span class="compose-fab-status" aria-live="polite"></span>
+      <button type="button" class="compose-fab-btn" data-cf-action="minimize" aria-label="Minimizar" title="Minimizar">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+      <button type="button" class="compose-fab-btn" data-cf-action="expand" aria-label="Pantalla completa" title="Pantalla completa">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+      </button>
+      <button type="button" class="compose-fab-btn" data-cf-action="close" aria-label="Cerrar (mantiene borrador)" title="Cerrar — el borrador queda guardado">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </header>
+    <form class="compose-fab-form" method="post">
+      <label class="compose-fab-row">
+        <span class="compose-fab-label">Para</span>
+        <input type="text" name="to" autocomplete="off" maxlength="500" required>
+      </label>
+      <label class="compose-fab-row compose-fab-row-cc" hidden>
+        <span class="compose-fab-label">Cc</span>
+        <input type="text" name="cc" autocomplete="off" maxlength="500">
+      </label>
+      <button type="button" class="compose-fab-cc-toggle" data-cf-action="toggle-cc">+ Cc</button>
+      <label class="compose-fab-row">
+        <span class="compose-fab-label">Asunto</span>
+        <input type="text" name="asunto" autocomplete="off" maxlength="500" required>
+      </label>
+      <textarea name="cuerpo" class="compose-fab-body" placeholder="Escribí tu mensaje…" maxlength="50000" required></textarea>
+      <footer class="compose-fab-foot">
+        <button type="submit" class="compose-fab-send">Enviar</button>
+        <button type="button" class="compose-fab-discard" data-cf-action="discard" title="Descartar borrador">🗑</button>
+      </footer>
+    </form>
+  </div>
+
   <div id="adj-viewer" class="adj-viewer" hidden role="dialog" aria-modal="true" aria-label="Vista de adjunto">
     <div class="adj-viewer-bar">
       <span class="adj-viewer-name"></span>
@@ -58,6 +94,7 @@
   <script src="{% static 'js/app_nav.js' %}" defer></script>
   <script src="{% static 'js/lightbox.js' %}" defer></script>
   <script src="{% static 'js/adj_viewer.js' %}" defer></script>
+  <script src="{% static 'js/compose_floating.js' %}" defer></script>
   <script src="{% static 'js/theme.js' %}" defer></script>
   {% block extra_js %}{% endblock %}
 </body>

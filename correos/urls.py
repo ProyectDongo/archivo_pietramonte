@@ -26,6 +26,7 @@ urlpatterns = [
     path('intranet/salir/',                  views.logout_view,       name='logout'),
     path('intranet/bandeja/',                views.inbox_view,        name='inbox'),
     path('intranet/correo/<int:correo_id>/preview/',     views.correo_preview_view,   name='correo_preview'),
+    path('intranet/correo/<int:correo_id>/prefill/',     views.correo_prefill_view,   name='correo_prefill'),
     path('intranet/correo/<int:correo_id>/destacar/',    views.toggle_destacado_view, name='toggle_destacado'),
     path('intranet/correo/<int:correo_id>/leido/',       views.toggle_leido_view,     name='toggle_leido'),
     path('intranet/correo/<int:correo_id>/snooze/',      views.snooze_correo_view,    name='snooze_correo'),
@@ -40,4 +41,7 @@ urlpatterns = [
     path('intranet/buzon/etiqueta-nueva/',               views.crear_etiqueta_view,   name='crear_etiqueta'),
     path('intranet/correos/bulk/',                       views.bulk_acciones_view,    name='bulk_acciones'),
     path('intranet/redactar/',                           views.compose_view,          name='compose'),
+    path('intranet/borradores/',                         views.borradores_view,           name='borradores'),
+    path('intranet/borradores/<int:borrador_id>/',       views.borrador_detalle_view,     name='borrador_detalle'),
+    path('intranet/borradores/<int:borrador_id>/enviar/', views.borrador_enviar_view,     name='borrador_enviar'),
 ]

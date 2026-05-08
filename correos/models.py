@@ -222,6 +222,52 @@ class CorreoLeido(models.Model):
         return f'{self.usuario.email} leyó #{self.correo_id}'
 
 
+class BorradorCorreo(models.Model):
+    """
+    Borrador per-usuario de un correo en redacción. Lo crea el JS de compose
+    al primer cambio (debounce 1.5s) y lo va updateando con cada modificación.
+    Se borra cuando el usuario:
+      - Manda el correo (al hacer "Enviar" se convierte en CorreoEnviado).
+      - Descarta explícitamente.
+
+    NO persiste adjuntos (la subida + storage temporal es complejo). Si el
+    usuario adjuntó archivos y cierra sin enviar, los pierde. La key visible
+    para el usuario es: nunca pierde el TEXTO.
+    """
+    class Modo(models.TextChoices):
+        COMPOSE         = 'compose',         'Composición nueva'
+        RESPONDER       = 'responder',       'Responder'
+        RESPONDER_TODOS = 'responder_todos', 'Responder a todos'
+        REENVIAR        = 'reenviar',        'Reenviar'
+
+    usuario          = models.ForeignKey('UsuarioPortal', on_delete=models.CASCADE,
+                                         related_name='borradores')
+    buzon            = models.ForeignKey('Buzon', on_delete=models.CASCADE,
+                                         related_name='borradores',
+                                         help_text='Buzón desde el que se enviará el correo (define el From).')
+    modo             = models.CharField(max_length=20, choices=Modo.choices, default=Modo.COMPOSE)
+    correo_original  = models.ForeignKey('Correo', on_delete=models.SET_NULL, null=True, blank=True,
+                                         related_name='borradores_de',
+                                         help_text='Solo para responder/reenviar.')
+    to               = models.TextField(blank=True, default='')
+    cc               = models.TextField(blank=True, default='')
+    asunto           = models.CharField(max_length=1000, blank=True, default='')
+    cuerpo           = models.TextField(blank=True, default='', max_length=50000)
+    creado           = models.DateTimeField(auto_now_add=True)
+    actualizado      = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Borrador de correo'
+        verbose_name_plural = 'Borradores de correos'
+        ordering = ['-actualizado']
+        indexes = [
+            models.Index(fields=['usuario', '-actualizado'], name='correos_brd_usr_act_idx'),
+        ]
+
+    def __str__(self):
+        return f'Borrador #{self.id} · {self.usuario.email} · {self.asunto[:60] or "(sin asunto)"}'
+
+
 class CorreoSnooze(models.Model):
     """
     Snooze (posponer) per-usuario: oculta el correo de la bandeja hasta

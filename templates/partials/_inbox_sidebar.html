@@ -14,6 +14,33 @@
     </span>
     <span class="sidebar-compose-text">Redactar</span>
   </a>
+
+  {% if cant_borradores %}
+  <div class="sidebar-drafts-wrap">
+    <button type="button" class="sidebar-link sidebar-drafts-btn" id="sidebar-drafts-btn"
+            aria-expanded="false" aria-controls="sidebar-drafts-pop"
+            title="Borradores guardados">
+      <span class="sidebar-link-ico" aria-hidden="true">📝</span>
+      <span class="sidebar-link-text">Borradores</span>
+      <span class="sidebar-link-count">{{ cant_borradores }}</span>
+    </button>
+    <div class="sidebar-drafts-pop" id="sidebar-drafts-pop" hidden role="listbox" aria-label="Borradores recientes">
+      {% for b in borradores_recientes %}
+      <button type="button" class="sidebar-draft-item" data-borrador-id="{{ b.id }}"
+              title="{{ b.asunto|default:'(sin asunto)' }}">
+        <span class="sidebar-draft-asunto">{{ b.asunto|default:"(sin asunto)"|truncatechars:40 }}</span>
+        <span class="sidebar-draft-meta">
+          <span class="sidebar-draft-to">{{ b.to|truncatechars:30|default:"(sin destinatario)" }}</span>
+          <span class="sidebar-draft-date">{{ b.actualizado|date:"d/m H:i" }}</span>
+        </span>
+      </button>
+      {% endfor %}
+      {% if cant_borradores > borradores_recientes|length %}
+      <div class="sidebar-draft-more">+ {{ cant_borradores|add:'-8' }} más</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
 <nav class="sidebar-section" aria-label="Cambiar buzón">
     <div class="sidebar-label">Buzones</div>
     <ul class="sidebar-buzon-list" id="sidebar-buzon-list" role="list">

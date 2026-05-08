@@ -18,8 +18,8 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from . import captcha, totp as totp_helpers
 from .models import (
-    Adjunto, Buzon, Correo, CorreoEnviado, CorreoLeido, CorreoSnooze, Etiqueta,
-    IntentoLogin, ReenvioCorreo, UsuarioPortal, hash_ip,
+    Adjunto, BorradorCorreo, Buzon, Correo, CorreoEnviado, CorreoLeido,
+    CorreoSnooze, Etiqueta, IntentoLogin, ReenvioCorreo, UsuarioPortal, hash_ip,
 )
 from .throttle import throttle_user
 from taller.anti_bot import verify_turnstile
@@ -855,6 +855,11 @@ def inbox_view(request):
     cant_pospuestos = CorreoSnooze.objects.filter(
         usuario=usuario, until_at__gt=timezone.now(), correo__buzon=buzon,
     ).count()
+    borradores_recientes = list(
+        BorradorCorreo.objects.filter(usuario=usuario)
+        .order_by('-actualizado')[:8]
+    )
+    cant_borradores = BorradorCorreo.objects.filter(usuario=usuario).count()
 
     return render(request, 'correos/inbox.html', {
         'buzon': buzon,
@@ -879,6 +884,8 @@ def inbox_view(request):
         'hay_filtros_activos': hay_filtros_activos,
         'ver_pospuestos': ver_pospuestos,
         'cant_pospuestos': cant_pospuestos,
+        'borradores_recientes': borradores_recientes,
+        'cant_borradores': cant_borradores,
     })
 
 
@@ -1540,6 +1547,38 @@ def correo_preview_view(request, correo_id):
     })
 
 
+# ─── Prefill JSON para el compose flotante (reply inline) ──────────────────
+@portal_login_required
+def correo_prefill_view(request, correo_id):
+    """
+    GET → devuelve JSON con el prefill {to, cc, asunto} para responder o
+    reenviar un correo desde el compose flotante. Acepta ?modo=simple|todos|reenviar.
+    """
+    usuario, correo = _correo_si_visible(request, correo_id)
+    modo = (request.GET.get('modo') or 'simple').lower()
+
+    if modo == 'reenviar':
+        asunto = (correo.asunto or '').strip()
+        if asunto and not asunto.lower().startswith(('fwd:', 'fw:', 'rv:')):
+            asunto = f'Fwd: {asunto}'
+        elif not asunto:
+            asunto = 'Fwd: (sin asunto)'
+        return JsonResponse({
+            'modo':    'reenviar',
+            'to':      '',
+            'cc':      '',
+            'asunto':  asunto,
+        })
+
+    pref = _prefill_responder(correo, 'todos' if modo == 'todos' else 'simple')
+    return JsonResponse({
+        'modo':    'responder_todos' if modo == 'todos' else 'responder',
+        'to':      pref['to'],
+        'cc':      pref['cc'],
+        'asunto':  pref['asunto'],
+    })
+
+
 # ─── Threading heurístico (sin tocar el modelo ni el import) ──────────────
 _RE_ASUNTO_PREFIJO = re.compile(r'^\s*(re|fwd?|rv|fw)\s*:\s*', re.IGNORECASE)
 
@@ -1778,6 +1817,269 @@ def crear_etiqueta_view(request):
         'creada': creada,
         'etiqueta': {'id': etiqueta.id, 'nombre': etiqueta.nombre, 'color': etiqueta.color},
     })
+
+
+# ─── Borradores (drafts) ──────────────────────────────────────────────────
+def _borrador_dict(b: BorradorCorreo) -> dict:
+    return {
+        'id':                b.id,
+        'modo':              b.modo,
+        'correo_original_id': b.correo_original_id,
+        'to':                b.to,
+        'cc':                b.cc,
+        'asunto':            b.asunto,
+        'cuerpo':            b.cuerpo,
+        'actualizado':       b.actualizado.isoformat(),
+    }
+
+
+_BORRADOR_CAMPOS_EDITABLES = {'to', 'cc', 'asunto', 'cuerpo', 'modo'}
+
+
+@portal_login_required
+@require_http_methods(['GET', 'POST'])
+def borradores_view(request):
+    """
+    GET  → lista los borradores del usuario actual.
+    POST → crea un borrador nuevo y devuelve {id, ...}.
+
+    Body POST (form-encoded o JSON):
+      modo                 (opcional, default 'compose')
+      correo_original_id   (opcional, para responder/reenviar)
+      to, cc, asunto, cuerpo (todos opcionales — el usuario puede empezar vacío)
+    """
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return JsonResponse({'error': 'no_session'}, status=403)
+
+    if request.method == 'GET':
+        items = list(
+            BorradorCorreo.objects.filter(usuario=usuario)
+            .select_related('buzon', 'correo_original')
+            .order_by('-actualizado')[:200]
+        )
+        return JsonResponse({
+            'borradores': [_borrador_dict(b) for b in items],
+        })
+
+    # POST → crear
+    buzon = _buzon_actual(request, usuario)
+    if not buzon:
+        return JsonResponse({'error': 'no_buzon'}, status=400)
+
+    modo = (request.POST.get('modo') or BorradorCorreo.Modo.COMPOSE).strip()
+    if modo not in dict(BorradorCorreo.Modo.choices):
+        modo = BorradorCorreo.Modo.COMPOSE
+
+    correo_original = None
+    raw_orig = request.POST.get('correo_original_id')
+    if raw_orig and str(raw_orig).isdigit():
+        try:
+            correo_original = Correo.objects.get(id=int(raw_orig))
+            if not usuario.puede_ver(correo_original.buzon):
+                correo_original = None
+        except Correo.DoesNotExist:
+            correo_original = None
+
+    b = BorradorCorreo.objects.create(
+        usuario=usuario,
+        buzon=buzon,
+        modo=modo,
+        correo_original=correo_original,
+        to=(request.POST.get('to') or '')[:5000],
+        cc=(request.POST.get('cc') or '')[:5000],
+        asunto=(request.POST.get('asunto') or '')[:1000],
+        cuerpo=(request.POST.get('cuerpo') or '')[:50000],
+    )
+    return JsonResponse(_borrador_dict(b))
+
+
+@portal_login_required
+@require_http_methods(['GET', 'POST', 'DELETE'])
+def borrador_detalle_view(request, borrador_id):
+    """
+    GET    → devuelve el borrador.
+    POST   → update parcial (autosave). Acepta to/cc/asunto/cuerpo/modo.
+    DELETE → descartar borrador.
+    """
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return JsonResponse({'error': 'no_session'}, status=403)
+    b = get_object_or_404(BorradorCorreo, id=borrador_id, usuario=usuario)
+
+    if request.method == 'GET':
+        return JsonResponse(_borrador_dict(b))
+
+    if request.method == 'DELETE':
+        b.delete()
+        return JsonResponse({'ok': True})
+
+    # POST → autosave
+    cambios = []
+    for k in _BORRADOR_CAMPOS_EDITABLES:
+        if k in request.POST:
+            v = request.POST.get(k) or ''
+            if k == 'asunto':
+                v = v[:1000]
+            elif k == 'cuerpo':
+                v = v[:50000]
+            elif k in ('to', 'cc'):
+                v = v[:5000]
+            elif k == 'modo':
+                if v not in dict(BorradorCorreo.Modo.choices):
+                    continue
+            setattr(b, k, v)
+            cambios.append(k)
+    if cambios:
+        b.save(update_fields=cambios + ['actualizado'])
+    return JsonResponse(_borrador_dict(b))
+
+
+@portal_login_required
+@require_POST
+def borrador_enviar_view(request, borrador_id):
+    """
+    POST → toma un borrador, valida, manda el correo (vía safe_send),
+    persiste como Correo en Enviados y BORRA el borrador.
+
+    Reusa la misma lógica de validación + envío que compose_view /
+    responder_correo_view, pero opera sobre el borrador como fuente de datos.
+    """
+    from email.utils import make_msgid
+
+    from django.core.exceptions import ValidationError
+
+    from archivo_pietramonte.email_utils import safe_send
+
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return JsonResponse({'error': 'no_session'}, status=403)
+    b = get_object_or_404(BorradorCorreo, id=borrador_id, usuario=usuario)
+    buzon = b.buzon
+
+    limite = RESP_LIMIT_ADMIN if usuario.es_admin else RESP_LIMIT_USER
+    usados = _enviados_recientes(usuario)
+    if usados >= limite:
+        return JsonResponse({
+            'ok': False,
+            'error': f'Llegaste al límite de {limite} envíos en {RESP_RL_HORAS}h.',
+        }, status=429)
+
+    # Permitir override en el POST si el usuario editó algo en el último click
+    # (el JS puede enviar campos finales en el POST de "enviar" sin pasar por
+    # otro autosave previo — atrapamos esos cambios acá).
+    to = (request.POST.get('to') or b.to).strip()
+    cc = (request.POST.get('cc') or b.cc).strip()
+    asunto = (request.POST.get('asunto') or b.asunto).strip()[:1000]
+    cuerpo = (request.POST.get('cuerpo') or b.cuerpo)[:RESP_MAX_BODY]
+
+    try:
+        to_addrs = _parse_destinatarios(to)
+    except ValidationError as e:
+        msg = e.messages[0] if hasattr(e, 'messages') and e.messages else str(e)
+        return JsonResponse({'ok': False, 'error': f'To: {msg}'}, status=400)
+
+    cc_addrs: list[str] = []
+    if cc:
+        try:
+            cc_addrs = _parse_destinatarios(cc)
+        except ValidationError as e:
+            msg = e.messages[0] if hasattr(e, 'messages') and e.messages else str(e)
+            return JsonResponse({'ok': False, 'error': f'Cc: {msg}'}, status=400)
+
+    if len(to_addrs) + len(cc_addrs) > RESP_MAX_DEST:
+        return JsonResponse({
+            'ok': False,
+            'error': f'Máximo {RESP_MAX_DEST} destinatarios (To + Cc) por envío.',
+        }, status=400)
+    if not asunto:
+        return JsonResponse({'ok': False, 'error': 'El asunto no puede estar vacío.'}, status=400)
+    if not cuerpo.strip():
+        return JsonResponse({'ok': False, 'error': 'El mensaje no puede estar vacío.'}, status=400)
+
+    new_msg_id = make_msgid(domain='pietramonte.cl')
+    headers = {'Message-ID': new_msg_id}
+    if b.correo_original and b.correo_original.mensaje_id and b.modo in (
+        BorradorCorreo.Modo.RESPONDER, BorradorCorreo.Modo.RESPONDER_TODOS
+    ):
+        headers['In-Reply-To'] = b.correo_original.mensaje_id
+        headers['References']  = b.correo_original.mensaje_id
+
+    template = 'correos/email/respuesta' if b.modo in (
+        BorradorCorreo.Modo.RESPONDER, BorradorCorreo.Modo.RESPONDER_TODOS
+    ) else 'correos/email/compose'
+
+    contexto = {
+        'asunto':         asunto,
+        'cuerpo_usuario': cuerpo,
+        'enviado_por':    buzon.email,
+    }
+    if template == 'correos/email/respuesta' and b.correo_original:
+        contexto['correo_original'] = b.correo_original
+
+    resultado = safe_send(
+        asunto=asunto,
+        para=to_addrs,
+        cc=cc_addrs or None,
+        template=template,
+        contexto=contexto,
+        from_alias=_from_alias_buzon(buzon),
+        headers=headers,
+    )
+
+    sent_correo = None
+    if resultado['ok']:
+        try:
+            sent_correo = Correo.objects.create(
+                buzon=buzon,
+                tipo_carpeta=Correo.Carpeta.ENVIADOS,
+                mensaje_id=new_msg_id[:500],
+                remitente=_from_alias_buzon(buzon)[:500],
+                destinatario=', '.join(to_addrs + cc_addrs)[:1000],
+                asunto=asunto[:1000],
+                fecha=timezone.now(),
+                cuerpo_texto=cuerpo,
+                tiene_adjunto=False,
+            )
+            CorreoLeido.objects.get_or_create(usuario=usuario, correo=sent_correo)
+        except Exception:
+            logger.warning(
+                'Borrador-enviar: SMTP OK pero fallo al guardar Correo (usuario=%s, msg_id=%s)',
+                usuario.email, new_msg_id, exc_info=True,
+            )
+
+    tipo_audit = {
+        BorradorCorreo.Modo.RESPONDER:       CorreoEnviado.Tipo.RESPONDER,
+        BorradorCorreo.Modo.RESPONDER_TODOS: CorreoEnviado.Tipo.RESPONDER_TODOS,
+        BorradorCorreo.Modo.COMPOSE:         CorreoEnviado.Tipo.COMPOSE,
+        BorradorCorreo.Modo.REENVIAR:        CorreoEnviado.Tipo.COMPOSE,
+    }.get(b.modo, CorreoEnviado.Tipo.COMPOSE)
+
+    CorreoEnviado.objects.create(
+        buzon=buzon,
+        usuario=usuario,
+        correo_original=b.correo_original,
+        correo_guardado=sent_correo,
+        tipo=tipo_audit,
+        destinatarios=', '.join(to_addrs),
+        cc=', '.join(cc_addrs),
+        asunto=asunto,
+        cuerpo=cuerpo,
+        mensaje_id=new_msg_id,
+        in_reply_to=(b.correo_original.mensaje_id or '')[:500] if b.correo_original else '',
+        exito=resultado['ok'],
+        error_msg=(resultado.get('error') or '')[:500],
+        ip_hash=hash_ip(_get_ip(request)),
+    )
+
+    if resultado['ok']:
+        b.delete()
+        return JsonResponse({'ok': True, 'enviado_a': to_addrs + cc_addrs})
+
+    return JsonResponse({
+        'ok': False,
+        'error': resultado.get('error') or 'Error desconocido al enviar.',
+    }, status=500)
 
 
 # ─── Compose: escribir un correo nuevo desde cero ────────────────────────
