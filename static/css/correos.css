@@ -2423,3 +2423,849 @@
     justify-content: flex-start;
   }
 }
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   INBOX REDESIGN 2026-05-08 — layout 3-pane Gmail-style + responsive
+   ════════════════════════════════════════════════════════════════════════
+   El portal solía usar layout vertical (stats grandes encima, lista abajo)
+   con sidebar de buzones reemplazado por un strip horizontal. Resultado:
+   ~700px verticales gastados en stats antes de ver un correo. Sumado a
+   ancho fijo max-width:1200px, en monitores 1920px se desperdiciaba 720px
+   horizontales.
+   Nuevo layout para .page-inbox:
+     - app-main: full-viewport-height, sin max-width
+     - shell: grid 2-cols (sidebar 260px + main 1fr) en desktop
+     - main: stack vertical: header + (stats colapsable) + toolbar +
+       (filtros activos) + split (lista + preview con scroll independiente)
+     - sidebar concentra buzones, carpetas, filtros, etiquetas
+     - mobile (<900px): sidebar es drawer off-canvas + lista full-width;
+       cuando hay correo seleccionado, preview cubre toda la pantalla.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ─── 1. Fullscreen layout para la página inbox ────────────────────────── */
+.page-inbox { height: 100vh; overflow: hidden; }
+.page-inbox .app-main {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  height: calc(100vh - 64px);   /* nav fija de 64px */
+  overflow: hidden;
+}
+.page-inbox .app-main > .messages { padding: 8px 16px 0; margin: 0; }
+
+/* ─── 2. Shell: sidebar + main ─────────────────────────────────────────── */
+.inbox-shell {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  height: 100%;
+  background: var(--off);
+  position: relative;
+}
+
+/* ─── 3. Sidebar ───────────────────────────────────────────────────────── */
+.inbox-sidebar {
+  background: var(--w);
+  border-right: 1px solid var(--bdr);
+  overflow-y: auto;
+  padding: 14px 10px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.sidebar-section { display: flex; flex-direction: column; gap: 2px; }
+.sidebar-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--gl);
+  padding: 0 12px 6px;
+}
+
+/* Buzones (con avatar) */
+.sidebar-buzon-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.sidebar-buzon-form { margin: 0; }
+.sidebar-buzon {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--f);
+  font-size: 13px;
+  color: var(--gd);
+  transition: background .15s ease;
+}
+.sidebar-buzon:hover { background: var(--off); }
+.sidebar-buzon.active {
+  background: rgba(200,12,15,.08);
+  font-weight: 600;
+}
+.sidebar-buzon.active .sidebar-buzon-name { color: var(--r); }
+.sidebar-buzon.has-unread .sidebar-buzon-name { font-weight: 700; }
+.sidebar-buzon-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.sidebar-badge {
+  background: var(--r);
+  color: var(--w);
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 7px;
+  border-radius: 99px;
+  min-width: 20px;
+  text-align: center;
+  line-height: 1.4;
+}
+
+/* Avatar small (28px) usado en sidebar y stats senders */
+.avatar.avatar-sm {
+  width: 28px;
+  height: 28px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--w);
+  flex-shrink: 0;
+}
+
+/* Links del sidebar (carpetas, filtros, tags) */
+.sidebar-link {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  text-decoration: none;
+  font-size: 13px;
+  color: var(--gm);
+  border-radius: 8px;
+  transition: background .15s, color .15s;
+  /* Para botones (sidebar-tag-new) */
+  width: 100%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: var(--f);
+  text-align: left;
+}
+.sidebar-link:hover { background: var(--off); color: var(--gd); }
+.sidebar-link.active {
+  background: rgba(200,12,15,.08);
+  color: var(--r);
+  font-weight: 600;
+}
+.sidebar-link-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: inherit;
+  flex-shrink: 0;
+}
+.sidebar-link-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.sidebar-link-count {
+  font-size: 11px;
+  color: var(--gl);
+  font-weight: 600;
+  background: var(--off2);
+  padding: 1px 7px;
+  border-radius: 99px;
+  min-width: 20px;
+  text-align: center;
+}
+.sidebar-link.active .sidebar-link-count {
+  background: var(--r);
+  color: var(--w);
+}
+
+/* Filtro destacados: estrella amarilla cuando activa */
+.sidebar-link.sidebar-filter-star.active {
+  background: rgba(251,192,45,.12);
+  color: #c08800;
+}
+.sidebar-link.sidebar-filter-star.active .sidebar-link-count {
+  background: #FBC02D;
+  color: var(--gd);
+}
+
+/* Etiquetas del sidebar (dot color) */
+.sidebar-tag .tag-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--gm);   /* fallback; JS pinta con data-color del padre */
+  flex-shrink: 0;
+}
+.sidebar-tag-new {
+  margin-top: 4px;
+  color: var(--gl);
+  border: 1px dashed var(--bdr);
+  font-size: 12px;
+  padding: 6px 12px;
+}
+.sidebar-tag-new:hover { border-color: var(--r); color: var(--r); background: var(--rl); }
+.sidebar-tag-new .sidebar-link-ico { font-weight: 800; font-size: 16px; }
+
+.sidebar-empty {
+  font-size: 11px;
+  color: var(--gl);
+  padding: 4px 12px;
+  font-style: italic;
+}
+
+/* Dialog inline para crear etiqueta */
+.new-tag-dialog {
+  background: var(--off);
+  border: 1px solid var(--bdr);
+  border-radius: 8px;
+  padding: 10px;
+  margin: 8px 4px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.new-tag-dialog input {
+  border: 1px solid var(--bdr);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-family: var(--f);
+  font-size: 12px;
+}
+.new-tag-dialog input:focus { outline: none; border-color: var(--r); }
+.new-tag-dialog .color-palette { display: flex; gap: 5px; flex-wrap: wrap; }
+.new-tag-dialog .color-palette button {
+  width: 22px; height: 22px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 0;
+  transition: transform .12s;
+}
+.new-tag-dialog .color-palette button:hover { transform: scale(1.15); }
+.new-tag-dialog .color-palette button.selected,
+.new-tag-dialog .color-palette button[data-active="1"] {
+  border-color: var(--gd);
+  box-shadow: 0 0 0 2px var(--w) inset;
+}
+.new-tag-actions { display: flex; gap: 6px; }
+.new-tag-btn-create,
+.new-tag-btn-cancel {
+  flex: 1;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-family: var(--f);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.new-tag-btn-create { background: var(--r); color: var(--w); }
+.new-tag-btn-create:hover { background: var(--rd); }
+.new-tag-btn-cancel { background: var(--off2); color: var(--gd); }
+.new-tag-btn-cancel:hover { background: var(--bdr); }
+
+/* Sidebar close (visible solo en mobile drawer) */
+.sidebar-close {
+  display: none;
+  align-self: flex-end;
+  background: transparent;
+  border: none;
+  padding: 6px;
+  border-radius: 6px;
+  color: var(--gd);
+  cursor: pointer;
+  margin-bottom: -8px;
+}
+.sidebar-close:hover { background: var(--off); }
+
+/* Sidebar backdrop (solo mobile) */
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.4);
+  z-index: 89;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s ease;
+}
+.sidebar-backdrop:not([hidden]) { opacity: 1; pointer-events: auto; }
+
+/* ─── 4. Main: header + stats banner + toolbar + split ─────────────────── */
+.inbox-main {
+  display: grid;
+  grid-template-rows: auto auto auto auto 1fr;
+  grid-template-areas: "header" "stats" "toolbar" "filters" "split";
+  overflow: hidden;
+  min-width: 0;   /* sino el grid hijo se desborda con contenido largo */
+}
+.inbox-main > .inbox-header  { grid-area: header; }
+.inbox-main > .stats-panel   { grid-area: stats; }
+.inbox-main > .inbox-toolbar { grid-area: toolbar; }
+.inbox-main > .toolbar-adv,
+.inbox-main > .active-filters { grid-area: filters; }
+.inbox-main > .inbox-split   { grid-area: split; }
+
+/* Header del main (título + toggle stats) */
+.inbox-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: var(--w);
+  border-bottom: 1px solid var(--bdr);
+  min-height: 56px;
+}
+.sidebar-toggle {
+  display: none;   /* oculto en desktop, mostramos en tablet/mobile */
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 6px;
+  border-radius: 6px;
+  color: var(--gd);
+  cursor: pointer;
+}
+.sidebar-toggle:hover { background: var(--off); }
+
+.inbox-title {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-weight: 700;
+  font-size: 16px;
+  min-width: 0;
+}
+.inbox-title-kicker {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--gl);
+  flex-shrink: 0;
+}
+.inbox-title-email {
+  color: var(--r);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.stats-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--off);
+  border: 1px solid var(--bdr);
+  border-radius: 99px;
+  font-family: var(--f);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gd);
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+  flex-shrink: 0;
+}
+.stats-toggle:hover { background: var(--w); border-color: var(--gm); }
+.stats-toggle-num { font-weight: 800; color: var(--r); }
+.stats-toggle-label { color: var(--gl); }
+.stats-toggle-chev { transition: transform .25s ease; }
+.stats-toggle[aria-expanded="true"] {
+  background: rgba(200,12,15,.06);
+  border-color: var(--r);
+  color: var(--r);
+}
+.stats-toggle[aria-expanded="true"] .stats-toggle-chev { transform: rotate(180deg); }
+
+/* Stats panel (colapsable) */
+.stats-panel {
+  background: linear-gradient(135deg, #fafafa 0%, var(--w) 100%);
+  border-bottom: 1px solid var(--bdr);
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: stats-slide-in .3s var(--ease);
+}
+.stats-panel[hidden] { display: none; }
+@keyframes stats-slide-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.stats-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+.stat-mini {
+  background: var(--w);
+  border: 1px solid var(--bdr);
+  border-radius: 10px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: border-color .15s, box-shadow .15s;
+}
+.stat-mini:hover { border-color: var(--gm); box-shadow: 0 1px 4px rgba(0,0,0,.04); }
+.stat-mini-n {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--r);
+  line-height: 1.1;
+  letter-spacing: -.5px;
+}
+.stat-mini-n-text { font-size: 14px; color: var(--gd); }
+.stat-mini-l {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--gl);
+  margin-top: 2px;
+}
+
+.stats-bottom {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.stats-chart, .stats-senders {
+  background: var(--w);
+  border: 1px solid var(--bdr);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.stats-chart-label {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--gl);
+}
+.stats-chart .chart-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 60px;
+}
+.stats-chart .chart-bar-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.stats-chart .chart-bar {
+  width: 100%;
+  background: linear-gradient(to top, var(--r), #ff5a5d);
+  border-radius: 3px 3px 0 0;
+  min-height: 2px;
+  transition: opacity .2s;
+}
+.stats-chart .chart-bar:hover { opacity: .7; }
+.stats-chart .chart-bar-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--gl);
+  letter-spacing: .5px;
+}
+
+.stats-senders .dash-senders-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.stats-senders .sender-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 4px;
+  background: var(--off);
+  border: 1px solid var(--bdr);
+  border-radius: 99px;
+  cursor: pointer;
+  font-family: var(--f);
+  font-size: 11px;
+  color: var(--gd);
+  transition: border-color .15s, background .15s;
+  max-width: 100%;
+}
+.stats-senders .sender-chip:hover { border-color: var(--r); background: var(--w); }
+.stats-senders .sender-text {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.stats-senders .sender-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  min-width: 0;
+}
+.stats-senders .sender-count {
+  font-size: 10px;
+  color: var(--gl);
+  font-weight: 700;
+}
+
+/* Toolbar (search + filtros toggle) */
+.inbox-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  background: var(--w);
+  border-bottom: 1px solid var(--bdr);
+}
+.toolbar-search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--off);
+  border: 1px solid var(--bdr);
+  border-radius: 99px;
+  padding: 0 14px;
+  height: 36px;
+  transition: border-color .15s, background .15s;
+}
+.toolbar-search:focus-within { border-color: var(--r); background: var(--w); }
+.toolbar-search-ico { color: var(--gl); flex-shrink: 0; }
+.toolbar-search input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0 10px;
+  font-family: var(--f);
+  font-size: 13px;
+  color: var(--gd);
+  min-width: 0;
+}
+.toolbar-search input::placeholder { color: var(--gl); }
+.toolbar-search-clear {
+  text-decoration: none;
+  font-size: 14px;
+  color: var(--gl);
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: color .15s, background .15s;
+}
+.toolbar-search-clear:hover { color: var(--r); background: var(--rl); }
+
+.toolbar-adv-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  background: var(--w);
+  border: 1px solid var(--bdr);
+  border-radius: 99px;
+  font-family: var(--f);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gd);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color .15s;
+}
+.toolbar-adv-toggle:hover { border-color: var(--gm); }
+.toolbar-adv-toggle[aria-expanded="true"] { background: var(--rl); border-color: var(--r); color: var(--r); }
+
+/* Filtros avanzados (oculto por default) */
+.toolbar-adv {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+  padding: 12px 20px;
+  background: var(--off);
+  border-bottom: 1px solid var(--bdr);
+  margin: 0;
+}
+.toolbar-adv[hidden] { display: none; }
+
+/* Active filters bar */
+.inbox-main > .active-filters {
+  margin: 0;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--bdr);
+  background: var(--off);
+  border-radius: 0;
+}
+
+/* ─── 5. Split lista + preview ─────────────────────────────────────────── */
+.inbox-split {
+  display: grid;
+  grid-template-columns: minmax(360px, 38%) 1fr;
+  gap: 0;
+  overflow: hidden;
+  min-height: 0;
+  background: var(--w);
+}
+.page-inbox .split-list {
+  background: var(--w);
+  border: none;
+  border-right: 1px solid var(--bdr);
+  border-radius: 0;
+  box-shadow: none;
+  position: static;
+  top: auto;
+  max-height: none;
+  height: 100%;
+  /* overflow:hidden — el child .correos-list maneja su propio scroll. Sin esto,
+     habría dos scrollbars (uno por nivel) y pagination flotaría raro. */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.page-inbox .split-preview {
+  background: var(--w);
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  position: static;
+  top: auto;
+  max-height: none;
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Hacemos las correo-row más densas y consistentes con Gmail */
+.page-inbox .correo-row {
+  padding: 8px 14px;
+  min-height: 40px;
+}
+
+/* Pagination al fondo de la lista, no flotante */
+.page-inbox .paginacion {
+  padding: 12px;
+  border-top: 1px solid var(--bdr);
+  background: var(--off);
+}
+
+/* Estado vacío */
+.page-inbox .estado-vacio {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 20px;
+}
+
+/* Preview empty con mejor padding ahora que ocupa todo el alto */
+.page-inbox .preview-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+  padding: 40px 20px;
+  color: var(--gl);
+}
+.page-inbox .preview-empty-icon { font-size: 40px; opacity: .35; }
+.page-inbox .preview-empty kbd {
+  background: var(--off);
+  border: 1px solid var(--bdr);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-family: monospace;
+  font-size: 11px;
+  margin: 0 1px;
+}
+
+/* ─── 6. Long-content fix: URL larga / línea infinita en cuerpo ───────── */
+.preview-content,
+.preview-content-html,
+.cuerpo-html,
+.cuerpo-texto {
+  /* Antes los URL >120 chars se desbordaban horizontal del preview pane.
+     overflow-wrap:anywhere fuerza el quiebre en cualquier char si es
+     necesario — más permisivo que break-word, ideal para URLs y hashes. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Responsive — tablet, mobile
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* TABLET 1024-1279px: sidebar más angosto */
+@media (max-width: 1279px) {
+  .inbox-shell { grid-template-columns: 220px 1fr; }
+  .inbox-split { grid-template-columns: minmax(320px, 40%) 1fr; }
+}
+
+/* TABLET 768-1023px: sidebar ya no fija — drawer + hamburger */
+@media (max-width: 1023px) {
+  .inbox-shell { grid-template-columns: 1fr; }
+  .inbox-sidebar {
+    position: fixed;
+    top: 64px;     /* nav fija arriba */
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    max-width: 88vw;
+    z-index: 90;
+    transform: translateX(-100%);
+    transition: transform .25s var(--ease);
+    box-shadow: var(--shl);
+  }
+  .inbox-sidebar.open { transform: none; }
+  .sidebar-toggle { display: inline-flex; }
+  .sidebar-close { display: inline-flex; }
+
+  /* Stats bottom: 1 columna en tablet */
+  .stats-bottom { grid-template-columns: 1fr; }
+
+  /* Inbox split sigue siendo 2-col pero más comprimido */
+  .inbox-split { grid-template-columns: minmax(280px, 40%) 1fr; }
+}
+
+/* MOBILE <768px: lista full + detalle full-screen al hacer click */
+@media (max-width: 767px) {
+  .inbox-header {
+    padding: 10px 14px;
+    min-height: 52px;
+  }
+  .inbox-title {
+    font-size: 14px;
+    gap: 6px;
+  }
+  .inbox-title-kicker { display: none; }   /* "Bandeja" redundante en mobile */
+
+  .stats-toggle {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+  .stats-toggle-label { display: none; }   /* "correos" redundante junto al N */
+
+  .stats-panel { padding: 12px 14px; }
+  .stats-cards { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .stat-mini { padding: 8px 10px; }
+  .stat-mini-n { font-size: 18px; }
+
+  .inbox-toolbar { padding: 8px 12px; gap: 6px; }
+  .toolbar-search { height: 34px; padding: 0 10px; }
+  .toolbar-search input { font-size: 12px; }
+  .toolbar-adv-toggle { padding: 0 10px; height: 34px; font-size: 11px; }
+  .toolbar-adv-toggle .toolbar-adv-toggle-text { display: none; }   /* placeholder */
+  .toolbar-adv { padding: 10px 12px; }
+
+  /* Lista full-width — preview se vuelve overlay full-screen al seleccionar */
+  .inbox-split { grid-template-columns: 1fr; }
+  .page-inbox .split-list { border-right: none; }
+  .page-inbox .split-preview {
+    display: none;
+    position: fixed;
+    top: 64px;
+    left: 0; right: 0; bottom: 0;
+    z-index: 80;
+    background: var(--w);
+    overflow-y: auto;
+    padding-top: 0;
+  }
+  .page-inbox .split-preview.show { display: flex; }
+  .page-inbox .split-preview .preview-empty { display: none; }
+
+  /* Active filters más compactos */
+  .inbox-main > .active-filters { padding: 6px 12px; font-size: 11px; }
+  .active-filters-label { display: none; }
+}
+
+/* Botón "Volver" del overlay mobile.
+   Sibling del .split-preview dentro de .inbox-split — sobrevive innerHTML
+   replace porque NO es hijo del preview pane.
+   Default: oculto en todos lados.
+   Mobile + preview en overlay (.show): visible top-left, encima del pane. */
+.preview-back-mobile-btn {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  background: var(--w);
+  border: 1px solid var(--bdr);
+  border-radius: 99px;
+  padding: 8px 14px 8px 10px;
+  font-family: var(--f);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gd);
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0,0,0,.12);
+  transition: background .15s, border-color .15s;
+}
+.preview-back-mobile-btn:hover { background: var(--off); border-color: var(--gm); }
+@media (max-width: 767px) {
+  .page-inbox .split-preview.show ~ .preview-back-mobile-btn {
+    display: inline-flex;
+    position: fixed;
+    top: 76px;       /* nav 64 + 12 separación */
+    left: 12px;
+    z-index: 81;     /* pane es z-index 80 */
+  }
+}
+
+/* MOBILE muy chico <420px: stats panel más comprimido */
+@media (max-width: 419px) {
+  .stats-cards { grid-template-columns: 1fr 1fr; }
+  .stat-mini { padding: 6px 8px; }
+  .stat-mini-n { font-size: 16px; }
+  .stat-mini-l { font-size: 9px; }
+
+  .inbox-title-email {
+    font-size: 12px;
+    max-width: 140px;
+  }
+}
+
+/* Nav app: en mobile achicar para que no se desborde el texto del email
+   del usuario ni el badge admin. El brand (logo + texto Pietramonte) es
+   redundante con el header de la página — escondemos el texto. */
+@media (max-width: 600px) {
+  .app-brand-text { display: none; }
+  .app-nav-user {
+    max-width: 130px;
+    font-size: 11px;
+  }
+  .app-nav-user .badge-admin { display: none; }
+  .app-nav-right { gap: 8px; }
+  .btn-salir {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+}

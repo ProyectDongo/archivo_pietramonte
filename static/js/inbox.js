@@ -404,3 +404,155 @@
     });
   }
 })();
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   Inbox redesign 2026-05-08 — interactividad del nuevo layout
+   ════════════════════════════════════════════════════════════════════════
+   - Sidebar drawer (mobile/tablet) con backdrop, ESC, click-outside
+   - Stats panel toggle con persistencia en localStorage
+   - Filtros avanzados toggle
+   - Mobile: cuando se selecciona un correo, el preview pane se vuelve
+     overlay full-screen con botón "← Volver" arriba
+   ════════════════════════════════════════════════════════════════════════ */
+(function () {
+  'use strict';
+
+  // ─── Sidebar drawer ──────────────────────────────────────────────────
+  const sidebar       = document.getElementById('inbox-sidebar');
+  const sidebarToggle = document.getElementById('sidebar-toggle');
+  const sidebarClose  = document.getElementById('sidebar-close');
+  const backdrop      = document.getElementById('sidebar-backdrop');
+
+  function openSidebar() {
+    if (!sidebar) return;
+    sidebar.classList.add('open');
+    if (backdrop) backdrop.hidden = false;
+    document.body.style.overflow = 'hidden';
+  }
+  function closeSidebar() {
+    if (!sidebar) return;
+    sidebar.classList.remove('open');
+    if (backdrop) backdrop.hidden = true;
+    document.body.style.overflow = '';
+  }
+  if (sidebarToggle) sidebarToggle.addEventListener('click', openSidebar);
+  if (sidebarClose)  sidebarClose.addEventListener('click', closeSidebar);
+  if (backdrop)      backdrop.addEventListener('click', closeSidebar);
+
+  // ESC cierra el drawer
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && sidebar && sidebar.classList.contains('open')) {
+      closeSidebar();
+    }
+  });
+
+  // Resize: si volvemos a desktop, asegurarse que el drawer no quede abierto
+  // bloqueando con backdrop fantasma.
+  let lastIsDesktop = window.matchMedia('(min-width: 1024px)').matches;
+  window.addEventListener('resize', function () {
+    const isDesktop = window.matchMedia('(min-width: 1024px)').matches;
+    if (isDesktop !== lastIsDesktop) {
+      closeSidebar();
+      lastIsDesktop = isDesktop;
+    }
+  });
+
+  // ─── Stats panel toggle ──────────────────────────────────────────────
+  const statsToggle = document.getElementById('stats-toggle');
+  const statsPanel  = document.getElementById('stats-panel');
+
+  if (statsToggle && statsPanel) {
+    // Persistencia: si el usuario lo abre, recordamos preferencia en este
+    // navegador. Default: cerrado (libera vertical).
+    const STORAGE_KEY = 'pm:inbox:stats_open';
+    let preferAbierto = false;
+    try { preferAbierto = localStorage.getItem(STORAGE_KEY) === '1'; } catch (e) {}
+    if (preferAbierto) {
+      statsPanel.hidden = false;
+      statsToggle.setAttribute('aria-expanded', 'true');
+    }
+    statsToggle.addEventListener('click', function () {
+      const abrir = statsPanel.hidden;
+      statsPanel.hidden = !abrir;
+      statsToggle.setAttribute('aria-expanded', String(abrir));
+      try { localStorage.setItem(STORAGE_KEY, abrir ? '1' : '0'); } catch (e) { /* private browsing */ }
+    });
+  }
+
+  // ─── Filtros avanzados toggle ────────────────────────────────────────
+  const advToggle = document.getElementById('adv-toggle');
+  const advForm   = document.getElementById('toolbar-adv');
+
+  if (advToggle && advForm) {
+    // Si hay desde/hasta seteados, abrirlo por default (para que el usuario
+    // vea inmediatamente que están activos).
+    const desdeIn = advForm.querySelector('input[name="desde"]');
+    const hastaIn = advForm.querySelector('input[name="hasta"]');
+    const tieneFiltrosFecha = (desdeIn && desdeIn.value) || (hastaIn && hastaIn.value);
+    if (tieneFiltrosFecha) {
+      advForm.hidden = false;
+      advToggle.setAttribute('aria-expanded', 'true');
+    }
+    advToggle.addEventListener('click', function () {
+      const abrir = advForm.hidden;
+      advForm.hidden = !abrir;
+      advToggle.setAttribute('aria-expanded', String(abrir));
+    });
+  }
+
+  // ─── Mobile: preview pane se vuelve overlay full-screen ──────────────
+  // En mobile (<768px), cuando el usuario toca un correo, el preview ocupa
+  // toda la pantalla. Hay un botón "Volver" SIBLING del preview (no hijo,
+  // sino del mismo padre .inbox-split) — esto evita que se borre cuando
+  // cargarPreview() reemplaza el innerHTML del preview pane. CSS lo muestra
+  // mediante .split-preview.show ~ #preview-back-mobile-btn.
+  const previewPane = document.getElementById('split-preview');
+  const backBtn     = document.getElementById('preview-back-mobile-btn');
+  const lista       = document.getElementById('split-list');
+
+  function isMobile() {
+    return window.matchMedia('(max-width: 767px)').matches;
+  }
+  function abrirPreviewMobile() {
+    if (!previewPane || !isMobile()) return;
+    previewPane.classList.add('show');
+    document.body.style.overflow = 'hidden';
+  }
+  function cerrarPreviewMobile() {
+    if (!previewPane) return;
+    previewPane.classList.remove('show');
+    document.body.style.overflow = '';
+    document.querySelectorAll('.correo-row.active').forEach(function (r) {
+      r.classList.remove('active');
+    });
+  }
+  if (backBtn) backBtn.addEventListener('click', cerrarPreviewMobile);
+
+  // Hook: cuando se hace click en una fila en mobile, abrir overlay
+  // después del tick (cuando el handler principal ya disparó cargarPreview).
+  if (lista) {
+    lista.addEventListener('click', function (e) {
+      const row = e.target.closest('.correo-row');
+      if (!row) return;
+      if (isMobile()) {
+        setTimeout(abrirPreviewMobile, 50);
+      }
+    }, true);
+  }
+
+  // Volver con back-button del navegador desde el overlay mobile
+  window.addEventListener('popstate', function () {
+    if (isMobile() && previewPane && previewPane.classList.contains('show')) {
+      cerrarPreviewMobile();
+    }
+  });
+
+  // ─── Pintar tag-dot del sidebar con su data-color (el padre <a>) ─────
+  document.querySelectorAll('.sidebar-tag[data-color]').forEach(function (link) {
+    const color = link.dataset.color;
+    const dot = link.querySelector('.tag-dot');
+    if (color && dot) dot.style.backgroundColor = color;
+  });
+})();
+

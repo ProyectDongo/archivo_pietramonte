@@ -1,0 +1,152 @@
+{% load correos_tags %}
+{# ─── Sidebar de navegación del inbox (Gmail-style) ─────────────────────
+   Reemplaza al strip horizontal de buzones. Concentra:
+     - Buzones del usuario
+     - Carpetas (Recibidos/Enviados/Otros/Todos)
+     - Filtros rápidos (sin leer / destacados / con adjunto)
+     - Etiquetas del buzón actual + "+ Nueva"
+   En mobile se vuelve un drawer (off-canvas) con backdrop. #}
+<aside class="inbox-sidebar" id="inbox-sidebar" aria-label="Navegación de bandejas">
+
+  {# Header del sidebar (visible solo en mobile como cierre) #}
+  <button type="button" class="sidebar-close" id="sidebar-close" aria-label="Cerrar menú">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+  </button>
+
+  {# ─── Buzones ─── #}
+  <nav class="sidebar-section" aria-label="Cambiar buzón">
+    <div class="sidebar-label">Buzones</div>
+    <ul class="sidebar-buzon-list" role="list">
+      {% for b in buzones_visibles %}
+      {% with no_leidos=no_leidos_por_buzon|dict_get:b.id %}
+      <li>
+        <form method="post" action="{% url 'cambiar_buzon' %}" class="sidebar-buzon-form">
+          {% csrf_token %}
+          <input type="hidden" name="buzon_id" value="{{ b.id }}">
+          <button type="submit"
+                  class="sidebar-buzon {% if buzon and b.id == buzon.id %}active{% endif %} {% if no_leidos %}has-unread{% endif %}"
+                  title="{{ b.email }}{% if no_leidos %} · {{ no_leidos }} sin leer{% endif %}">
+            <span class="avatar avatar-sm" data-color="{{ b.email|avatar_color }}">{{ b.email|avatar_iniciales }}</span>
+            <span class="sidebar-buzon-name">{{ b.email|truncatechars:24 }}</span>
+            {% if no_leidos %}<span class="sidebar-badge">{{ no_leidos }}</span>{% endif %}
+          </button>
+        </form>
+      </li>
+      {% endwith %}
+      {% endfor %}
+    </ul>
+  </nav>
+
+  {# ─── Carpetas (filtros por tipo_carpeta) ─── #}
+  <nav class="sidebar-section" aria-label="Filtrar por carpeta">
+    <div class="sidebar-label">Carpetas</div>
+    <a href="?{% if query %}q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}{% if query %}&{% endif %}orden={{ orden }}{% endif %}"
+       class="sidebar-link {% if not carpeta %}active{% endif %}"
+       title="Todos los correos del buzón">
+      <span class="sidebar-link-ico" aria-hidden="true">📋</span>
+      <span class="sidebar-link-text">Todos</span>
+      <span class="sidebar-link-count">{{ counts_carpeta.total }}</span>
+    </a>
+    <a href="?carpeta=inbox{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}"
+       class="sidebar-link {% if carpeta == 'inbox' %}active{% endif %}"
+       title="Solo correos recibidos">
+      <span class="sidebar-link-ico" aria-hidden="true">📥</span>
+      <span class="sidebar-link-text">Recibidos</span>
+      <span class="sidebar-link-count">{{ counts_carpeta.inbox }}</span>
+    </a>
+    <a href="?carpeta=enviados{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}"
+       class="sidebar-link {% if carpeta == 'enviados' %}active{% endif %}"
+       title="Solo correos enviados">
+      <span class="sidebar-link-ico" aria-hidden="true">📤</span>
+      <span class="sidebar-link-text">Enviados</span>
+      <span class="sidebar-link-count">{{ counts_carpeta.enviados }}</span>
+    </a>
+    {% if counts_carpeta.otros %}
+    <a href="?carpeta=otros{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}"
+       class="sidebar-link {% if carpeta == 'otros' %}active{% endif %}"
+       title="Correos sin clasificar">
+      <span class="sidebar-link-ico" aria-hidden="true">🗂️</span>
+      <span class="sidebar-link-text">Otros</span>
+      <span class="sidebar-link-count">{{ counts_carpeta.otros }}</span>
+    </a>
+    {% endif %}
+  </nav>
+
+  {# ─── Filtros rápidos ─── #}
+  <nav class="sidebar-section" aria-label="Filtros rápidos">
+    <div class="sidebar-label">Filtros</div>
+    <a href="?{% if not solo_no_leidos %}no_leidos=1{% endif %}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}"
+       class="sidebar-link sidebar-filter {% if solo_no_leidos %}active{% endif %}"
+       title="Ver solo sin leer">
+      <span class="sidebar-link-ico" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 4h16v16H4z"/><path d="M4 4l8 8 8-8"/>
+        </svg>
+      </span>
+      <span class="sidebar-link-text">Sin leer</span>
+      {% if no_leidos_buzon_actual %}<span class="sidebar-link-count">{{ no_leidos_buzon_actual }}</span>{% endif %}
+    </a>
+    <a href="?{% if not solo_destacados %}destacado=1{% endif %}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}{% if solo_no_leidos %}&no_leidos=1{% endif %}"
+       class="sidebar-link sidebar-filter sidebar-filter-star {% if solo_destacados %}active{% endif %}"
+       title="Ver solo destacados">
+      <span class="sidebar-link-ico" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="14" height="14"
+             fill="{% if solo_destacados %}currentColor{% else %}none{% endif %}"
+             stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26"/>
+        </svg>
+      </span>
+      <span class="sidebar-link-text">Destacados</span>
+      {% if cant_destacados %}<span class="sidebar-link-count">{{ cant_destacados }}</span>{% endif %}
+    </a>
+    <a href="?{% if not solo_adjuntos %}adjuntos=1{% endif %}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}{% if solo_no_leidos %}&no_leidos=1{% endif %}"
+       class="sidebar-link sidebar-filter {% if solo_adjuntos %}active{% endif %}"
+       title="Ver solo correos con adjuntos">
+      <span class="sidebar-link-ico" aria-hidden="true">📎</span>
+      <span class="sidebar-link-text">Con adjunto</span>
+    </a>
+  </nav>
+
+  {# ─── Etiquetas del buzón actual ─── #}
+  <nav class="sidebar-section" aria-label="Etiquetas">
+    <div class="sidebar-label">Etiquetas</div>
+    {% for et in etiquetas_disponibles %}
+    <a href="?etiqueta={{ et.id }}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}{% if solo_no_leidos %}&no_leidos=1{% endif %}"
+       class="sidebar-link sidebar-tag {% if etiqueta_actual.id == et.id %}active{% endif %}"
+       data-color="{{ et.color }}"
+       title="Filtrar por «{{ et.nombre }}»">
+      <span class="sidebar-link-ico tag-dot" aria-hidden="true"></span>
+      <span class="sidebar-link-text">{{ et.nombre|truncatechars:22 }}</span>
+    </a>
+    {% empty %}
+    <div class="sidebar-empty">Sin etiquetas en este buzón</div>
+    {% endfor %}
+    <button type="button" class="sidebar-link sidebar-tag-new" id="btn-new-tag" title="Nueva etiqueta">
+      <span class="sidebar-link-ico" aria-hidden="true">+</span>
+      <span class="sidebar-link-text">Nueva etiqueta</span>
+    </button>
+    {# Dialog inline para crear etiqueta (oculto por default) #}
+    <div class="new-tag-dialog" id="new-tag-dialog" hidden>
+      <input type="text" id="new-tag-name" maxlength="40" placeholder="Nombre">
+      <div class="color-palette" id="new-tag-colors">
+        <button type="button" data-color="#C80C0F" style="background:#C80C0F" aria-label="Rojo"></button>
+        <button type="button" data-color="#1976D2" style="background:#1976D2" aria-label="Azul"></button>
+        <button type="button" data-color="#388E3C" style="background:#388E3C" aria-label="Verde"></button>
+        <button type="button" data-color="#F57C00" style="background:#F57C00" aria-label="Naranja"></button>
+        <button type="button" data-color="#7B1FA2" style="background:#7B1FA2" aria-label="Morado"></button>
+        <button type="button" data-color="#5D4037" style="background:#5D4037" aria-label="Café"></button>
+        <button type="button" data-color="#455A64" style="background:#455A64" aria-label="Grafito"></button>
+        <button type="button" data-color="#FBC02D" style="background:#FBC02D" aria-label="Amarillo"></button>
+      </div>
+      <div class="new-tag-actions">
+        <button type="button" class="new-tag-btn-create" id="new-tag-create">Crear</button>
+        <button type="button" class="new-tag-btn-cancel" id="new-tag-cancel">Cancelar</button>
+      </div>
+    </div>
+  </nav>
+</aside>
+
+{# Backdrop para mobile drawer #}
+<div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
