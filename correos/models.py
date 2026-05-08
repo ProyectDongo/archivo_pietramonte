@@ -29,6 +29,8 @@ class Buzon(models.Model):
     firma_telefono       = models.CharField(max_length=40, blank=True, default='')
     firma_email_visible  = models.EmailField(blank=True, default='',
                                              help_text='Email mostrado en la firma. Si vacío, usa el email del buzón.')
+    firma_web            = models.CharField(max_length=120, blank=True, default='',
+                                            help_text='URL del sitio web (ej. www.pietramonte.cl). Opcional.')
 
     def __str__(self):
         return self.email

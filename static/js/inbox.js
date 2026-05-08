@@ -1,6 +1,7 @@
 /* ==========================================================================
-   Inbox: split view + AJAX para destacar / etiquetas / notas + atajos
-   Depende de: portal_helpers.js (PM.post, PM.debounce)
+   Inbox: lista a pantalla completa + atajos de teclado.
+   El click en una fila navega a /intranet/correo/N/ (link <a> nativo).
+   Depende de: portal_helpers.js (PM.post)
    ========================================================================== */
 
 (function () {
@@ -15,8 +16,8 @@
   pintarAvatares();
 
   // ─── Pintar mini chips de etiqueta con su color ─────────────────────────
-  function pintarTagChips(scope) {
-    (scope || document).querySelectorAll(
+  (function () {
+    document.querySelectorAll(
       '.tag-chip-mini[data-color], .tag-chip[data-color], .filter-tag[data-color], .active-chip-tag[data-color]'
     ).forEach(function (el) {
       const color = el.dataset.color;
@@ -27,10 +28,9 @@
         el.style.backgroundColor = color;
       }
     });
-  }
-  pintarTagChips();
+  })();
 
-  // ─── Barras del chart ───────────────────────────────────────────────────
+  // ─── Barras del chart de stats ──────────────────────────────────────────
   document.querySelectorAll('.chart-bar[data-h]').forEach(function (el) {
     el.style.height = el.dataset.h + '%';
   });
@@ -42,22 +42,11 @@
     });
   });
 
-  // ─── Lista (split) ──────────────────────────────────────────────────────
-  const lista   = document.getElementById('split-list');
-  const preview = document.getElementById('split-preview');
-
-  // Etiquetas del buzón actual (cargadas desde JSON inline)
-  let etiquetasBuzon = [];
-  const dataEl = document.getElementById('etiquetas-disponibles-data');
-  if (dataEl) {
-    try { etiquetasBuzon = JSON.parse(dataEl.textContent); } catch (e) { etiquetasBuzon = []; }
-  }
-
+  // ─── Lista ──────────────────────────────────────────────────────────────
+  const lista = document.getElementById('split-list');
   if (!lista) return;
 
-  let cargando = false;
-
-  // ─── Toggle estrella en una fila ────────────────────────────────────────
+  // ─── Toggle estrella en una fila (sin navegar) ──────────────────────────
   function toggleStarRow(correoId, rowEl) {
     PM.post('/intranet/correo/' + correoId + '/destacar/').then(function (data) {
       const svg = rowEl.querySelector('.row-star svg');
@@ -66,6 +55,10 @@
     }).catch(function () { /* silencio: el usuario reintentará */ });
   }
 
+  // ─── Click en fila ──────────────────────────────────────────────────────
+  // Las filas ahora son <a href="/intranet/correo/N/"> — el click navega
+  // automáticamente. Solo interceptamos clicks en .row-star y .row-check
+  // para que NO sigan el link.
   lista.addEventListener('click', function (e) {
     const star = e.target.closest('.row-star');
     if (star) {
@@ -75,396 +68,62 @@
       toggleStarRow(star.dataset.correoId, row);
       return;
     }
-
-    const row = e.target.closest('.correo-row');
-    if (!row) return;
-    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) {
-      // Ctrl/middle/shift click → abrir detalle en nueva pestaña
-      window.open(row.dataset.href, '_blank');
-      return;
-    }
-    cargarPreview(row);
+    // El checkbox para multi-select ya tiene su propio handler en bulk_select.js
+    // que llama stopPropagation; acá solo nos aseguramos que no se confunda
+    // con un click que dispara la navegación del <a>.
+    if (e.target.closest('.row-check')) return;
   });
 
-  function entrarReadingMode() {
-    const shell = document.querySelector('.inbox-shell');
-    if (shell) shell.classList.add('is-reading');
-  }
-  function salirReadingMode() {
-    const shell = document.querySelector('.inbox-shell');
-    if (shell) shell.classList.remove('is-reading');
-    lista.querySelectorAll('.correo-row.active').forEach(function (r) { r.classList.remove('active'); });
-    preview.innerHTML = '<div class="preview-empty"><div class="preview-empty-icon">✉️</div>' +
-      '<p>Selecciona un correo para ver su contenido aquí</p>' +
-      '<p class="preview-empty-hint"><kbd>j</kbd> / <kbd>k</kbd> navegar · <kbd>s</kbd> destacar · <kbd>Enter</kbd> abrir</p></div>';
-    history.replaceState(null, '', '/intranet/bandeja/');
-  }
-
-  function cargarPreview(row, opts) {
-    opts = opts || {};
-    const url = row.dataset.previewUrl;
-    if (!url || cargando) return;
-    cargando = true;
-
-    lista.querySelectorAll('.correo-row.active').forEach(function (r) { r.classList.remove('active'); });
-    row.classList.add('active');
-    entrarReadingMode();
-
-    preview.innerHTML = '<div class="preview-loading">Cargando…</div>';
-    if (window.innerWidth <= 900) preview.classList.add('show');
-
-    fetch(url, {
-      credentials: 'same-origin',
-      headers: { 'X-Requested-With': 'fetch' },
-    })
-      .then(function (r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.text();
-      })
-      .then(function (html) {
-        preview.innerHTML = html;
-        pintarAvatares(preview);
-        pintarTagChips(preview);
-        wireUpPreview();
-        // El server marcó como leído al servir el preview. Reflejarlo en la
-        // fila y, si era no-leído, decrementar el badge del buzón actual.
-        const wasUnread = !row.classList.contains('is-read');
-        row.classList.add('is-read');
-        if (wasUnread) ajustarBadgeBuzonActivo(-1);
-        if (opts.pushState !== false) {
-          history.pushState({ correoId: row.dataset.correoId }, '', row.dataset.href);
-        }
-      })
-      .catch(function () {
-        preview.innerHTML = '<div class="preview-empty"><div class="preview-empty-icon">⚠️</div><p>No se pudo cargar el correo. Intenta de nuevo.</p></div>';
-      })
-      .finally(function () { cargando = false; });
-  }
-
-  // ─── Quitar una fila tras posponer (sale de la bandeja activa) ─────────
-  function quitarFilaSnoozeada(correoId) {
-    const row = lista.querySelector('.correo-row[data-correo-id="' + correoId + '"]');
-    if (row) row.closest('li').remove();
-    preview.innerHTML = '<div class="preview-empty"><div class="preview-empty-icon">💤</div>' +
-      '<p>Correo pospuesto. Lo verás en "Pospuestos".</p></div>';
-    if (window.innerWidth <= 900) preview.classList.remove('show');
-    history.replaceState(null, '', '/intranet/bandeja/');
-  }
-
-  // ─── Conectar interactividad del preview cuando llega por AJAX ──────────
-  function wireUpPreview() {
-    // Botón "Volver a la lista" → sale de modo lectura
-    const backBtn = preview.querySelector('#preview-back-list');
-    if (backBtn) {
-      backBtn.addEventListener('click', salirReadingMode);
-    }
-    // Estrella prominente
-    const star = preview.querySelector('.preview-star');
-    if (star) {
-      star.addEventListener('click', function () {
-        const cid = star.dataset.correoId;
-        PM.post('/intranet/correo/' + cid + '/destacar/').then(function (data) {
-          const svg = star.querySelector('svg');
-          svg.setAttribute('fill', data.destacado ? 'currentColor' : 'none');
-          star.classList.toggle('is-active', data.destacado);
-          // Refleja en la lista también
-          const row = lista.querySelector('.correo-row[data-correo-id="' + cid + '"]');
-          if (row) {
-            row.classList.toggle('is-starred', data.destacado);
-            const rowSvg = row.querySelector('.row-star svg');
-            if (rowSvg) rowSvg.setAttribute('fill', data.destacado ? 'currentColor' : 'none');
-          }
-        });
-      });
-    }
-
-    // Quitar etiqueta (botón × en cada chip)
-    preview.querySelectorAll('.tag-remove').forEach(function (btn) {
-      btn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        const chip = btn.closest('.tag-chip');
-        const correoId = chip.closest('.preview-tags-wrap').dataset.correoId;
-        const tagId = btn.dataset.tagId;
-        PM.post('/intranet/correo/' + correoId + '/etiqueta/', {
-          etiqueta_id: tagId,
-          accion: 'quitar',
-        }).then(function () {
-          chip.remove();
-          // Si no quedan chips, mostrar "Sin etiquetas"
-          const wrap = preview.querySelector('.preview-tags-list');
-          if (wrap && !wrap.querySelector('.tag-chip')) {
-            const empty = document.createElement('span');
-            empty.className = 'preview-tags-empty';
-            empty.textContent = 'Sin etiquetas';
-            wrap.insertBefore(empty, wrap.querySelector('.tag-add-btn'));
-          }
-          // Y eliminar el chip mini de la fila correspondiente
-          const row = lista.querySelector('.correo-row[data-correo-id="' + correoId + '"]');
-          if (row) {
-            const miniChip = row.querySelector('.tag-chip-mini');
-            // No tenemos un mapa exacto, así que omitimos el update preciso aquí.
-            // El usuario verá el cambio al recargar la lista.
-          }
-        });
-      });
-    });
-
-    // Botón "+ Asignar" → muestra el picker
-    const addBtn = preview.querySelector('#tag-add-btn');
-    const picker = preview.querySelector('#tag-picker');
-    if (addBtn && picker) {
-      addBtn.addEventListener('click', function () {
-        const correoId = addBtn.dataset.correoId;
-        if (picker.hidden) {
-          // Construir el picker con etiquetas del buzón que NO estén ya asignadas
-          const yaAsignadas = new Set();
-          preview.querySelectorAll('.tag-chip[data-tag-id]').forEach(function (el) {
-            yaAsignadas.add(el.dataset.tagId);
-          });
-          picker.innerHTML = '';
-          const disponibles = etiquetasBuzon.filter(function (et) {
-            return !yaAsignadas.has(String(et.id));
-          });
-          if (disponibles.length === 0) {
-            const empty = document.createElement('span');
-            empty.className = 'tag-picker-empty';
-            empty.textContent = 'Todas asignadas. Crea una nueva en la barra de filtros.';
-            picker.appendChild(empty);
-          } else {
-            disponibles.forEach(function (et) {
-              const b = document.createElement('button');
-              b.type = 'button';
-              b.className = 'tag-chip';
-              b.style.backgroundColor = et.color;
-              b.style.cursor = 'pointer';
-              b.style.border = 'none';
-              b.dataset.tagId = et.id;
-              b.innerHTML = '<span class="tag-dot"></span>' + et.nombre;
-              b.addEventListener('click', function () {
-                PM.post('/intranet/correo/' + correoId + '/etiqueta/', {
-                  etiqueta_id: et.id,
-                  accion: 'asignar',
-                }).then(function (data) {
-                  // Insertar el chip en la lista del preview
-                  const wrap = preview.querySelector('.preview-tags-list');
-                  const empty = wrap.querySelector('.preview-tags-empty');
-                  if (empty) empty.remove();
-                  const chip = document.createElement('span');
-                  chip.className = 'tag-chip';
-                  chip.dataset.tagId = data.etiqueta.id;
-                  chip.dataset.color = data.etiqueta.color;
-                  chip.style.backgroundColor = data.etiqueta.color;
-                  chip.innerHTML = '<span class="tag-dot"></span>' + data.etiqueta.nombre +
-                    ' <button type="button" class="tag-remove" data-tag-id="' + data.etiqueta.id + '" aria-label="Quitar etiqueta">×</button>';
-                  wrap.insertBefore(chip, addBtn);
-                  // Conectar el remove del nuevo chip
-                  chip.querySelector('.tag-remove').addEventListener('click', function (e) {
-                    e.stopPropagation();
-                    PM.post('/intranet/correo/' + correoId + '/etiqueta/', {
-                      etiqueta_id: data.etiqueta.id, accion: 'quitar',
-                    }).then(function () { chip.remove(); });
-                  });
-                  picker.hidden = true;
-                });
-              });
-              picker.appendChild(b);
-            });
-          }
-          picker.hidden = false;
-        } else {
-          picker.hidden = true;
-        }
-      });
-    }
-
-    // Botón "marcar como no leído" → vuelve la fila a negrita y suma al badge.
-    const unreadBtn = preview.querySelector('.preview-unread-btn');
-    if (unreadBtn) {
-      unreadBtn.addEventListener('click', function () {
-        const cid = unreadBtn.dataset.correoId;
-        PM.post('/intranet/correo/' + cid + '/leido/').then(function (data) {
-          const row = lista.querySelector('.correo-row[data-correo-id="' + cid + '"]');
-          if (row) row.classList.toggle('is-read', data.is_leido);
-          // Refresca el badge del buzón actual al valor exacto que devolvió el server
-          setBadgeBuzonActivo(data.no_leidos_buzon);
-          // Si lo dejamos en no leído, cerramos el preview para refuerzo visual
-          if (!data.is_leido) {
-            preview.innerHTML = '<div class="preview-empty"><div class="preview-empty-icon">✉️</div>' +
-              '<p>Marcado como no leído.</p></div>';
-            if (window.innerWidth <= 900) preview.classList.remove('show');
-            history.replaceState(null, '', '/intranet/bandeja/');
-            lista.querySelectorAll('.correo-row.active').forEach(function (r) {
-              r.classList.remove('active');
-            });
-          }
-        }).catch(function () { /* silencio: el usuario reintentará */ });
-      });
-    }
-
-    // Hilo de conversación: toggle expandible + click carga preview del otro correo
-    const thBtn = preview.querySelector('.preview-thread-toggle');
-    const thList = preview.querySelector('.preview-thread-list');
-    if (thBtn && thList) {
-      thBtn.addEventListener('click', function () {
-        const abrir = thList.hidden;
-        thList.hidden = !abrir;
-        thBtn.setAttribute('aria-expanded', String(abrir));
-      });
-      thList.querySelectorAll('.preview-thread-item').forEach(function (a) {
-        a.addEventListener('click', function (e) {
-          if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return; // nueva tab OK
-          e.preventDefault();
-          // Buscar la fila correspondiente en la lista — si está en la página actual,
-          // cargar su preview. Si no, navegar al detalle.
-          const cid = a.getAttribute('data-correo-id');
-          const row = lista.querySelector('.correo-row[data-correo-id="' + cid + '"]');
-          if (row) cargarPreview(row);
-          else window.location.href = a.getAttribute('href');
-        });
-      });
-    }
-
-    // Snooze: dropdown con presets + custom
-    const snzBtn = preview.querySelector('.preview-snooze-btn');
-    const snzMenu = preview.querySelector('.preview-snooze-menu');
-    if (snzBtn && snzMenu) {
-      const cid = snzBtn.dataset.correoId;
-      snzBtn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        snzMenu.hidden = !snzMenu.hidden;
-      });
-      document.addEventListener('click', function (e) {
-        if (!snzMenu.hidden && !snzMenu.contains(e.target) && e.target !== snzBtn) {
-          snzMenu.hidden = true;
-        }
-      });
-      snzMenu.querySelectorAll('.snooze-opt[data-preset]').forEach(function (opt) {
-        opt.addEventListener('click', function () {
-          PM.post('/intranet/correo/' + cid + '/snooze/', { preset: opt.dataset.preset })
-            .then(function () { quitarFilaSnoozeada(cid); snzMenu.hidden = true; });
-        });
-      });
-      const customGo = snzMenu.querySelector('.snooze-custom-go');
-      const customInput = snzMenu.querySelector('.snooze-custom-input');
-      if (customGo && customInput) {
-        customGo.addEventListener('click', function () {
-          const v = customInput.value;
-          if (!v) { customInput.focus(); return; }
-          PM.post('/intranet/correo/' + cid + '/snooze/', { until: v })
-            .then(function () { quitarFilaSnoozeada(cid); snzMenu.hidden = true; })
-            .catch(function (err) {
-              alert('No se pudo posponer: ' + (err && err.message || 'fecha inválida'));
-            });
-        });
-      }
-      const cancelBtn = snzMenu.querySelector('.snooze-cancel');
-      if (cancelBtn) {
-        cancelBtn.addEventListener('click', function () {
-          PM.post('/intranet/correo/' + cid + '/unsnooze/')
-            .then(function () { window.location.reload(); });
-        });
-      }
-    }
-
-    // Notas: autosave al perder foco
-    const nota = preview.querySelector('.preview-notas-input');
-    const status = preview.querySelector('#notas-status');
-    if (nota) {
-      const guardar = function () {
-        if (status) { status.textContent = 'Guardando…'; status.className = 'notas-status saving'; }
-        PM.post('/intranet/correo/' + nota.dataset.correoId + '/notas/', {
-          notas: nota.value,
-        }).then(function () {
-          if (status) { status.textContent = 'Guardado ✓'; status.className = 'notas-status saved'; }
-          setTimeout(function () { if (status) status.textContent = ''; }, 2000);
-        }).catch(function () {
-          if (status) { status.textContent = 'Error al guardar'; status.className = 'notas-status'; }
-        });
-      };
-      nota.addEventListener('blur', guardar);
-      nota.addEventListener('input', PM.debounce(guardar, 1500));
-    }
-  }
-
   // ─── Atajos de teclado ──────────────────────────────────────────────────
-  function filaActiva() { return lista.querySelector('.correo-row.active'); }
+  // j/k: marca la fila siguiente/anterior con .keyboard-focus (highlight visual)
+  // Enter: navega a la fila marcada (o la primera si no hay ninguna)
+  // s: estrella sobre la fila marcada
   function todasFilas() { return Array.from(lista.querySelectorAll('.correo-row')); }
+  function filaMarcada() { return lista.querySelector('.correo-row.keyboard-focus'); }
+
+  function marcarFila(row) {
+    lista.querySelectorAll('.correo-row.keyboard-focus').forEach(function (r) {
+      r.classList.remove('keyboard-focus');
+    });
+    if (row) {
+      row.classList.add('keyboard-focus');
+      row.scrollIntoView({ block: 'nearest' });
+    }
+  }
 
   document.addEventListener('keydown', function (e) {
     const t = e.target;
     const isInput = t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable;
     if (isInput) return;
+    // Si hay un compose flotante o modal abierto, no manejamos atajos.
+    const fab = document.getElementById('compose-fab');
+    if (fab && !fab.hidden) return;
 
     const filas = todasFilas();
     if (!filas.length) return;
-    let idx = filas.indexOf(filaActiva());
+    let idx = filas.indexOf(filaMarcada());
 
     if (e.key === 'j') {
       e.preventDefault();
       idx = (idx + 1) % filas.length;
-      cargarPreview(filas[idx]);
-      filas[idx].scrollIntoView({ block: 'nearest' });
+      marcarFila(filas[idx]);
     } else if (e.key === 'k') {
       e.preventDefault();
       idx = idx <= 0 ? filas.length - 1 : idx - 1;
-      cargarPreview(filas[idx]);
-      filas[idx].scrollIntoView({ block: 'nearest' });
-    } else if (e.key === 'Enter' && idx >= 0) {
-      e.preventDefault();
-      window.location.href = filas[idx].dataset.href;
+      marcarFila(filas[idx]);
+    } else if (e.key === 'Enter') {
+      const target = filas[idx >= 0 ? idx : 0];
+      if (target && target.href) {
+        e.preventDefault();
+        window.location.href = target.href;
+      }
     } else if (e.key === 's' && idx >= 0) {
       e.preventDefault();
       toggleStarRow(filas[idx].dataset.correoId, filas[idx]);
-    } else if (e.key === 'Escape') {
-      const shell = document.querySelector('.inbox-shell.is-reading');
-      const fab = document.getElementById('compose-fab');
-      const lb = document.getElementById('lightbox');
-      const av = document.getElementById('adj-viewer');
-      // Solo salir de reading mode si no hay otro modal abierto.
-      if (shell && (!fab || fab.hidden) && (!lb || lb.hidden) && (!av || av.hidden)) {
-        e.preventDefault();
-        salirReadingMode();
-      }
     }
   });
 
-  // ─── Strip de buzones (tabs horizontales): helpers de badge ────────────
-  // El tab activo lleva la clase .active; el badge de no-leídos vive a su
-  // derecha. Estos helpers se llaman cuando abrimos un correo (decrement)
-  // o lo marcamos no-leído (set explícito al valor que devuelve el server).
-  function setBadgeBuzonActivo(n) {
-    const item = document.querySelector('.buzon-tab.active');
-    if (!item) return;
-    let badge = item.querySelector('.buzon-tab-badge');
-    if (n > 0) {
-      if (!badge) {
-        badge = document.createElement('span');
-        badge.className = 'buzon-tab-badge';
-        item.appendChild(badge);
-      }
-      badge.textContent = n;
-      item.classList.add('has-unread');
-    } else if (badge) {
-      badge.remove();
-      item.classList.remove('has-unread');
-    }
-  }
-  function ajustarBadgeBuzonActivo(delta) {
-    const item = document.querySelector('.buzon-tab.active');
-    const badge = item ? item.querySelector('.buzon-tab-badge') : null;
-    const actual = badge ? parseInt(badge.textContent, 10) || 0 : 0;
-    setBadgeBuzonActivo(Math.max(0, actual + delta));
-  }
-
-  // ─── Restaurar al volver atrás ──────────────────────────────────────────
-  window.addEventListener('popstate', function (ev) {
-    if (ev.state && ev.state.correoId) {
-      const row = lista.querySelector('.correo-row[data-correo-id="' + ev.state.correoId + '"]');
-      if (row) cargarPreview(row, { pushState: false });
-    }
-  });
-
-  // ─── Crear etiqueta nueva (diálogo en barra de filtros) ─────────────────
+  // ─── Crear etiqueta nueva (diálogo en sidebar) ─────────────────────────
   const btnNew = document.getElementById('btn-new-tag');
   const dlg = document.getElementById('new-tag-dialog');
   const colorBtns = document.getElementById('new-tag-colors');
@@ -489,7 +148,6 @@
         colorElegido = b.dataset.color;
       });
     });
-    // Selecciona el primero por default
     colorBtns.querySelector('button').classList.add('selected');
 
     createBtn.addEventListener('click', function () {
@@ -499,7 +157,6 @@
         nombre: nombre,
         color: colorElegido,
       }).then(function () {
-        // Recarga para que aparezca en la barra de filtros (más simple que reconstruir DOM)
         window.location.reload();
       });
     });
@@ -536,18 +193,13 @@
 
 
 /* ════════════════════════════════════════════════════════════════════════
-   Inbox redesign 2026-05-08 — interactividad del nuevo layout
-   ════════════════════════════════════════════════════════════════════════
-   - Sidebar drawer (mobile/tablet) con backdrop, ESC, click-outside
-   - Stats panel toggle con persistencia en localStorage
-   - Filtros avanzados toggle
-   - Mobile: cuando se selecciona un correo, el preview pane se vuelve
-     overlay full-screen con botón "← Volver" arriba
+   Inbox UI: sidebar drawer (mobile), stats panel, advanced filters,
+   buzones colapsable, tag-dot painting.
    ════════════════════════════════════════════════════════════════════════ */
 (function () {
   'use strict';
 
-  // ─── Sidebar drawer ──────────────────────────────────────────────────
+  // ─── Sidebar drawer (mobile) ────────────────────────────────────────────
   const sidebar       = document.getElementById('inbox-sidebar');
   const sidebarToggle = document.getElementById('sidebar-toggle');
   const sidebarClose  = document.getElementById('sidebar-close');
@@ -569,15 +221,12 @@
   if (sidebarClose)  sidebarClose.addEventListener('click', closeSidebar);
   if (backdrop)      backdrop.addEventListener('click', closeSidebar);
 
-  // ESC cierra el drawer
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && sidebar && sidebar.classList.contains('open')) {
       closeSidebar();
     }
   });
 
-  // Resize: si volvemos a desktop, asegurarse que el drawer no quede abierto
-  // bloqueando con backdrop fantasma.
   let lastIsDesktop = window.matchMedia('(min-width: 1024px)').matches;
   window.addEventListener('resize', function () {
     const isDesktop = window.matchMedia('(min-width: 1024px)').matches;
@@ -587,13 +236,10 @@
     }
   });
 
-  // ─── Stats panel toggle ──────────────────────────────────────────────
+  // ─── Stats panel toggle ─────────────────────────────────────────────────
   const statsToggle = document.getElementById('stats-toggle');
   const statsPanel  = document.getElementById('stats-panel');
-
   if (statsToggle && statsPanel) {
-    // Persistencia: si el usuario lo abre, recordamos preferencia en este
-    // navegador. Default: cerrado (libera vertical).
     const STORAGE_KEY = 'pm:inbox:stats_open';
     let preferAbierto = false;
     try { preferAbierto = localStorage.getItem(STORAGE_KEY) === '1'; } catch (e) {}
@@ -605,17 +251,14 @@
       const abrir = statsPanel.hidden;
       statsPanel.hidden = !abrir;
       statsToggle.setAttribute('aria-expanded', String(abrir));
-      try { localStorage.setItem(STORAGE_KEY, abrir ? '1' : '0'); } catch (e) { /* private browsing */ }
+      try { localStorage.setItem(STORAGE_KEY, abrir ? '1' : '0'); } catch (e) {}
     });
   }
 
-  // ─── Filtros avanzados toggle ────────────────────────────────────────
+  // ─── Filtros avanzados toggle ───────────────────────────────────────────
   const advToggle = document.getElementById('adv-toggle');
   const advForm   = document.getElementById('toolbar-adv');
-
   if (advToggle && advForm) {
-    // Si hay desde/hasta seteados, abrirlo por default (para que el usuario
-    // vea inmediatamente que están activos).
     const desdeIn = advForm.querySelector('input[name="desde"]');
     const hastaIn = advForm.querySelector('input[name="hasta"]');
     const tieneFiltrosFecha = (desdeIn && desdeIn.value) || (hastaIn && hastaIn.value);
@@ -630,64 +273,14 @@
     });
   }
 
-  // ─── Mobile: preview pane se vuelve overlay full-screen ──────────────
-  // En mobile (<768px), cuando el usuario toca un correo, el preview ocupa
-  // toda la pantalla. Hay un botón "Volver" SIBLING del preview (no hijo,
-  // sino del mismo padre .inbox-split) — esto evita que se borre cuando
-  // cargarPreview() reemplaza el innerHTML del preview pane. CSS lo muestra
-  // mediante .split-preview.show ~ #preview-back-mobile-btn.
-  const previewPane = document.getElementById('split-preview');
-  const backBtn     = document.getElementById('preview-back-mobile-btn');
-  const lista       = document.getElementById('split-list');
-
-  function isMobile() {
-    return window.matchMedia('(max-width: 767px)').matches;
-  }
-  function abrirPreviewMobile() {
-    if (!previewPane || !isMobile()) return;
-    previewPane.classList.add('show');
-    document.body.style.overflow = 'hidden';
-  }
-  function cerrarPreviewMobile() {
-    if (!previewPane) return;
-    previewPane.classList.remove('show');
-    document.body.style.overflow = '';
-    document.querySelectorAll('.correo-row.active').forEach(function (r) {
-      r.classList.remove('active');
-    });
-  }
-  if (backBtn) backBtn.addEventListener('click', cerrarPreviewMobile);
-
-  // Hook: cuando se hace click en una fila en mobile, abrir overlay
-  // después del tick (cuando el handler principal ya disparó cargarPreview).
-  if (lista) {
-    lista.addEventListener('click', function (e) {
-      const row = e.target.closest('.correo-row');
-      if (!row) return;
-      if (isMobile()) {
-        setTimeout(abrirPreviewMobile, 50);
-      }
-    }, true);
-  }
-
-  // Volver con back-button del navegador desde el overlay mobile
-  window.addEventListener('popstate', function () {
-    if (isMobile() && previewPane && previewPane.classList.contains('show')) {
-      cerrarPreviewMobile();
-    }
-  });
-
-  // ─── Pintar tag-dot del sidebar con su data-color (el padre <a>) ─────
+  // ─── Pintar tag-dot del sidebar con su data-color ──────────────────────
   document.querySelectorAll('.sidebar-tag[data-color]').forEach(function (link) {
     const color = link.dataset.color;
     const dot = link.querySelector('.tag-dot');
     if (color && dot) dot.style.backgroundColor = color;
   });
 
-  // ─── Buzones colapsable ──────────────────────────────────────────────
-  // Por default mostramos solo los primeros 4 buzones. Botón "Ver todos (N)"
-  // expande. Auto-expand si el buzón activo está entre los ocultos (sino el
-  // usuario no ve cuál tiene seleccionado).
+  // ─── Buzones colapsable (sidebar) ──────────────────────────────────────
   const buzonList = document.getElementById('sidebar-buzon-list');
   const buzonsToggle = document.getElementById('sidebar-buzones-toggle');
   if (buzonList && buzonsToggle) {
@@ -700,10 +293,6 @@
       if (v !== null) { hayPreferencia = true; expandido = (v === '1'); }
     } catch (e) {}
 
-    // Auto-expand si el activo está oculto (overflow), PERO solo cuando el
-    // usuario nunca tocó el toggle. Si ya guardó preferencia (en cualquier
-    // sentido), respetamos su decisión — sino "Mostrar menos" se ignora cada
-    // vez que cambia de carpeta y el activo cae en overflow.
     if (!hayPreferencia) {
       const activeOverflow = buzonList.querySelector(
         '.sidebar-buzon-overflow .sidebar-buzon.active'
@@ -724,4 +313,3 @@
     });
   }
 })();
-

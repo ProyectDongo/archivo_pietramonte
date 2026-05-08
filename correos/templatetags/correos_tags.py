@@ -520,14 +520,27 @@ def url_sin_filtros(context, *quitar):
 
 
 # ─── Render de firma de buzón (auto-append en correos salientes) ──────────
+def _icon_circle(unicode_char: str, accent: str) -> str:
+    """
+    Genera un span con el caracter Unicode dentro de un círculo del color de
+    acento. Para que se vea consistente en Gmail/Outlook/Apple Mail usamos
+    line-height = height (truco para centrar verticalmente) y display:inline-block.
+    """
+    return (
+        f'<span style="display:inline-block;width:20px;height:20px;'
+        f'background:{accent};color:#ffffff;border-radius:50%;'
+        f'text-align:center;font-size:11px;line-height:20px;'
+        f'margin-right:10px;vertical-align:middle;font-family:Arial,sans-serif">'
+        f'{unicode_char}</span>'
+    )
+
+
 def render_firma_html(buzon) -> str:
     """
-    Devuelve el HTML de la firma de un buzón, con escape de los datos del
-    usuario. Si el buzón no tiene firma activa o no tiene datos, devuelve ''.
-
-    Layout: tabla MIME-safe (style inline) — el logo a la izquierda y los
-    datos a la derecha. Si solo está seteado el email visible (caso default),
-    sale logo + email nada más.
+    Devuelve el HTML de la firma de un buzón con layout MIME-safe (tablas +
+    estilos inline) que se ve consistente en Gmail, Outlook, Apple Mail.
+    Iconos en círculos del color de acento del deployment (BRAND_PRIMARY_COLOR).
+    Si el buzón no tiene firma activa o no tiene datos, devuelve ''.
     """
     if not buzon or not getattr(buzon, 'firma_activa', True):
         return ''
@@ -536,63 +549,93 @@ def render_firma_html(buzon) -> str:
     cargo    = (buzon.firma_cargo or '').strip()
     telefono = (buzon.firma_telefono or '').strip()
     email_v  = (buzon.firma_email_visible or buzon.email or '').strip()
+    web      = (getattr(buzon, 'firma_web', '') or '').strip()
     logo_url = getattr(settings, 'FIRMA_LOGO_URL', '') or ''
+    accent   = getattr(settings, 'BRAND_PRIMARY_COLOR', '#C80C0F') or '#C80C0F'
 
-    # Si no hay nada que mostrar, no firmamos.
-    if not (nombre or cargo or telefono or email_v or logo_url):
+    if not (nombre or cargo or telefono or email_v or web or logo_url):
         return ''
 
-    # Construir las filas de datos (tabla interna).
-    filas = []
+    # ─── Datos (columna derecha) ──────────────────────────────────────────
+    bloques = []
     if nombre:
-        filas.append(
-            f'<tr><td style="font-size:14px;font-weight:700;color:#1a1f22;'
-            f'padding:0 0 4px;line-height:1.3">{escape(nombre)}</td></tr>'
+        bloques.append(
+            f'<div style="font-size:16px;font-weight:700;color:#1a1f22;'
+            f'line-height:1.25;letter-spacing:-0.2px">{escape(nombre)}</div>'
         )
     if cargo:
-        filas.append(
-            f'<tr><td style="font-size:11px;font-weight:600;letter-spacing:1px;'
-            f'text-transform:uppercase;color:#6b7280;padding:0 0 8px">'
-            f'{escape(cargo)}</td></tr>'
-        )
-    if telefono:
-        filas.append(
-            f'<tr><td style="font-size:13px;color:#394348;padding:2px 0">'
-            f'<span style="color:#C80C0F;font-weight:700;margin-right:6px">&#9742;</span>'
-            f'{escape(telefono)}</td></tr>'
-        )
-    if email_v:
-        filas.append(
-            f'<tr><td style="font-size:13px;color:#394348;padding:2px 0">'
-            f'<span style="color:#C80C0F;font-weight:700;margin-right:6px">&#9993;</span>'
-            f'<a href="mailto:{escape(email_v)}" style="color:#394348;text-decoration:none">'
-            f'{escape(email_v)}</a></td></tr>'
+        bloques.append(
+            f'<div style="font-size:11px;font-weight:600;letter-spacing:1.5px;'
+            f'text-transform:uppercase;color:#6b7280;margin-top:3px">'
+            f'{escape(cargo)}</div>'
         )
 
-    datos_tabla = (
-        '<table cellpadding="0" cellspacing="0" border="0" role="presentation" '
-        'style="border-collapse:collapse;border-left:3px solid #C80C0F;'
-        'padding-left:14px;margin-left:14px">'
-        + ''.join(filas)
-        + '</table>'
+    # Línea fina del color de acento debajo del nombre/cargo
+    bloques.append(
+        f'<div style="width:36px;height:2px;background:{accent};'
+        f'margin:10px 0 12px"></div>'
     )
 
-    # Logo (opcional)
-    logo_celda = ''
-    if logo_url:
-        logo_celda = (
-            f'<td valign="middle" style="padding-right:14px">'
-            f'<img src="{escape(logo_url)}" alt="Pietramonte" '
-            f'style="display:block;max-width:140px;height:auto" width="140"></td>'
+    # Filas de contacto
+    contact_rows = []
+    if telefono:
+        contact_rows.append(
+            f'<tr><td style="padding:3px 0;font-size:13px;color:#394348;'
+            f'line-height:1.4;font-family:-apple-system,BlinkMacSystemFont,'
+            f"'Segoe UI',Helvetica,Arial,sans-serif\">"
+            f'{_icon_circle("&#9742;", accent)}{escape(telefono)}</td></tr>'
+        )
+    if email_v:
+        contact_rows.append(
+            f'<tr><td style="padding:3px 0;font-size:13px;color:#394348;'
+            f'line-height:1.4;font-family:-apple-system,BlinkMacSystemFont,'
+            f"'Segoe UI',Helvetica,Arial,sans-serif\">"
+            f'{_icon_circle("&#9993;", accent)}'
+            f'<a href="mailto:{escape(email_v)}" style="color:#394348;'
+            f'text-decoration:none">{escape(email_v)}</a></td></tr>'
+        )
+    if web:
+        # Normalizar: si no tiene esquema, agregamos https:// al href.
+        href_web = web if web.lower().startswith(('http://', 'https://')) else f'https://{web}'
+        contact_rows.append(
+            f'<tr><td style="padding:3px 0;font-size:13px;color:#394348;'
+            f'line-height:1.4;font-family:-apple-system,BlinkMacSystemFont,'
+            f"'Segoe UI',Helvetica,Arial,sans-serif\">"
+            f'{_icon_circle("&#9783;", accent)}'
+            f'<a href="{escape(href_web)}" style="color:#394348;'
+            f'text-decoration:none">{escape(web)}</a></td></tr>'
+        )
+    if contact_rows:
+        bloques.append(
+            '<table cellpadding="0" cellspacing="0" border="0" role="presentation" '
+            'style="border-collapse:collapse">' + ''.join(contact_rows) + '</table>'
         )
 
+    columna_derecha = (
+        f'<td valign="top" style="vertical-align:top;'
+        f'padding-left:18px;border-left:3px solid {accent}">'
+        + ''.join(bloques)
+        + '</td>'
+    )
+
+    # ─── Logo (columna izquierda, opcional) ───────────────────────────────
+    columna_logo = ''
+    if logo_url:
+        columna_logo = (
+            f'<td valign="top" style="vertical-align:top;padding-right:20px">'
+            f'<img src="{escape(logo_url)}" alt="" '
+            f'style="display:block;max-width:130px;height:auto;border:0" '
+            f'width="130"></td>'
+        )
+
+    # ─── Wrapper ──────────────────────────────────────────────────────────
     html = (
-        '<div class="pm-firma" style="margin-top:24px;padding-top:14px;'
-        'border-top:1px solid #e8e8e8;font-family:-apple-system,BlinkMacSystemFont,'
-        '\'Segoe UI\',Helvetica,Arial,sans-serif">'
+        '<div style="margin-top:28px;padding-top:18px;'
+        'border-top:1px solid #e8e8e8;font-family:-apple-system,'
+        'BlinkMacSystemFont,\'Segoe UI\',Helvetica,Arial,sans-serif">'
         '<table cellpadding="0" cellspacing="0" border="0" role="presentation" '
         'style="border-collapse:collapse">'
-        f'<tr>{logo_celda}<td valign="middle">{datos_tabla}</td></tr>'
+        f'<tr>{columna_logo}{columna_derecha}</tr>'
         '</table></div>'
     )
     return html
@@ -606,13 +649,15 @@ def render_firma_texto(buzon) -> str:
     cargo    = (buzon.firma_cargo or '').strip()
     telefono = (buzon.firma_telefono or '').strip()
     email_v  = (buzon.firma_email_visible or buzon.email or '').strip()
+    web      = (getattr(buzon, 'firma_web', '') or '').strip()
 
     lineas = ['--']
     if nombre:   lineas.append(nombre)
     if cargo:    lineas.append(cargo)
     if telefono: lineas.append(f'Tel: {telefono}')
     if email_v:  lineas.append(email_v)
-    if len(lineas) == 1:   # solo el "--"
+    if web:      lineas.append(web)
+    if len(lineas) == 1:
         return ''
     return '\n'.join(lineas)
 

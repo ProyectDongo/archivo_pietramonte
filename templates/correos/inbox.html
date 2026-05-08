@@ -281,17 +281,15 @@
       </div>
       <button type="button" class="bulk-bar-close" id="bulk-bar-close" title="Cerrar selección" aria-label="Cerrar selección">✕</button>
     </div>
-<div class="inbox-split">
-
+<div class="inbox-list-wrap">
       <div class="split-list" id="split-list">
         {% if page.object_list %}
         <ul class="correos-list" role="list">
           {% for correo in page.object_list %}
           <li>
-            <div class="correo-row {% if correo.destacado %}is-starred{% endif %} {% if correo.is_leido %}is-read{% endif %}"
-                 data-correo-id="{{ correo.id }}"
-                 data-href="{% url 'detalle' correo.id %}"
-                 data-preview-url="{% url 'correo_preview' correo.id %}">
+            <a class="correo-row {% if correo.destacado %}is-starred{% endif %} {% if correo.is_leido %}is-read{% endif %}"
+               href="{% url 'detalle' correo.id %}"
+               data-correo-id="{{ correo.id }}">
               <input type="checkbox" class="row-check" data-correo-id="{{ correo.id }}"
                      aria-label="Seleccionar correo"
                      title="Seleccionar (Shift+click para rango)">
@@ -316,7 +314,7 @@
               </span>
               {% if correo.tiene_adjunto %}<span class="adj-pill" title="Con adjunto">📎</span>{% endif %}
               <span class="correo-date" title="{{ correo.fecha|fecha_iso }}">{{ correo.fecha|fecha_amigable }}</span>
-            </div>
+            </a>
           </li>
           {% endfor %}
         </ul>
@@ -345,23 +343,6 @@
         {% endif %}
       </div>
 
-      <aside class="split-preview" id="split-preview" aria-live="polite">
-        <div class="preview-empty">
-          <div class="preview-empty-icon">✉️</div>
-          <p>Selecciona un correo para ver su contenido aquí</p>
-          <p class="preview-empty-hint">
-            <kbd>j</kbd> / <kbd>k</kbd> navegar · <kbd>s</kbd> destacar · <kbd>Enter</kbd> abrir
-          </p>
-        </div>
-      </aside>
-<button type="button" class="preview-back-mobile-btn" id="preview-back-mobile-btn"
-              aria-label="Volver a la lista">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
-             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <polyline points="15 18 9 12 15 6"/>
-        </svg>
-        <span>Volver</span>
-      </button>
     </div>
 
   </section>

@@ -266,6 +266,11 @@ GMAIL_IMAP_PASSWORD = os.getenv('GMAIL_IMAP_PASSWORD', '')
 # Si está vacío, las firmas se renderizan sin logo (solo texto).
 FIRMA_LOGO_URL = os.getenv('FIRMA_LOGO_URL', '')
 
+# Color de acento de las firmas (barra lateral, iconos en círculos). Cada
+# deployment tiene su brand color: Pietramonte = rojo. Para otra empresa,
+# overridear con env var (ej. BRAND_PRIMARY_COLOR=#1976D2 para azul).
+BRAND_PRIMARY_COLOR = os.getenv('BRAND_PRIMARY_COLOR', '#C80C0F')
+
 
 # ─── Anti-bot del form público de reservas ────────────────────────────────
 # Cloudflare Turnstile: gratis, invisible para humanos legítimos. Sacá las

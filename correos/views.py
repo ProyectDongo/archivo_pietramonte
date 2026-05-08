@@ -1841,6 +1841,7 @@ def firma_view(request):
         buzon.firma_nombre        = (request.POST.get('firma_nombre') or '').strip()[:120]
         buzon.firma_cargo         = (request.POST.get('firma_cargo') or '').strip()[:120]
         buzon.firma_telefono      = (request.POST.get('firma_telefono') or '').strip()[:40]
+        buzon.firma_web           = (request.POST.get('firma_web') or '').strip()[:120]
         email_v = (request.POST.get('firma_email_visible') or '').strip()
         if email_v:
             from django.core.exceptions import ValidationError
@@ -1855,7 +1856,7 @@ def firma_view(request):
             buzon.firma_email_visible = ''
         buzon.save(update_fields=[
             'firma_activa', 'firma_nombre', 'firma_cargo',
-            'firma_telefono', 'firma_email_visible',
+            'firma_telefono', 'firma_email_visible', 'firma_web',
         ])
         messages.success(request, 'Firma guardada. Se aplica desde el próximo correo enviado.')
         return redirect('firma')

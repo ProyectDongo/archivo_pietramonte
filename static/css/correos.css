@@ -1229,20 +1229,6 @@
   border-color: var(--r);
 }
 
-/* ─── Preview lateral ─────────────────────────────────────── */
-.split-preview {
-  background: var(--w);
-  border: 1px solid var(--bdr);
-  border-radius: 12px;
-  box-shadow: var(--sh);
-  overflow: hidden;
-  min-height: 400px;
-  position: sticky;
-  top: 80px;
-  max-height: calc(100vh - 100px);
-  display: flex;
-  flex-direction: column;
-}
 .preview-empty {
   display: flex;
   flex-direction: column;
@@ -2202,7 +2188,6 @@
   .lightbox-cap-text { max-width: 90vw; white-space: normal; }
 }
 
-
 /* ─── Carpetas (Inbox / Enviados / Otros / Todos) ─────────── */
 .carpeta-chips {
   display: flex;
@@ -2517,7 +2502,6 @@
     justify-content: flex-start;
   }
 }
-
 
 /* ════════════════════════════════════════════════════════════════════════
    INBOX REDESIGN 2026-05-08 — layout 3-pane Gmail-style + responsive
@@ -3339,24 +3323,7 @@
    Sibling del .split-preview dentro de .inbox-split — sobrevive innerHTML
    replace porque NO es hijo del preview pane.
    Default: oculto en todos lados.
-   Mobile + preview en overlay (.show): visible top-left, encima del pane. */
-.preview-back-mobile-btn {
-  display: none;
-  align-items: center;
-  gap: 6px;
-  background: var(--w);
-  border: 1px solid var(--bdr);
-  border-radius: 99px;
-  padding: 8px 14px 8px 10px;
-  font-family: var(--f);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--gd);
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0,0,0,.12);
-  transition: background .15s, border-color .15s;
-}
-.preview-back-mobile-btn:hover { background: var(--off); border-color: var(--gm); }
+   Mobile + preview en overlay (.show): visible top-left, encima del pane. */.preview-back-mobile-btn:hover { background: var(--off); border-color: var(--gm); }
 @media (max-width: 767px) {
   .page-inbox .split-preview.show ~ .preview-back-mobile-btn {
     display: inline-flex;
@@ -4709,28 +4676,11 @@
   .inbox-shell.is-reading .correo-row.active::before { background: var(--r); width: 3px; }
 }
 
-/* Botón "Volver a la lista" en el preview header — visible solo en modo lectura desktop */
-.preview-back-list {
-  display: none;
-  align-items: center;
-  gap: 6px;
-  margin: 12px 0 0 16px;
-  padding: 6px 12px;
-  background: var(--off);
-  border: 1px solid var(--bdr);
-  border-radius: 6px;
-  color: var(--gd);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background .15s, border-color .15s;
-}
 .preview-back-list:hover { background: var(--off2); border-color: var(--gl); }
 @media (min-width: 901px) {
   .inbox-shell.is-reading .preview-back-list { display: inline-flex; }
 }
 
-[data-theme="dark"] .preview-back-list { background: #252b30; border-color: #383f45; color: #c0c4c8; }
 [data-theme="dark"] .preview-back-list:hover { background: #2c3338; color: #fff; }
 
 /* ==========================================================================
@@ -4908,12 +4858,16 @@
   margin-bottom: 12px;
 }
 .firma-preview-frame {
-  background: var(--w);
+  background: #ffffff;     /* Siempre blanco — refleja cómo llega al destinatario */
   border: 1px solid var(--bdr);
   border-radius: 8px;
-  padding: 18px;
+  padding: 24px;
   min-height: 100px;
+  color: #1a1f22;
+  /* Fuerza el modelo de email: ningún heredado del tema dark */
+  color-scheme: light;
 }
+.firma-preview-frame * { color: inherit; }
 .firma-preview-frame:empty::before {
   content: '(Sin firma — el correo se enviará sin firma extra al final)';
   color: var(--gl);
@@ -4930,4 +4884,61 @@
 [data-theme="dark"] .firma-toggle { background: #252b30; border-color: #383f45; color: #e8eaed; }
 [data-theme="dark"] .firma-field input { background: #252b30; color: #e8eaed; border-color: #383f45; }
 [data-theme="dark"] .firma-preview-pane { background: #252b30; border-color: #383f45; }
-[data-theme="dark"] .firma-preview-frame { background: #1d2226; border-color: #383f45; }
+[data-theme="dark"] .firma-preview-frame { background: #ffffff; border-color: #383f45; color: #1a1f22; }
+
+/* ==========================================================================
+   Lista a pantalla completa (sin preview pane) — Gmail-style
+   ========================================================================== */
+
+.inbox-list-wrap {
+  background: var(--w);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.page-inbox .inbox-list-wrap .split-list {
+  background: var(--w);
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  position: static;
+  height: auto;
+  max-height: none;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.page-inbox .inbox-list-wrap .correos-list {
+  flex: 1;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+a.correo-row {
+  text-decoration: none;
+  color: inherit;
+}
+
+.correo-row.keyboard-focus {
+  box-shadow: inset 3px 0 0 var(--r), inset 0 0 0 1px rgba(200,12,15,.08);
+  background: rgba(200,12,15,.04);
+}
+[data-theme="dark"] .correo-row.keyboard-focus {
+  background: rgba(200,12,15,.12);
+  box-shadow: inset 3px 0 0 var(--r), inset 0 0 0 1px rgba(255,255,255,.04);
+}
+
+.page-inbox .inbox-list-wrap .paginacion {
+  flex-shrink: 0;
+  padding: 14px 18px;
+  border-top: 1px solid var(--bdr);
+  background: var(--w);
+}
+[data-theme="dark"] .page-inbox .inbox-list-wrap .paginacion { background: #1d2226; border-top-color: #383f45; }
