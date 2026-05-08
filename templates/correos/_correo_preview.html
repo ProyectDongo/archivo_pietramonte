@@ -85,9 +85,11 @@
 
   <div class="preview-body">
     {% if correo.cuerpo_html %}
-    {# render_correo_html resuelve cid: → URL interna autenticada y sanitiza
-       con bleach. <img> sólo se permite si src es relativa (nuestra URL)
-       o data:image — los http/https externos quedan bloqueados (tracking). #}
+    {% comment %}
+    render_correo_html resuelve cid: → URL interna autenticada y sanitiza
+    con bleach. <img> sólo se permite si src es relativa (nuestra URL)
+    o data:image — los http/https externos quedan bloqueados (tracking).
+    {% endcomment %}
     <div class="preview-content preview-content-html">{% render_correo_html correo %}</div>
     {% elif correo.cuerpo_texto %}
     <div class="preview-content">{{ correo.cuerpo_texto|limpiar_cid_brackets }}</div>

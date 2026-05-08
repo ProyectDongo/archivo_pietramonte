@@ -312,9 +312,11 @@
         </div>
       </aside>
 
-      {# Botón "Volver a la lista" del overlay mobile. Sibling del preview
-         para que sobreviva al innerHTML replace que hace cargarPreview().
-         Visibilidad controlada por CSS via .split-preview.show ~ ... #}
+      {% comment %}
+      Botón "Volver a la lista" del overlay mobile. Sibling del preview
+      para que sobreviva al innerHTML replace que hace cargarPreview().
+      Visibilidad controlada por CSS via .split-preview.show ~ ...
+      {% endcomment %}
       <button type="button" class="preview-back-mobile-btn" id="preview-back-mobile-btn"
               aria-label="Volver a la lista">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"

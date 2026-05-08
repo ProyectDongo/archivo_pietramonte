@@ -1,11 +1,13 @@
 {% load correos_tags %}
-{# ─── Sidebar de navegación del inbox (Gmail-style) ─────────────────────
-   Reemplaza al strip horizontal de buzones. Concentra:
-     - Buzones del usuario
-     - Carpetas (Recibidos/Enviados/Otros/Todos)
-     - Filtros rápidos (sin leer / destacados / con adjunto)
-     - Etiquetas del buzón actual + "+ Nueva"
-   En mobile se vuelve un drawer (off-canvas) con backdrop. #}
+{% comment %}
+Sidebar de navegación del inbox (Gmail-style).
+Reemplaza al strip horizontal de buzones. Concentra:
+  - Buzones del usuario
+  - Carpetas (Recibidos/Enviados/Otros/Todos)
+  - Filtros rápidos (sin leer / destacados / con adjunto)
+  - Etiquetas del buzón actual + "+ Nueva"
+En mobile se vuelve un drawer (off-canvas) con backdrop.
+{% endcomment %}
 <aside class="inbox-sidebar" id="inbox-sidebar" aria-label="Navegación de bandejas">
 
   {# Header del sidebar (visible solo en mobile como cierre) #}
