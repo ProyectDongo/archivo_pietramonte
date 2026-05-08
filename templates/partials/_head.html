@@ -11,13 +11,4 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
 
 <link rel="stylesheet" href="{% static 'css/base.css' %}">
-<script>
-  (function () {
-    try {
-      var t = localStorage.getItem('pm.theme');
-      var d = localStorage.getItem('pm.density');
-      if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-      if (d === 'compact') document.documentElement.setAttribute('data-density', 'compact');
-    } catch (e) {}
-  })();
-</script>
+<script src="{% static 'js/theme_init.js' %}"></script>

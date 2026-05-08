@@ -1252,20 +1252,49 @@
   padding: 3rem 2rem;
   color: var(--gl);
   flex: 1;
+  gap: 14px;
 }
-.preview-empty-icon { font-size: 56px; margin-bottom: 1rem; opacity: .6; }
-.preview-empty p { font-size: 14px; margin-bottom: 8px; }
-.preview-empty-hint { font-size: 12px; color: var(--gl); }
+.preview-empty-icon {
+  font-size: 64px;
+  opacity: .35;
+  line-height: 1;
+  filter: grayscale(.4);
+}
+.preview-empty p {
+  font-size: 14px;
+  font-weight: 500;
+  margin: 0;
+  max-width: 360px;
+}
+.preview-empty-hint {
+  font-size: 11px;
+  color: var(--gl);
+  letter-spacing: .3px;
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
 .preview-empty-hint kbd {
-  display: inline-block;
-  padding: 2px 6px;
-  background: var(--off);
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 7px;
+  background: var(--w);
   border: 1px solid var(--bdr);
   border-bottom-width: 2px;
-  border-radius: 4px;
-  font-family: 'Courier New', monospace;
+  border-radius: 5px;
+  font-family: 'SFMono-Regular', Consolas, 'Courier New', monospace;
   font-size: 11px;
+  font-weight: 600;
   margin: 0 2px;
+  color: var(--gd);
+  box-shadow: 0 1px 0 rgba(0,0,0,.04);
+}
+[data-theme="dark"] .preview-empty-hint kbd {
+  background: #2c3338;
+  border-color: #4a5158;
+  color: #e8eaed;
 }
 
 .preview-card {
@@ -4525,45 +4554,159 @@
 [data-theme="dark"] .sidebar-draft-more { border-top-color: #383f45; }
 
 /* ==========================================================================
-   Modo lectura: cuando hay un correo abierto, la lista se reduce a una
-   columna compacta y el preview toma la mayoría del ancho. Reversible con
-   "Volver a la lista" o Esc.
+   Modo lectura: cuando hay un correo abierto, sidebar colapsa a 56px (rail
+   con iconos), lista se reduce a 320px con filas densas, preview toma el
+   resto. Transiciones suaves para evitar saltos.
    ========================================================================== */
+
+.inbox-shell { transition: grid-template-columns .25s ease; }
+.inbox-split { transition: grid-template-columns .25s ease; }
+
 @media (min-width: 901px) {
-  .inbox-shell.is-reading { grid-template-columns: 0 1fr; }
-  .inbox-shell.is-reading .inbox-sidebar { display: none; }
-  .inbox-shell.is-reading .inbox-split { grid-template-columns: 280px 1fr; }
+  .inbox-shell.is-reading { grid-template-columns: 56px 1fr; }
+  .inbox-shell.is-reading .inbox-split { grid-template-columns: 320px 1fr; }
+
+  /* Sidebar como rail de iconos */
+  .inbox-shell.is-reading .inbox-sidebar { padding: 14px 6px 24px; gap: 10px; }
+  .inbox-shell.is-reading .sidebar-section { gap: 4px; }
+  .inbox-shell.is-reading .sidebar-label,
+  .inbox-shell.is-reading .sidebar-link-text,
+  .inbox-shell.is-reading .sidebar-buzon-name,
+  .inbox-shell.is-reading .sidebar-link-count,
+  .inbox-shell.is-reading .sidebar-badge,
+  .inbox-shell.is-reading .sidebar-buzones-toggle,
+  .inbox-shell.is-reading .sidebar-tag-new .sidebar-link-text,
+  .inbox-shell.is-reading .sidebar-empty,
+  .inbox-shell.is-reading .new-tag-dialog,
+  .inbox-shell.is-reading .sidebar-drafts-pop,
+  .inbox-shell.is-reading .sidebar-compose-text,
+  .inbox-shell.is-reading .appearance-row-label,
+  .inbox-shell.is-reading .sidebar-appearance .seg-toggle { display: none; }
+  .inbox-shell.is-reading .sidebar-link,
+  .inbox-shell.is-reading .sidebar-buzon {
+    justify-content: center;
+    padding: 8px 4px;
+  }
+  .inbox-shell.is-reading .sidebar-compose {
+    margin: 0 4px 8px;
+    padding: 10px;
+    justify-content: center;
+  }
+  .inbox-shell.is-reading .sidebar-drafts-wrap { padding: 0 4px; }
+
+  /* Ocultar toolbar avanzado y stats en modo lectura */
   .inbox-shell.is-reading .stats-panel,
   .inbox-shell.is-reading .toolbar-adv,
   .inbox-shell.is-reading .active-filters { display: none; }
 
-  /* Filas compactas en modo lectura: avatar + sender + fecha (no snippet) */
+  /* Filas densas en modo lectura: 2 líneas, sin snippet largo */
   .inbox-shell.is-reading .correo-row {
-    grid-template-columns: 22px 28px 32px 1fr auto;
+    grid-template-columns: 22px 32px 1fr auto;
+    grid-template-areas:
+      "check avatar from   date"
+      "check avatar subject subject";
+    column-gap: 10px;
+    row-gap: 2px;
     padding: 8px 12px;
-    min-height: 40px;
+    align-items: center;
+    min-height: 52px;
   }
+  .inbox-shell.is-reading .correo-row .row-check { grid-area: check; }
   .inbox-shell.is-reading .correo-row .row-star { display: none; }
-  .inbox-shell.is-reading .correo-row .correo-content {
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-  }
-  .inbox-shell.is-reading .correo-row .correo-snippet,
-  .inbox-shell.is-reading .correo-row .correo-sep { display: none; }
-  .inbox-shell.is-reading .correo-row .correo-subject {
-    display: block;
+  .inbox-shell.is-reading .correo-row .avatar { grid-area: avatar; }
+  .inbox-shell.is-reading .correo-row .correo-from {
+    grid-area: from;
+    font-size: 12px;
     font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .inbox-shell.is-reading .correo-row .correo-from {
+  .inbox-shell.is-reading .correo-row .correo-date {
+    grid-area: date;
     font-size: 11px;
     color: var(--gl);
+    white-space: nowrap;
   }
-  .inbox-shell.is-reading .correo-row.is-read .correo-from { color: var(--gl); }
+  .inbox-shell.is-reading .correo-row .correo-content {
+    grid-area: subject;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--gm);
+  }
+  .inbox-shell.is-reading .correo-row .correo-subject {
+    font-weight: 500;
+    color: var(--gd);
+  }
+  .inbox-shell.is-reading .correo-row .correo-snippet,
+  .inbox-shell.is-reading .correo-row .correo-sep,
+  .inbox-shell.is-reading .correo-row .tag-chip-mini,
+  .inbox-shell.is-reading .correo-row .adj-pill { display: none; }
+  .inbox-shell.is-reading .correo-row:not(.is-read) .correo-from,
+  .inbox-shell.is-reading .correo-row:not(.is-read) .correo-subject {
+    color: var(--gd);
+    font-weight: 700;
+  }
+
+  /* Preview header con un poco más de aire */
+  .inbox-shell.is-reading .preview-card { animation: slide-in .22s ease-out; }
+}
+
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* En modo lectura, refinar el preview header con más aire y mejor jerarquía */
+@media (min-width: 901px) {
+  .inbox-shell.is-reading .preview-head {
+    padding: 24px 36px 18px;
+    border-bottom: 1px solid var(--bdr);
+  }
+  .inbox-shell.is-reading .preview-subject {
+    font-size: 22px;
+    line-height: 1.3;
+    font-weight: 700;
+    margin: 14px 0 12px;
+    color: var(--gd);
+    letter-spacing: -0.3px;
+  }
+  .inbox-shell.is-reading .preview-meta-main { gap: 2px; }
+  .inbox-shell.is-reading .preview-from { font-size: 14px; font-weight: 600; }
+  .inbox-shell.is-reading .preview-from-mail { font-size: 12px; color: var(--gl); }
+  .inbox-shell.is-reading .preview-date { font-size: 11px; color: var(--gl); }
+  .inbox-shell.is-reading .preview-actions { gap: 6px; flex-wrap: wrap; }
+  .inbox-shell.is-reading .preview-body {
+    padding: 28px 36px 36px;
+    overflow-y: auto;
+  }
+  .inbox-shell.is-reading .preview-tags-wrap { padding: 10px 0 0; border-top: none; }
+  .inbox-shell.is-reading .preview-foot { padding: 18px 36px 24px; }
+  .inbox-shell.is-reading .preview-notas { padding: 16px 36px; }
+  .inbox-shell.is-reading .preview-thread { margin: 16px 36px 0; }
+
+  /* Cuando es modo lectura y el preview está vacío, oculto el ícono porque queda raro tan grande */
+  .inbox-shell.is-reading .split-preview .preview-empty {
+    padding: 4rem 2rem;
+  }
+}
+
+/* Para el modo split (no reading), también un poco más de aire en el header */
+@media (min-width: 901px) {
+  .inbox-shell:not(.is-reading) .preview-head { padding: 14px 18px; }
+  .inbox-shell:not(.is-reading) .preview-subject { font-size: 16px; line-height: 1.35; margin: 10px 0 8px; }
+  .inbox-shell:not(.is-reading) .preview-foot,
+  .inbox-shell:not(.is-reading) .preview-notas { padding: 14px 18px; }
+}
+
+/* Hover refinado de filas en modo lectura */
+@media (min-width: 901px) {
+  .inbox-shell.is-reading .correo-row:hover { background: var(--off); }
+  .inbox-shell.is-reading .correo-row.active { background: rgba(200,12,15,.08); }
+  .inbox-shell.is-reading .correo-row.active::before { background: var(--r); width: 3px; }
 }
 
 /* Botón "Volver a la lista" en el preview header — visible solo en modo lectura desktop */
