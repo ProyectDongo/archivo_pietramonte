@@ -28,6 +28,8 @@ urlpatterns = [
     path('intranet/correo/<int:correo_id>/preview/',     views.correo_preview_view,   name='correo_preview'),
     path('intranet/correo/<int:correo_id>/destacar/',    views.toggle_destacado_view, name='toggle_destacado'),
     path('intranet/correo/<int:correo_id>/leido/',       views.toggle_leido_view,     name='toggle_leido'),
+    path('intranet/correo/<int:correo_id>/snooze/',      views.snooze_correo_view,    name='snooze_correo'),
+    path('intranet/correo/<int:correo_id>/unsnooze/',    views.unsnooze_correo_view,  name='unsnooze_correo'),
     path('intranet/correo/<int:correo_id>/notas/',       views.actualizar_notas_view, name='actualizar_notas'),
     path('intranet/correo/<int:correo_id>/etiqueta/',    views.asignar_etiqueta_view, name='asignar_etiqueta'),
     path('intranet/correo/<int:correo_id>/reenviar/',    views.reenviar_correo_view,  name='reenviar_correo'),
@@ -36,4 +38,6 @@ urlpatterns = [
     path('intranet/correo/<int:correo_id>/',             views.detalle_view,          name='detalle'),
     path('intranet/adjunto/<int:adjunto_id>/',           views.adjunto_view,          name='adjunto'),
     path('intranet/buzon/etiqueta-nueva/',               views.crear_etiqueta_view,   name='crear_etiqueta'),
+    path('intranet/correos/bulk/',                       views.bulk_acciones_view,    name='bulk_acciones'),
+    path('intranet/redactar/',                           views.compose_view,          name='compose'),
 ]

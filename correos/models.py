@@ -222,6 +222,34 @@ class CorreoLeido(models.Model):
         return f'{self.usuario.email} leyó #{self.correo_id}'
 
 
+class CorreoSnooze(models.Model):
+    """
+    Snooze (posponer) per-usuario: oculta el correo de la bandeja hasta
+    `until_at`. Cuando esa fecha pasa, el correo reaparece automáticamente
+    (filtramos en la query con until_at > now() — no necesitamos cron).
+
+    Existencia = activo. Borrar = unsnooze inmediato.
+    """
+    usuario   = models.ForeignKey('UsuarioPortal', on_delete=models.CASCADE,
+                                  related_name='correos_snoozed')
+    correo    = models.ForeignKey('Correo', on_delete=models.CASCADE,
+                                  related_name='snoozes')
+    until_at  = models.DateTimeField(db_index=True,
+                                     help_text='El correo está oculto hasta este momento.')
+    creado    = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Correo pospuesto (snooze)'
+        verbose_name_plural = 'Correos pospuestos'
+        unique_together = [('usuario', 'correo')]
+        indexes = [
+            models.Index(fields=['usuario', 'until_at'], name='correos_snz_usr_until_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.usuario.email} → #{self.correo_id} hasta {self.until_at:%Y-%m-%d %H:%M}'
+
+
 class Adjunto(models.Model):
     """
     Archivo adjunto extraído de un correo .mbox y guardado en MEDIA_ROOT.

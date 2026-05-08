@@ -5,16 +5,11 @@
 {% block body_class %}page-inbox{% endblock %}
 
 {% block content %}
-{# ─── Layout Gmail-style: sidebar (buzones+filtros) | main (header+stats+toolbar+lista+preview) ─── #}
 <div class="inbox-shell">
-
-  {# Sidebar con buzones, carpetas, filtros y etiquetas #}
-  {% include 'partials/_inbox_sidebar.html' %}
+{% include 'partials/_inbox_sidebar.html' %}
 
   <section class="inbox-main">
-
-    {# ─── Header del main: hamburger (mobile) + título + toggle stats ─── #}
-    <header class="inbox-header">
+<header class="inbox-header">
       <button type="button" class="sidebar-toggle" id="sidebar-toggle" aria-label="Abrir menú lateral" aria-controls="inbox-sidebar">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
              stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
@@ -36,9 +31,7 @@
       </button>
       {% endif %}
     </header>
-
-    {# ─── Stats banner colapsable (default oculto). Se expande al click en .stats-toggle ─── #}
-    {% if stats %}
+{% if stats %}
     <section class="stats-panel" id="stats-panel" hidden aria-label="Resumen del buzón">
       <div class="stats-cards">
         <div class="stat-mini">
@@ -101,23 +94,22 @@
       </div>
     </section>
     {% endif %}
-
-    {# ─── Toolbar: buscador + toggle de filtros avanzados ─── #}
-    <div class="inbox-toolbar">
+<div class="inbox-toolbar">
       <form class="toolbar-search" method="get" action="{% url 'inbox' %}" role="search" id="search-form">
         <svg class="toolbar-search-ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
              stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/>
         </svg>
         <input type="text" name="q" value="{{ query }}"
-               placeholder="Buscar por asunto, remitente o contenido…"
+               placeholder='Buscar — usá from:, to:, subject:, has:attachment, before:, after:, label:, is:starred…'
                autocomplete="off" maxlength="200" aria-label="Buscar correos">
+        <button type="button" class="toolbar-search-help" id="search-help-btn" tabindex="-1"
+                aria-label="Ayuda de operadores de búsqueda" aria-expanded="false"
+                title="Ayuda: operadores de búsqueda">?</button>
         {% if query %}
         <a href="{% url_sin_filtros 'q' %}" class="toolbar-search-clear" aria-label="Limpiar búsqueda" title="Limpiar búsqueda">✕</a>
         {% endif %}
-
-        {# Mantener filtros vivos al buscar #}
-        {% if carpeta %}<input type="hidden" name="carpeta" value="{{ carpeta }}">{% endif %}
+{% if carpeta %}<input type="hidden" name="carpeta" value="{{ carpeta }}">{% endif %}
         {% if solo_destacados %}<input type="hidden" name="destacado" value="1">{% endif %}
         {% if solo_adjuntos %}<input type="hidden" name="adjuntos" value="1">{% endif %}
         {% if solo_no_leidos %}<input type="hidden" name="no_leidos" value="1">{% endif %}
@@ -126,6 +118,19 @@
         {% if fecha_hasta %}<input type="hidden" name="hasta" value="{{ fecha_hasta }}">{% endif %}
         {% if orden and orden != 'desc' %}<input type="hidden" name="orden" value="{{ orden }}">{% endif %}
       </form>
+<div class="search-help-pop" id="search-help-pop" hidden role="dialog" aria-label="Operadores de búsqueda">
+        <div class="search-help-title">Operadores de búsqueda</div>
+        <ul class="search-help-list">
+          <li><code>from:cobranza@empresa.cl</code> — del remitente</li>
+          <li><code>to:contacto</code> — al destinatario</li>
+          <li><code>subject:"factura abril"</code> — en el asunto (comillas para frases)</li>
+          <li><code>has:attachment</code> — solo con adjunto</li>
+          <li><code>before:2026-01-01</code> / <code>after:2025-12-01</code> — rango de fechas</li>
+          <li><code>label:Urgente</code> — con esa etiqueta</li>
+          <li><code>is:starred</code> · <code>is:unread</code> · <code>is:read</code></li>
+        </ul>
+        <div class="search-help-foot">Combinables: <code>from:juan has:attachment after:2025-01-01</code></div>
+      </div>
 
       <button type="button" class="toolbar-adv-toggle" id="adv-toggle"
               aria-controls="toolbar-adv" aria-expanded="false">
@@ -137,9 +142,7 @@
         Filtros
       </button>
     </div>
-
-    {# ─── Filtros avanzados (fechas + orden) — colapsable ─── #}
-    <form class="toolbar-adv" method="get" action="{% url 'inbox' %}" id="toolbar-adv" hidden>
+<form class="toolbar-adv" method="get" action="{% url 'inbox' %}" id="toolbar-adv" hidden>
       {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
       {% if carpeta %}<input type="hidden" name="carpeta" value="{{ carpeta }}">{% endif %}
       {% if solo_destacados %}<input type="hidden" name="destacado" value="1">{% endif %}
@@ -163,9 +166,7 @@
       </label>
       <button type="submit" class="adv-apply">Aplicar</button>
     </form>
-
-    {# ─── Chips de filtros activos (visibles solo si hay alguno aplicado) ─── #}
-    {% if hay_filtros_activos %}
+{% if hay_filtros_activos %}
     <div class="active-filters" role="region" aria-label="Filtros aplicados">
       <span class="active-filters-label">Filtros activos:</span>
 
@@ -239,9 +240,48 @@
       <span class="active-filters-count">{{ total }} resultado{{ total|pluralize:"s" }}</span>
     </div>
     {% endif %}
+<div class="bulk-bar" id="bulk-bar" hidden role="region" aria-label="Acciones en masa">
+      <label class="bulk-bar-checkall" title="Seleccionar / quitar todo en esta página">
+        <input type="checkbox" id="bulk-checkall">
+        <span class="bulk-bar-count"><span id="bulk-bar-n">0</span> seleccionado<span id="bulk-bar-s">s</span></span>
+      </label>
+      <div class="bulk-bar-actions">
+        <button type="button" class="bulk-btn" data-bulk-accion="leer" title="Marcar como leídos">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          Leídos
+        </button>
+        <button type="button" class="bulk-btn" data-bulk-accion="no_leer" title="Marcar como no leídos">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16v16H4z"/><path d="M4 4l8 8 8-8"/></svg>
+          No leídos
+        </button>
+        <button type="button" class="bulk-btn" data-bulk-accion="destacar" title="Destacar todos">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26"/></svg>
+          Destacar
+        </button>
+        <button type="button" class="bulk-btn" data-bulk-accion="no_destacar" title="Quitar destacado">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26"/></svg>
+          Sin destacar
+        </button>
 
-    {# ─── Split principal: lista + preview ─── #}
-    <div class="inbox-split">
+        {% if etiquetas_disponibles %}
+        <div class="bulk-tag-wrap">
+          <button type="button" class="bulk-btn" id="bulk-tag-btn" title="Asignar etiqueta">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.59 13.41 13 21l-9-9V4h8l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg>
+            Etiquetar
+          </button>
+          <div class="bulk-tag-menu" id="bulk-tag-menu" hidden>
+            {% for et in etiquetas_disponibles %}
+            <button type="button" class="bulk-tag-opt" data-etiqueta-id="{{ et.id }}" data-color="{{ et.color }}">
+              <span class="tag-dot" style="background:{{ et.color }}"></span>{{ et.nombre|truncatechars:24 }}
+            </button>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      <button type="button" class="bulk-bar-close" id="bulk-bar-close" title="Cerrar selección" aria-label="Cerrar selección">✕</button>
+    </div>
+<div class="inbox-split">
 
       <div class="split-list" id="split-list">
         {% if page.object_list %}
@@ -252,6 +292,9 @@
                  data-correo-id="{{ correo.id }}"
                  data-href="{% url 'detalle' correo.id %}"
                  data-preview-url="{% url 'correo_preview' correo.id %}">
+              <input type="checkbox" class="row-check" data-correo-id="{{ correo.id }}"
+                     aria-label="Seleccionar correo"
+                     title="Seleccionar (Shift+click para rango)">
               <button type="button" class="row-star" data-correo-id="{{ correo.id }}"
                       title="{% if correo.destacado %}Quitar destacado{% else %}Destacar{% endif %}"
                       aria-label="{% if correo.destacado %}Quitar destacado{% else %}Destacar{% endif %}">
@@ -311,13 +354,7 @@
           </p>
         </div>
       </aside>
-
-      {% comment %}
-      Botón "Volver a la lista" del overlay mobile. Sibling del preview
-      para que sobreviva al innerHTML replace que hace cargarPreview().
-      Visibilidad controlada por CSS via .split-preview.show ~ ...
-      {% endcomment %}
-      <button type="button" class="preview-back-mobile-btn" id="preview-back-mobile-btn"
+<button type="button" class="preview-back-mobile-btn" id="preview-back-mobile-btn"
               aria-label="Volver a la lista">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
              stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -329,8 +366,6 @@
 
   </section>
 </div>
-
-{# JSON con etiquetas disponibles del buzón actual — usado por preview para autocomplete #}
 <script id="etiquetas-disponibles-data" type="application/json">
 [{% for et in etiquetas_disponibles %}{"id":{{ et.id }},"nombre":"{{ et.nombre|escapejs }}","color":"{{ et.color }}"}{% if not forloop.last %},{% endif %}{% endfor %}]
 </script>
@@ -339,4 +374,5 @@
 {% block extra_js %}
 {% load static %}
 <script src="{% static 'js/inbox.js' %}" defer></script>
+<script src="{% static 'js/bulk_select.js' %}" defer></script>
 {% endblock %}

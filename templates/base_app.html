@@ -4,8 +4,7 @@
   {% include 'partials/_head.html' %}
   <title>{% block title %}Archivo Correos{% endblock %} — Pietramonte</title>
   <meta name="robots" content="noindex,nofollow">
-  {# CSRF para llamadas fetch desde JS sin necesidad de leer la cookie. #}
-  <meta name="csrf-token" content="{{ csrf_token }}">
+<meta name="csrf-token" content="{{ csrf_token }}">
   {% load static %}
   <link rel="stylesheet" href="{% static 'css/correos.css' %}">
   {% block extra_head %}{% endblock %}
@@ -17,19 +16,31 @@
     {% include 'partials/_messages.html' %}
     {% block content %}{% endblock %}
   </main>
-
-  {# Lightbox global para preview de imágenes adjuntas #}
-  <div id="lightbox" class="lightbox" hidden role="dialog" aria-modal="true" aria-label="Vista de imagen">
-    <button type="button" class="lightbox-close" aria-label="Cerrar">✕</button>
+<div id="lightbox" class="lightbox" hidden role="dialog" aria-modal="true" aria-label="Vista de imagen">
+    <button type="button" class="lightbox-close" aria-label="Cerrar (Esc)" title="Cerrar (Esc)">✕</button>
+    <button type="button" class="lightbox-nav lightbox-prev" aria-label="Anterior (←)" title="Anterior (←)" hidden>
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <button type="button" class="lightbox-nav lightbox-next" aria-label="Siguiente (→)" title="Siguiente (→)" hidden>
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+    </button>
     <figure class="lightbox-figure">
       <img class="lightbox-img" alt="">
-      <figcaption class="lightbox-caption"></figcaption>
+      <figcaption class="lightbox-caption">
+        <span class="lightbox-cap-text"></span>
+        <span class="lightbox-counter" hidden></span>
+        <a class="lightbox-download" href="#" download title="Descargar (d)" aria-label="Descargar imagen">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Descargar
+        </a>
+      </figcaption>
     </figure>
   </div>
 
   <script src="{% static 'js/portal_helpers.js' %}" defer></script>
   <script src="{% static 'js/app_nav.js' %}" defer></script>
   <script src="{% static 'js/lightbox.js' %}" defer></script>
+  <script src="{% static 'js/theme.js' %}" defer></script>
   {% block extra_js %}{% endblock %}
 </body>
 </html>

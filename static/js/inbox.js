@@ -126,6 +126,16 @@
       .finally(function () { cargando = false; });
   }
 
+  // ─── Quitar una fila tras posponer (sale de la bandeja activa) ─────────
+  function quitarFilaSnoozeada(correoId) {
+    const row = lista.querySelector('.correo-row[data-correo-id="' + correoId + '"]');
+    if (row) row.closest('li').remove();
+    preview.innerHTML = '<div class="preview-empty"><div class="preview-empty-icon">💤</div>' +
+      '<p>Correo pospuesto. Lo verás en "Pospuestos".</p></div>';
+    if (window.innerWidth <= 900) preview.classList.remove('show');
+    history.replaceState(null, '', '/intranet/bandeja/');
+  }
+
   // ─── Conectar interactividad del preview cuando llega por AJAX ──────────
   function wireUpPreview() {
     // Estrella prominente
@@ -271,6 +281,71 @@
       });
     }
 
+    // Hilo de conversación: toggle expandible + click carga preview del otro correo
+    const thBtn = preview.querySelector('.preview-thread-toggle');
+    const thList = preview.querySelector('.preview-thread-list');
+    if (thBtn && thList) {
+      thBtn.addEventListener('click', function () {
+        const abrir = thList.hidden;
+        thList.hidden = !abrir;
+        thBtn.setAttribute('aria-expanded', String(abrir));
+      });
+      thList.querySelectorAll('.preview-thread-item').forEach(function (a) {
+        a.addEventListener('click', function (e) {
+          if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return; // nueva tab OK
+          e.preventDefault();
+          // Buscar la fila correspondiente en la lista — si está en la página actual,
+          // cargar su preview. Si no, navegar al detalle.
+          const cid = a.getAttribute('data-correo-id');
+          const row = lista.querySelector('.correo-row[data-correo-id="' + cid + '"]');
+          if (row) cargarPreview(row);
+          else window.location.href = a.getAttribute('href');
+        });
+      });
+    }
+
+    // Snooze: dropdown con presets + custom
+    const snzBtn = preview.querySelector('.preview-snooze-btn');
+    const snzMenu = preview.querySelector('.preview-snooze-menu');
+    if (snzBtn && snzMenu) {
+      const cid = snzBtn.dataset.correoId;
+      snzBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        snzMenu.hidden = !snzMenu.hidden;
+      });
+      document.addEventListener('click', function (e) {
+        if (!snzMenu.hidden && !snzMenu.contains(e.target) && e.target !== snzBtn) {
+          snzMenu.hidden = true;
+        }
+      });
+      snzMenu.querySelectorAll('.snooze-opt[data-preset]').forEach(function (opt) {
+        opt.addEventListener('click', function () {
+          PM.post('/intranet/correo/' + cid + '/snooze/', { preset: opt.dataset.preset })
+            .then(function () { quitarFilaSnoozeada(cid); snzMenu.hidden = true; });
+        });
+      });
+      const customGo = snzMenu.querySelector('.snooze-custom-go');
+      const customInput = snzMenu.querySelector('.snooze-custom-input');
+      if (customGo && customInput) {
+        customGo.addEventListener('click', function () {
+          const v = customInput.value;
+          if (!v) { customInput.focus(); return; }
+          PM.post('/intranet/correo/' + cid + '/snooze/', { until: v })
+            .then(function () { quitarFilaSnoozeada(cid); snzMenu.hidden = true; })
+            .catch(function (err) {
+              alert('No se pudo posponer: ' + (err && err.message || 'fecha inválida'));
+            });
+        });
+      }
+      const cancelBtn = snzMenu.querySelector('.snooze-cancel');
+      if (cancelBtn) {
+        cancelBtn.addEventListener('click', function () {
+          PM.post('/intranet/correo/' + cid + '/unsnooze/')
+            .then(function () { window.location.reload(); });
+        });
+      }
+    }
+
     // Notas: autosave al perder foco
     const nota = preview.querySelector('.preview-notas-input');
     const status = preview.querySelector('#notas-status');
@@ -401,6 +476,30 @@
 
     nameInput.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') { e.preventDefault(); createBtn.click(); }
+    });
+  }
+
+  // ─── Popup de ayuda de operadores de búsqueda ──────────────────────────
+  const helpBtn = document.getElementById('search-help-btn');
+  const helpPop = document.getElementById('search-help-pop');
+  if (helpBtn && helpPop) {
+    helpBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      const abrir = helpPop.hidden;
+      helpPop.hidden = !abrir;
+      helpBtn.setAttribute('aria-expanded', String(abrir));
+    });
+    document.addEventListener('click', function (e) {
+      if (!helpPop.hidden && !helpPop.contains(e.target) && e.target !== helpBtn) {
+        helpPop.hidden = true;
+        helpBtn.setAttribute('aria-expanded', 'false');
+      }
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !helpPop.hidden) {
+        helpPop.hidden = true;
+        helpBtn.setAttribute('aria-expanded', 'false');
+      }
     });
   }
 })();

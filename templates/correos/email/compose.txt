@@ -1,0 +1,4 @@
+{{ cuerpo_usuario|default:"" }}
+
+--
+Enviado desde {{ enviado_por }} · Archivo de Correos Pietramonte

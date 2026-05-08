@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from datetime import timedelta
 from functools import wraps
@@ -17,8 +18,8 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from . import captcha, totp as totp_helpers
 from .models import (
-    Adjunto, Buzon, Correo, CorreoEnviado, CorreoLeido, Etiqueta, IntentoLogin,
-    ReenvioCorreo, UsuarioPortal, hash_ip,
+    Adjunto, Buzon, Correo, CorreoEnviado, CorreoLeido, CorreoSnooze, Etiqueta,
+    IntentoLogin, ReenvioCorreo, UsuarioPortal, hash_ip,
 )
 from .throttle import throttle_user
 from taller.anti_bot import verify_turnstile
@@ -644,6 +645,79 @@ def _no_leidos_por_buzon(usuario: UsuarioPortal, buzones) -> dict:
     return {bid: max(0, totales.get(bid, 0) - leidos.get(bid, 0)) for bid in buzones_ids}
 
 
+# ─── Parser de búsqueda con operadores ────────────────────────────────────
+# Sintaxis tipo Gmail. Operadores soportados:
+#   from:foo@bar.com         remitente contiene "foo@bar.com"
+#   to:foo@bar.com           destinatario contiene
+#   subject:"hola mundo"     asunto contiene (las comillas permiten espacios)
+#   has:attachment           solo con adjunto
+#   has:no_attachment        solo sin adjunto
+#   before:2026-01-01        antes de esa fecha
+#   after:2026-01-01         después de esa fecha
+#   label:Factura            con etiqueta llamada "Factura" (case-insensitive)
+#   is:starred / is:unread / is:read
+# El resto del texto se busca como antes (asunto/remitente/cuerpo).
+_OPERATOR_RE = re.compile(r'(\w+):("[^"]+"|\S+)')
+
+
+def _parse_search_query(query: str):
+    """Parsea operadores en una query y devuelve (filtros_dict, texto_libre)."""
+    filtros = {
+        'from':       [],
+        'to':         [],
+        'subject':    [],
+        'label':      [],
+        'has_attachment': None,
+        'before':     None,
+        'after':      None,
+        'is_starred': None,
+        'is_unread':  None,
+    }
+
+    def _replace(m):
+        op = m.group(1).lower()
+        val = m.group(2).strip('"').strip()
+        if not val:
+            return ''
+        if op == 'from':
+            filtros['from'].append(val)
+        elif op == 'to':
+            filtros['to'].append(val)
+        elif op == 'subject':
+            filtros['subject'].append(val)
+        elif op == 'label':
+            filtros['label'].append(val)
+        elif op == 'has':
+            v = val.lower()
+            if v in ('attachment', 'adjunto'):
+                filtros['has_attachment'] = True
+            elif v in ('no_attachment', 'sin_adjunto'):
+                filtros['has_attachment'] = False
+            else:
+                return m.group(0)   # operador desconocido → tratar como texto
+        elif op == 'before':
+            filtros['before'] = val[:10]
+        elif op == 'after':
+            filtros['after'] = val[:10]
+        elif op == 'is':
+            v = val.lower()
+            if v == 'starred':
+                filtros['is_starred'] = True
+            elif v == 'unread':
+                filtros['is_unread'] = True
+            elif v == 'read':
+                filtros['is_unread'] = False
+            else:
+                return m.group(0)
+        else:
+            return m.group(0)
+        return ''
+
+    texto_libre = _OPERATOR_RE.sub(_replace, query)
+    texto_libre = re.sub(r'\s+', ' ', texto_libre).strip()
+    return filtros, texto_libre
+
+
 @portal_login_required
 @throttle_user('inbox', per_minute=120)   # 2/seg sostenido — más que suficiente para navegación humana
 @never_cache
@@ -660,8 +734,22 @@ def inbox_view(request):
     correos_qs = buzon.correos.all().prefetch_related('etiquetas').annotate(
         is_leido=Exists(
             CorreoLeido.objects.filter(usuario=usuario, correo=OuterRef('pk'))
-        )
+        ),
+        snoozed_until=CorreoSnooze.objects.filter(
+            usuario=usuario, correo=OuterRef('pk'), until_at__gt=timezone.now()
+        ).values('until_at')[:1],
     )
+
+    # Si NO está pidiendo la vista de pospuestos, ocultamos los snoozed activos.
+    ver_pospuestos = request.GET.get('pospuestos') == '1'
+    if ver_pospuestos:
+        correos_qs = correos_qs.filter(snoozed_until__isnull=False)
+    else:
+        correos_qs = correos_qs.exclude(
+            id__in=CorreoSnooze.objects.filter(
+                usuario=usuario, until_at__gt=timezone.now(), correo__buzon=buzon,
+            ).values('correo_id')
+        )
 
     # ─── Filtros ─────────────────────────────────────────────────────────
     # Filtro de carpeta (Inbox / Enviados / Otros / Todos). Default = todos.
@@ -684,12 +772,39 @@ def inbox_view(request):
         counts_carpeta['total'] += n
 
     query = (request.GET.get('q') or '').strip()[:200]
-    if query:
+    op_filtros, texto_libre = _parse_search_query(query) if query else ({}, '')
+
+    if texto_libre:
         correos_qs = correos_qs.filter(
-            Q(asunto__icontains=query) |
-            Q(remitente__icontains=query) |
-            Q(cuerpo_texto__icontains=query)
+            Q(asunto__icontains=texto_libre) |
+            Q(remitente__icontains=texto_libre) |
+            Q(cuerpo_texto__icontains=texto_libre)
         )
+
+    # Operadores de búsqueda avanzada (from:, to:, subject:, has:, before:, after:, label:, is:)
+    if op_filtros:
+        for v in op_filtros.get('from') or []:
+            correos_qs = correos_qs.filter(remitente__icontains=v)
+        for v in op_filtros.get('to') or []:
+            correos_qs = correos_qs.filter(destinatario__icontains=v)
+        for v in op_filtros.get('subject') or []:
+            correos_qs = correos_qs.filter(asunto__icontains=v)
+        for nombre in op_filtros.get('label') or []:
+            correos_qs = correos_qs.filter(etiquetas__nombre__iexact=nombre)
+        if op_filtros.get('has_attachment') is True:
+            correos_qs = correos_qs.filter(tiene_adjunto=True)
+        elif op_filtros.get('has_attachment') is False:
+            correos_qs = correos_qs.filter(tiene_adjunto=False)
+        if op_filtros.get('before'):
+            correos_qs = correos_qs.filter(fecha__date__lt=op_filtros['before'])
+        if op_filtros.get('after'):
+            correos_qs = correos_qs.filter(fecha__date__gt=op_filtros['after'])
+        if op_filtros.get('is_starred') is True:
+            correos_qs = correos_qs.filter(destacado=True)
+        if op_filtros.get('is_unread') is True:
+            correos_qs = correos_qs.filter(is_leido=False)
+        elif op_filtros.get('is_unread') is False:
+            correos_qs = correos_qs.filter(is_leido=True)
 
     solo_destacados = request.GET.get('destacado') == '1'
     if solo_destacados:
@@ -731,11 +846,15 @@ def inbox_view(request):
 
     hay_filtros_activos = bool(
         query or solo_destacados or solo_adjuntos or solo_no_leidos or etiqueta_actual
-        or fecha_desde or fecha_hasta or carpeta
+        or fecha_desde or fecha_hasta or carpeta or ver_pospuestos
     )
 
     visibles = list(usuario.buzones_visibles())
     no_leidos = _no_leidos_por_buzon(usuario, visibles)
+
+    cant_pospuestos = CorreoSnooze.objects.filter(
+        usuario=usuario, until_at__gt=timezone.now(), correo__buzon=buzon,
+    ).count()
 
     return render(request, 'correos/inbox.html', {
         'buzon': buzon,
@@ -758,6 +877,8 @@ def inbox_view(request):
         'counts_carpeta': counts_carpeta,
         'cant_destacados': buzon.correos.filter(destacado=True).count(),
         'hay_filtros_activos': hay_filtros_activos,
+        'ver_pospuestos': ver_pospuestos,
+        'cant_pospuestos': cant_pospuestos,
     })
 
 
@@ -1389,10 +1510,58 @@ def correo_preview_view(request, correo_id):
     # Marca como leído per-usuario al abrir el preview (idempotente).
     CorreoLeido.objects.get_or_create(usuario=usuario, correo=correo)
 
+    # Estado snooze actual (per-usuario) para mostrar en el botón.
+    snz = CorreoSnooze.objects.filter(
+        usuario=usuario, correo=correo, until_at__gt=timezone.now()
+    ).first()
+    correo.snoozed_until = snz.until_at if snz else None
+
+    # Hilo de conversación (heurística por asunto normalizado + buzón).
+    thread = _hilo_de(correo)[:20]
+
     return render(request, 'correos/_correo_preview.html', {
         'correo': correo,
         'is_leido': True,     # acabamos de marcar; el preview lo refleja
+        'thread': thread,
     })
+
+
+# ─── Threading heurístico (sin tocar el modelo ni el import) ──────────────
+_RE_ASUNTO_PREFIJO = re.compile(r'^\s*(re|fwd?|rv|fw)\s*:\s*', re.IGNORECASE)
+
+
+def _normalizar_asunto(asunto: str) -> str:
+    """Quita prefijos Re:/Fwd:/RV:/Fw: repetidos del inicio. Lowercase + trim."""
+    s = (asunto or '').strip()
+    while True:
+        m = _RE_ASUNTO_PREFIJO.match(s)
+        if not m:
+            break
+        s = s[m.end():].strip()
+    return s.lower()
+
+
+def _hilo_de(correo: Correo):
+    """
+    Devuelve un queryset de correos del MISMO hilo que `correo`, dentro de su
+    buzón. Heurística: mismo asunto normalizado (case-insensitive). No toca
+    headers porque no los persistimos. Excluye al propio correo.
+    Ordenado cronológicamente.
+    """
+    norm = _normalizar_asunto(correo.asunto)
+    if not norm or len(norm) < 4:
+        return Correo.objects.none()
+
+    # asunto contiene exactamente la versión normalizada (con o sin prefijos).
+    # Postgres collation `icontains` matchea tildes a veces — usamos endswith
+    # NO porque los prefijos vienen al inicio. Mejor: igual o termina en " : NORM".
+    qs = Correo.objects.filter(buzon=correo.buzon).exclude(id=correo.id)
+    qs = qs.filter(
+        Q(asunto__iexact=norm) |
+        Q(asunto__iendswith=': ' + norm) |
+        Q(asunto__iendswith=':' + norm)
+    )
+    return qs.order_by('fecha').only('id', 'asunto', 'remitente', 'fecha', 'tipo_carpeta')
 
 
 # ─── AJAX: organización del archivo ────────────────────────────────────────
@@ -1444,6 +1613,74 @@ def toggle_leido_view(request, correo_id):
         'buzon_id':         correo.buzon_id,
         'no_leidos_buzon':  no_leidos_buzon,
     })
+
+
+_SNOOZE_PRESETS = {
+    'manana':         {'days': 1, 'hour': 9},
+    'esta_tarde':     {'hours': 4},
+    'proxima_semana': {'days': 7, 'hour': 9},
+}
+
+
+@portal_login_required
+@require_POST
+def snooze_correo_view(request, correo_id):
+    """
+    POST → posponer un correo per-usuario.
+
+    Parámetros:
+      preset       — uno de _SNOOZE_PRESETS (ej "manana"), O
+      until        — ISO datetime "YYYY-MM-DDTHH:MM" (input type=datetime-local)
+
+    Si ya existe snooze para (usuario, correo), lo reemplaza.
+    """
+    from datetime import datetime as dt
+
+    usuario, correo = _correo_si_visible(request, correo_id)
+
+    until_at = None
+    preset = (request.POST.get('preset') or '').strip()
+    if preset in _SNOOZE_PRESETS:
+        spec = _SNOOZE_PRESETS[preset]
+        base = timezone.localtime(timezone.now())
+        if 'days' in spec:
+            base = base + timedelta(days=spec['days'])
+        if 'hours' in spec:
+            base = base + timedelta(hours=spec['hours'])
+        if 'hour' in spec:
+            base = base.replace(hour=spec['hour'], minute=0, second=0, microsecond=0)
+        until_at = base
+    else:
+        raw_until = (request.POST.get('until') or '').strip()
+        if not raw_until:
+            return HttpResponseBadRequest('preset o until requerido')
+        try:
+            # input datetime-local manda "YYYY-MM-DDTHH:MM" (sin tz)
+            naive = dt.fromisoformat(raw_until[:16])
+        except ValueError:
+            return HttpResponseBadRequest('formato de fecha inválido')
+        until_at = timezone.make_aware(naive, timezone.get_current_timezone())
+
+    if until_at <= timezone.now():
+        return HttpResponseBadRequest('la fecha tiene que ser futura')
+
+    obj, _ = CorreoSnooze.objects.update_or_create(
+        usuario=usuario, correo=correo,
+        defaults={'until_at': until_at},
+    )
+    return JsonResponse({
+        'ok': True,
+        'until': obj.until_at.isoformat(),
+    })
+
+
+@portal_login_required
+@require_POST
+def unsnooze_correo_view(request, correo_id):
+    """POST → cancela el snooze de un correo (vuelve a la bandeja)."""
+    usuario, correo = _correo_si_visible(request, correo_id)
+    deleted, _ = CorreoSnooze.objects.filter(usuario=usuario, correo=correo).delete()
+    return JsonResponse({'ok': True, 'eliminado': deleted > 0})
 
 
 @portal_login_required
@@ -1526,4 +1763,272 @@ def crear_etiqueta_view(request):
     return JsonResponse({
         'creada': creada,
         'etiqueta': {'id': etiqueta.id, 'nombre': etiqueta.nombre, 'color': etiqueta.color},
+    })
+
+
+# ─── Compose: escribir un correo nuevo desde cero ────────────────────────
+@portal_login_required
+@never_cache
+@require_http_methods(['GET', 'POST'])
+def compose_view(request):
+    """
+    Escribe y envía un correo nuevo (no es respuesta ni reenvío).
+    Usa el buzón actual como From. Reusa el mismo rate-limit y validación
+    que `responder_correo_view`.
+    """
+    from email.utils import make_msgid
+
+    from django.core.exceptions import ValidationError
+
+    from archivo_pietramonte.email_utils import safe_send
+
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+    buzon = _buzon_actual(request, usuario)
+    if not buzon:
+        raise Http404
+
+    limite = RESP_LIMIT_ADMIN if usuario.es_admin else RESP_LIMIT_USER
+    usados = _enviados_recientes(usuario)
+    restantes = max(0, limite - usados)
+
+    # Pre-fill desde GET (?to=... &asunto=...) — útil para "Escribir a este remitente".
+    if request.method == 'GET':
+        return render(request, 'correos/compose.html', {
+            'buzon': buzon,
+            'to':     (request.GET.get('to') or '').strip()[:500],
+            'cc':     (request.GET.get('cc') or '').strip()[:500],
+            'asunto': (request.GET.get('asunto') or '').strip()[:500],
+            'cuerpo': '',
+            'limite': limite, 'usados': usados, 'restantes': restantes,
+        })
+
+    # ─── POST ───────────────────────────────────────────────────────────
+    if usados >= limite:
+        messages.error(request, f'Llegaste al límite de {limite} envíos en {RESP_RL_HORAS}h. Esperá unas horas o pedile a un admin.')
+        return render(request, 'correos/compose.html', {
+            'buzon': buzon,
+            'to': request.POST.get('to') or '', 'cc': request.POST.get('cc') or '',
+            'asunto': request.POST.get('asunto') or '', 'cuerpo': request.POST.get('cuerpo') or '',
+            'limite': limite, 'usados': usados, 'restantes': 0,
+        }, status=429)
+
+    raw_to = request.POST.get('to') or ''
+    raw_cc = request.POST.get('cc') or ''
+    asunto = (request.POST.get('asunto') or '').strip()[:1000]
+    cuerpo = (request.POST.get('cuerpo') or '')[:RESP_MAX_BODY]
+
+    ctx_form = {
+        'buzon': buzon,
+        'to': raw_to, 'cc': raw_cc, 'asunto': asunto, 'cuerpo': cuerpo,
+        'limite': limite, 'usados': usados, 'restantes': restantes,
+    }
+
+    try:
+        to_addrs = _parse_destinatarios(raw_to)
+    except ValidationError as e:
+        for m in (e.messages if hasattr(e, 'messages') else [str(e)]):
+            messages.error(request, f'To: {m}')
+        return render(request, 'correos/compose.html', ctx_form, status=400)
+
+    cc_addrs: list[str] = []
+    if raw_cc.strip():
+        try:
+            cc_addrs = _parse_destinatarios(raw_cc)
+        except ValidationError as e:
+            for m in (e.messages if hasattr(e, 'messages') else [str(e)]):
+                messages.error(request, f'Cc: {m}')
+            return render(request, 'correos/compose.html', ctx_form, status=400)
+
+    if len(to_addrs) + len(cc_addrs) > RESP_MAX_DEST:
+        messages.error(request, f'Máximo {RESP_MAX_DEST} destinatarios (To + Cc) por envío.')
+        return render(request, 'correos/compose.html', ctx_form, status=400)
+
+    if not asunto:
+        messages.error(request, 'El asunto no puede estar vacío.')
+        return render(request, 'correos/compose.html', ctx_form, status=400)
+    if not cuerpo.strip():
+        messages.error(request, 'El mensaje no puede estar vacío.')
+        return render(request, 'correos/compose.html', ctx_form, status=400)
+
+    new_msg_id = make_msgid(domain='pietramonte.cl')
+    headers = {'Message-ID': new_msg_id}
+
+    resultado = safe_send(
+        asunto=asunto,
+        para=to_addrs,
+        cc=cc_addrs or None,
+        template='correos/email/compose',
+        contexto={
+            'asunto':         asunto,
+            'cuerpo_usuario': cuerpo,
+            'enviado_por':    buzon.email,
+        },
+        from_alias=_from_alias_buzon(buzon),
+        headers=headers,
+    )
+
+    sent_correo = None
+    if resultado['ok']:
+        try:
+            sent_correo = Correo.objects.create(
+                buzon=buzon,
+                tipo_carpeta=Correo.Carpeta.ENVIADOS,
+                mensaje_id=new_msg_id[:500],
+                remitente=_from_alias_buzon(buzon)[:500],
+                destinatario=', '.join(to_addrs + cc_addrs)[:1000],
+                asunto=asunto[:1000],
+                fecha=timezone.now(),
+                cuerpo_texto=cuerpo,
+                tiene_adjunto=False,
+            )
+            CorreoLeido.objects.get_or_create(usuario=usuario, correo=sent_correo)
+        except Exception:
+            logger.warning(
+                'Compose SMTP OK pero fallo al guardar Correo en pestaña Enviados '
+                '(usuario=%s, msg_id=%s)', usuario.email, new_msg_id, exc_info=True,
+            )
+            sent_correo = None
+
+    ip_h = hash_ip(_get_ip(request))
+    CorreoEnviado.objects.create(
+        buzon=buzon,
+        usuario=usuario,
+        correo_original=None,
+        correo_guardado=sent_correo,
+        tipo=CorreoEnviado.Tipo.COMPOSE,
+        destinatarios=', '.join(to_addrs),
+        cc=', '.join(cc_addrs),
+        asunto=asunto,
+        cuerpo=cuerpo,
+        mensaje_id=new_msg_id,
+        in_reply_to='',
+        exito=resultado['ok'],
+        error_msg=(resultado.get('error') or '')[:500],
+        ip_hash=ip_h,
+    )
+
+    if resultado['ok']:
+        msg_dest = ', '.join(to_addrs)
+        if cc_addrs:
+            msg_dest += f' (cc: {", ".join(cc_addrs)})'
+        messages.success(request, f'Correo enviado a {msg_dest}.')
+        return redirect('inbox')
+
+    messages.error(request, f'No se pudo enviar el correo: {resultado.get("error", "error desconocido")}')
+    ctx_form['usados'] = usados + 1
+    ctx_form['restantes'] = max(0, restantes - 1)
+    return render(request, 'correos/compose.html', ctx_form, status=500)
+
+
+# ─── AJAX: acciones masivas (multi-select) ────────────────────────────────
+_BULK_ACCIONES_VALIDAS = {
+    'leer', 'no_leer', 'destacar', 'no_destacar',
+    'asignar_etiqueta', 'quitar_etiqueta',
+}
+
+
+@portal_login_required
+@require_POST
+def bulk_acciones_view(request):
+    """
+    POST → ejecuta una acción sobre varios correos a la vez.
+
+    Parámetros (form-encoded):
+      ids          — coma-separados, ej "12,34,56"  (máx 200 ids por request)
+      accion       — uno de _BULK_ACCIONES_VALIDAS
+      etiqueta_id  — solo para acciones de etiqueta
+
+    Solo aplica a correos del buzón actual del usuario (filtramos en el query).
+    Devuelve el conteo afectado y el badge actualizado.
+    """
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return JsonResponse({'error': 'no_session'}, status=403)
+
+    accion = (request.POST.get('accion') or '').strip()
+    if accion not in _BULK_ACCIONES_VALIDAS:
+        return HttpResponseBadRequest('accion inválida')
+
+    raw_ids = request.POST.get('ids') or ''
+    ids = []
+    for tok in raw_ids.split(','):
+        tok = tok.strip()
+        if tok.isdigit():
+            ids.append(int(tok))
+        if len(ids) >= 200:
+            break
+    if not ids:
+        return HttpResponseBadRequest('ids requeridos')
+
+    # Filtrar solo correos visibles al usuario.
+    if usuario.es_admin:
+        qs = Correo.objects.filter(id__in=ids)
+    else:
+        qs = Correo.objects.filter(id__in=ids, buzon__usuarios=usuario)
+
+    # Acciones de marcado/destacado
+    if accion in {'destacar', 'no_destacar'}:
+        nuevo = (accion == 'destacar')
+        afectados = qs.update(destacado=nuevo)
+    elif accion == 'leer':
+        # Crear CorreoLeido por cada uno que no exista.
+        existentes = set(
+            CorreoLeido.objects.filter(usuario=usuario, correo_id__in=qs.values_list('id', flat=True))
+            .values_list('correo_id', flat=True)
+        )
+        afaltar = [c.id for c in qs.only('id') if c.id not in existentes]
+        CorreoLeido.objects.bulk_create(
+            [CorreoLeido(usuario=usuario, correo_id=cid) for cid in afaltar],
+            ignore_conflicts=True,
+        )
+        afectados = len(afaltar)
+    elif accion == 'no_leer':
+        afectados = CorreoLeido.objects.filter(
+            usuario=usuario, correo_id__in=qs.values_list('id', flat=True)
+        ).delete()[0]
+    elif accion in {'asignar_etiqueta', 'quitar_etiqueta'}:
+        try:
+            et_id = int(request.POST.get('etiqueta_id') or 0)
+        except (TypeError, ValueError):
+            return HttpResponseBadRequest('etiqueta_id inválido')
+        # La etiqueta debe pertenecer al mismo buzón de los correos.
+        # Filtramos los correos al buzón de la etiqueta para no asignar
+        # cross-buzón (sería inválido).
+        try:
+            etiqueta = Etiqueta.objects.get(id=et_id)
+        except Etiqueta.DoesNotExist:
+            raise Http404
+        if not usuario.puede_ver(etiqueta.buzon):
+            raise Http404
+        qs = qs.filter(buzon=etiqueta.buzon)
+        afectados = 0
+        if accion == 'asignar_etiqueta':
+            for c in qs:
+                c.etiquetas.add(etiqueta)
+                afectados += 1
+        else:
+            for c in qs:
+                c.etiquetas.remove(etiqueta)
+                afectados += 1
+    else:
+        afectados = 0
+
+    # Badge no-leídos del buzón actual (mejor esfuerzo — si hay varios buzones
+    # involucrados, devolvemos el del primero).
+    no_leidos_buzon = None
+    primer_buzon_id = qs.values_list('buzon_id', flat=True).first()
+    if primer_buzon_id:
+        from .models import Buzon
+        no_leidos_buzon = max(
+            0,
+            Buzon.objects.get(id=primer_buzon_id).correos.count() -
+            CorreoLeido.objects.filter(usuario=usuario, correo__buzon_id=primer_buzon_id).count()
+        )
+
+    return JsonResponse({
+        'ok': True,
+        'afectados': afectados,
+        'no_leidos_buzon': no_leidos_buzon,
     })
