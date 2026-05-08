@@ -378,6 +378,29 @@ def _strip_cid_brackets_en_texto(texto: str) -> str:
     return _RE_CID_BRACKETED.sub('', texto).rstrip()
 
 
+# ─── Pre-strip de bloques que bleach deja como texto ──────────────────────
+# Bleach con strip=True remueve la tag pero NO el contenido. Para <style>,
+# <script>, <head>, etc. esto causa que el CSS/JS aparezca como texto plano
+# en el portal. Los limpiamos antes de pasar a bleach.
+_RE_BLOQUES_INDESEADOS = re.compile(
+    r'<\s*(style|script|head|title|template|noscript|xml|o:[A-Za-z0-9_-]+)\b[^>]*>.*?'
+    r'<\s*/\s*\1\s*>',
+    re.DOTALL | re.IGNORECASE,
+)
+_RE_BLOQUES_AUTOCLOSE = re.compile(r'<!\[CDATA\[.*?\]\]>', re.DOTALL)
+_RE_HTML_COMMENT = re.compile(r'<!--.*?-->', re.DOTALL)
+
+
+def _pre_strip_html_para_bleach(html: str) -> str:
+    """Quita <style>, <script>, <head>, comentarios y CDATA antes del cleaner."""
+    if not html:
+        return ''
+    html = _RE_BLOQUES_INDESEADOS.sub('', html)
+    html = _RE_BLOQUES_AUTOCLOSE.sub('', html)
+    html = _RE_HTML_COMMENT.sub('', html)
+    return html
+
+
 @register.filter(is_safe=True)
 def sanitizar_email_html(html: str) -> str:
     """
@@ -390,7 +413,7 @@ def sanitizar_email_html(html: str) -> str:
     if not html:
         return ''
     try:
-        return _email_cleaner_inbound().clean(html)
+        return _email_cleaner_inbound().clean(_pre_strip_html_para_bleach(html))
     except Exception:
         from django.utils.html import strip_tags
         return strip_tags(html)
@@ -422,6 +445,7 @@ def render_correo_html(correo):
         return ''
     try:
         html = _resolver_cid_en_html(html, correo)
+        html = _pre_strip_html_para_bleach(html)
         return mark_safe(_email_cleaner_inbound_safe_imgs().clean(html))
     except Exception:
         from django.utils.html import strip_tags
@@ -458,7 +482,7 @@ def sanitizar_email_html_outbound(html: str) -> str:
     if not html:
         return ''
     try:
-        clean = _email_cleaner_outbound().clean(html)
+        clean = _email_cleaner_outbound().clean(_pre_strip_html_para_bleach(html))
     except Exception:
         from django.utils.html import strip_tags
         return strip_tags(html)
@@ -471,16 +495,22 @@ def url_sin_filtros(context, *quitar):
     Devuelve la URL del inbox con la querystring actual menos las keys listadas.
     Siempre quita `page` también (cambiar un filtro debe llevar a página 1).
 
+    Devuelve una URL absoluta a {% url 'inbox' %} — relativos rompen cuando el
+    JS hizo pushState a /intranet/correo/N/ y un click en un chip resolvería
+    contra esa URL.
+
     Uso en template:
         <a href="{% url_sin_filtros 'q' %}">Quitar búsqueda</a>
         <a href="{% url_sin_filtros 'desde' 'hasta' %}">Quitar rango fechas</a>
     """
+    from django.urls import reverse
+    base = reverse('inbox')
     request = context.get('request')
     if request is None:
-        return '?'
+        return base
     qs = request.GET.copy()
     for key in quitar:
         qs.pop(key, None)
     qs.pop('page', None)
     encoded = qs.urlencode()
-    return '?' + encoded if encoded else '?'
+    return f'{base}?{encoded}' if encoded else base

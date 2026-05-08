@@ -324,11 +324,11 @@
         {% if page.has_other_pages %}
         <nav class="paginacion" aria-label="Paginación">
           {% if page.has_previous %}
-          <a href="?page={{ page.previous_page_number }}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if solo_destacados %}&destacado=1{% endif %}{% if solo_adjuntos %}&adjuntos=1{% endif %}{% if solo_no_leidos %}&no_leidos=1{% endif %}{% if etiqueta_actual %}&etiqueta={{ etiqueta_actual.id }}{% endif %}{% if fecha_desde %}&desde={{ fecha_desde }}{% endif %}{% if fecha_hasta %}&hasta={{ fecha_hasta }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}">← Anterior</a>
+          <a href="{% url 'inbox' %}?page={{ page.previous_page_number }}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if solo_destacados %}&destacado=1{% endif %}{% if solo_adjuntos %}&adjuntos=1{% endif %}{% if solo_no_leidos %}&no_leidos=1{% endif %}{% if etiqueta_actual %}&etiqueta={{ etiqueta_actual.id }}{% endif %}{% if fecha_desde %}&desde={{ fecha_desde }}{% endif %}{% if fecha_hasta %}&hasta={{ fecha_hasta }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}{% if ver_pospuestos %}&pospuestos=1{% endif %}">← Anterior</a>
           {% endif %}
           <span class="actual">{{ page.number }} / {{ page.paginator.num_pages }} · {{ total }} correo{{ total|pluralize:"s" }}</span>
           {% if page.has_next %}
-          <a href="?page={{ page.next_page_number }}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if solo_destacados %}&destacado=1{% endif %}{% if solo_adjuntos %}&adjuntos=1{% endif %}{% if solo_no_leidos %}&no_leidos=1{% endif %}{% if etiqueta_actual %}&etiqueta={{ etiqueta_actual.id }}{% endif %}{% if fecha_desde %}&desde={{ fecha_desde }}{% endif %}{% if fecha_hasta %}&hasta={{ fecha_hasta }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}">Siguiente →</a>
+          <a href="{% url 'inbox' %}?page={{ page.next_page_number }}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if solo_destacados %}&destacado=1{% endif %}{% if solo_adjuntos %}&adjuntos=1{% endif %}{% if solo_no_leidos %}&no_leidos=1{% endif %}{% if etiqueta_actual %}&etiqueta={{ etiqueta_actual.id }}{% endif %}{% if fecha_desde %}&desde={{ fecha_desde }}{% endif %}{% if fecha_hasta %}&hasta={{ fecha_hasta }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}{% if ver_pospuestos %}&pospuestos=1{% endif %}">Siguiente →</a>
           {% endif %}
         </nav>
         {% endif %}

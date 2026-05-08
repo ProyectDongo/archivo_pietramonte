@@ -663,17 +663,23 @@
   if (buzonList && buzonsToggle) {
     const STORAGE_KEY = 'pm:sidebar:buzones_expanded';
 
-    // Leer preferencia persistida
     let expandido = false;
-    try { expandido = localStorage.getItem(STORAGE_KEY) === '1'; } catch (e) {}
+    let hayPreferencia = false;
+    try {
+      const v = localStorage.getItem(STORAGE_KEY);
+      if (v !== null) { hayPreferencia = true; expandido = (v === '1'); }
+    } catch (e) {}
 
-    // Auto-expand si el activo está oculto (overflow). En ese caso NO
-    // toca la preferencia persistida — el usuario lo verá expandido en esta
-    // sesión y el toggle sigue funcionando para colapsarlo si quiere.
-    const activeOverflow = buzonList.querySelector(
-      '.sidebar-buzon-overflow .sidebar-buzon.active'
-    );
-    if (activeOverflow) expandido = true;
+    // Auto-expand si el activo está oculto (overflow), PERO solo cuando el
+    // usuario nunca tocó el toggle. Si ya guardó preferencia (en cualquier
+    // sentido), respetamos su decisión — sino "Mostrar menos" se ignora cada
+    // vez que cambia de carpeta y el activo cae en overflow.
+    if (!hayPreferencia) {
+      const activeOverflow = buzonList.querySelector(
+        '.sidebar-buzon-overflow .sidebar-buzon.active'
+      );
+      if (activeOverflow) expandido = true;
+    }
 
     if (expandido) {
       buzonList.classList.add('expanded');

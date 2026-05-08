@@ -4030,3 +4030,206 @@
   .preview-thread-item { grid-template-columns: 1fr auto; }
   .preview-thread-asunto { grid-column: 1 / -1; order: 3; }
 }
+
+/* ==========================================================================
+   Compose: dropzone + lista de adjuntos
+   ========================================================================== */
+.compose-dropzone {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 2px dashed var(--bdr);
+  border-radius: 10px;
+  background: var(--off);
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+  margin-top: 4px;
+}
+.compose-dropzone:hover,
+.compose-dropzone:focus,
+.compose-dropzone.is-dragover {
+  border-color: var(--r);
+  background: var(--rl);
+  outline: 0;
+}
+.compose-dropzone-ico {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+.compose-dropzone-text {
+  flex: 1;
+  font-size: 13px;
+  color: var(--gd);
+}
+.compose-dropzone-text strong { font-weight: 700; }
+.compose-dropzone-hint {
+  font-size: 11px;
+  color: var(--gl);
+  flex-shrink: 0;
+}
+
+.compose-attach-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.compose-attach-list[hidden] { display: none; }
+.compose-attach-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--w);
+  border: 1px solid var(--bdr);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.compose-attach-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--gd);
+  font-weight: 500;
+}
+.compose-attach-size {
+  font-size: 11px;
+  color: var(--gl);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.compose-attach-rm {
+  background: transparent;
+  border: 0;
+  color: var(--gl);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s, color .15s;
+}
+.compose-attach-rm:hover { background: var(--rl); color: var(--r); }
+.compose-attach-total {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--gl);
+  font-weight: 600;
+  text-align: right;
+}
+
+[data-theme="dark"] .compose-dropzone { background: #252b30; border-color: #383f45; }
+[data-theme="dark"] .compose-dropzone:hover,
+[data-theme="dark"] .compose-dropzone:focus,
+[data-theme="dark"] .compose-dropzone.is-dragover { background: rgba(200,12,15,.1); border-color: var(--r); }
+[data-theme="dark"] .compose-dropzone-text { color: #e8eaed; }
+[data-theme="dark"] .compose-dropzone-hint { color: #9aa0a6; }
+[data-theme="dark"] .compose-attach-item { background: #1d2226; border-color: #383f45; }
+[data-theme="dark"] .compose-attach-name { color: #fff; }
+[data-theme="dark"] .compose-attach-size { color: #9aa0a6; }
+[data-theme="dark"] .compose-attach-rm:hover { background: rgba(200,12,15,.2); color: var(--r); }
+[data-theme="dark"] .compose-attach-total { color: #9aa0a6; }
+
+/* ==========================================================================
+   Adjunto viewer (modal inline para PDF / audio / video)
+   ========================================================================== */
+.adj-viewer {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 12, 18, .92);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  animation: lb-in .15s ease-out;
+}
+.adj-viewer[hidden] { display: none; }
+
+.adj-viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  background: #0f1316;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  color: #fff;
+  flex-shrink: 0;
+}
+.adj-viewer-name {
+  font-size: 13px;
+  font-weight: 600;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.adj-viewer-size {
+  font-size: 11px;
+  color: rgba(255,255,255,.55);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.adj-viewer-dl,
+.adj-viewer-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: rgba(255,255,255,.1);
+  color: #fff;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background .15s;
+  flex-shrink: 0;
+}
+.adj-viewer-dl:hover,
+.adj-viewer-tab:hover { background: rgba(255,255,255,.22); }
+
+.adj-viewer-close {
+  background: rgba(255,255,255,.1);
+  border: 0;
+  color: #fff;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s;
+  flex-shrink: 0;
+}
+.adj-viewer-close:hover { background: rgba(255,255,255,.22); }
+
+.adj-viewer-body {
+  flex: 1;
+  background: #fff;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.adj-viewer-iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+.adj-viewer-body audio { padding: 24px; max-width: 600px; }
+.adj-viewer-body video { background: #000; }
+
+@media (max-width: 600px) {
+  .adj-viewer-bar { padding: 8px 10px; gap: 8px; flex-wrap: wrap; }
+  .adj-viewer-dl span,
+  .adj-viewer-tab span { display: none; }
+  .adj-viewer-name { width: 100%; order: -1; padding-bottom: 4px; }
+}

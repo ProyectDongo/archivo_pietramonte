@@ -23,6 +23,9 @@
         {% with tipo=a|tipo_archivo %}
         <li>
           <a href="{% url 'adjunto' a.id %}" class="adj-card adj-card-{{ tipo }}"
+             data-mime="{{ a.mime_type }}"
+             data-name="{{ a.nombre_original }}"
+             data-size="{{ a.tamano_legible }}"
              {% if a.es_seguro_inline %}target="_blank" rel="noopener"{% endif %}>
             <span class="adj-card-icon" aria-hidden="true">
               {% if tipo == 'pdf' %}

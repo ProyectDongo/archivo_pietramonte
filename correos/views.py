@@ -1433,9 +1433,23 @@ def adjunto_view(request, adjunto_id):
         as_attachment=(disposition == 'attachment'),
         filename=adjunto.nombre_original,
     )
-    # Refuerza nosniff y no permitir que se sirva en frames de terceros
     response['X-Content-Type-Options'] = 'nosniff'
-    response['Content-Security-Policy'] = "default-src 'none'; sandbox"
+    if disposition == 'inline':
+        # Permitimos embeber el preview en un <iframe> del MISMO origen (modal
+        # de adjuntos en el portal). Settings.X_FRAME_OPTIONS=DENY default
+        # bloquearía el iframe sino. CSP relajada lo justo para que el viewer
+        # nativo de PDF / players HTML5 funcionen, sin permitir scripts ni
+        # recursos externos.
+        response['X-Frame-Options'] = 'SAMEORIGIN'
+        response['Content-Security-Policy'] = (
+            "default-src 'self'; "
+            "script-src 'none'; "
+            "object-src 'self'; "
+            "frame-ancestors 'self'"
+        )
+    else:
+        # Attachments forzados: nadie debería embeberlos. Sandbox estricto.
+        response['Content-Security-Policy'] = "default-src 'none'; sandbox"
     return response
 
 
@@ -1852,6 +1866,35 @@ def compose_view(request):
         messages.error(request, 'El mensaje no puede estar vacío.')
         return render(request, 'correos/compose.html', ctx_form, status=400)
 
+    # ─── Adjuntos del usuario ───────────────────────────────────────────
+    # Limites: 10 archivos, 25 MB total, blocklist de extensiones ejecutables.
+    MAX_FILES = 10
+    MAX_TOTAL_BYTES = 25 * 1024 * 1024
+    BLOCKED_EXT = {
+        'exe', 'bat', 'cmd', 'com', 'scr', 'msi', 'vbs', 'js', 'jar',
+        'ps1', 'sh', 'app', 'dmg',
+    }
+    files = request.FILES.getlist('adjuntos')
+    if len(files) > MAX_FILES:
+        messages.error(request, f'Máximo {MAX_FILES} archivos por correo.')
+        return render(request, 'correos/compose.html', ctx_form, status=400)
+    total = sum(f.size for f in files)
+    if total > MAX_TOTAL_BYTES:
+        messages.error(request, f'Los adjuntos suman {total // (1024*1024)} MB; máximo 25 MB total.')
+        return render(request, 'correos/compose.html', ctx_form, status=400)
+
+    adjuntos_payload: list[tuple[str, bytes, str]] = []
+    archivos_para_persistir: list[tuple[str, bytes, str]] = []
+    for f in files:
+        ext = (f.name.rsplit('.', 1)[-1] if '.' in f.name else '').lower()
+        if ext in BLOCKED_EXT:
+            messages.error(request, f'Tipo de archivo no permitido: {f.name}')
+            return render(request, 'correos/compose.html', ctx_form, status=400)
+        content = f.read()
+        mime = f.content_type or 'application/octet-stream'
+        adjuntos_payload.append((f.name, content, mime))
+        archivos_para_persistir.append((f.name, content, mime))
+
     new_msg_id = make_msgid(domain='pietramonte.cl')
     headers = {'Message-ID': new_msg_id}
 
@@ -1867,6 +1910,7 @@ def compose_view(request):
         },
         from_alias=_from_alias_buzon(buzon),
         headers=headers,
+        adjuntos=adjuntos_payload or None,
     )
 
     sent_correo = None
@@ -1881,9 +1925,27 @@ def compose_view(request):
                 asunto=asunto[:1000],
                 fecha=timezone.now(),
                 cuerpo_texto=cuerpo,
-                tiene_adjunto=False,
+                tiene_adjunto=bool(archivos_para_persistir),
             )
             CorreoLeido.objects.get_or_create(usuario=usuario, correo=sent_correo)
+            # Persistir adjuntos como rows Adjunto (para que aparezcan en
+            # Enviados con el pill 📎 y se puedan re-descargar).
+            from django.core.files.base import ContentFile
+            for fname, content, mime in archivos_para_persistir:
+                try:
+                    adj = Adjunto(
+                        correo=sent_correo,
+                        nombre_original=fname[:300],
+                        mime_type=mime[:200],
+                        tamano_bytes=len(content),
+                    )
+                    adj.archivo.save(fname, ContentFile(content), save=False)
+                    adj.save()
+                except Exception:
+                    logger.warning(
+                        'Compose: fallo guardando Adjunto %s del correo %s',
+                        fname, sent_correo.id, exc_info=True,
+                    )
         except Exception:
             logger.warning(
                 'Compose SMTP OK pero fallo al guardar Correo en pestaña Enviados '

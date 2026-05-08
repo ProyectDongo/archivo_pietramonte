@@ -50,21 +50,21 @@
   </nav>
 <nav class="sidebar-section" aria-label="Filtrar por carpeta">
     <div class="sidebar-label">Carpetas</div>
-    <a href="?{% if query %}q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}{% if query %}&{% endif %}orden={{ orden }}{% endif %}"
+    <a href="{% url 'inbox' %}?{% if query %}q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}{% if query %}&{% endif %}orden={{ orden }}{% endif %}"
        class="sidebar-link {% if not carpeta %}active{% endif %}"
        title="Todos los correos del buzón">
       <span class="sidebar-link-ico" aria-hidden="true">📋</span>
       <span class="sidebar-link-text">Todos</span>
       <span class="sidebar-link-count">{{ counts_carpeta.total }}</span>
     </a>
-    <a href="?carpeta=inbox{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}"
+    <a href="{% url 'inbox' %}?carpeta=inbox{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}"
        class="sidebar-link {% if carpeta == 'inbox' %}active{% endif %}"
        title="Solo correos recibidos">
       <span class="sidebar-link-ico" aria-hidden="true">📥</span>
       <span class="sidebar-link-text">Recibidos</span>
       <span class="sidebar-link-count">{{ counts_carpeta.inbox }}</span>
     </a>
-    <a href="?carpeta=enviados{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}"
+    <a href="{% url 'inbox' %}?carpeta=enviados{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}"
        class="sidebar-link {% if carpeta == 'enviados' %}active{% endif %}"
        title="Solo correos enviados">
       <span class="sidebar-link-ico" aria-hidden="true">📤</span>
@@ -72,7 +72,7 @@
       <span class="sidebar-link-count">{{ counts_carpeta.enviados }}</span>
     </a>
     {% if counts_carpeta.otros %}
-    <a href="?carpeta=otros{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}"
+    <a href="{% url 'inbox' %}?carpeta=otros{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}"
        class="sidebar-link {% if carpeta == 'otros' %}active{% endif %}"
        title="Correos sin clasificar">
       <span class="sidebar-link-ico" aria-hidden="true">🗂️</span>
@@ -83,7 +83,7 @@
   </nav>
 <nav class="sidebar-section" aria-label="Filtros rápidos">
     <div class="sidebar-label">Filtros</div>
-    <a href="?{% if not solo_no_leidos %}no_leidos=1{% endif %}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}"
+    <a href="{% url 'inbox' %}?{% if not solo_no_leidos %}no_leidos=1{% endif %}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}"
        class="sidebar-link sidebar-filter {% if solo_no_leidos %}active{% endif %}"
        title="Ver solo sin leer">
       <span class="sidebar-link-ico" aria-hidden="true">
@@ -95,7 +95,7 @@
       <span class="sidebar-link-text">Sin leer</span>
       {% if no_leidos_buzon_actual %}<span class="sidebar-link-count">{{ no_leidos_buzon_actual }}</span>{% endif %}
     </a>
-    <a href="?{% if not solo_destacados %}destacado=1{% endif %}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}{% if solo_no_leidos %}&no_leidos=1{% endif %}"
+    <a href="{% url 'inbox' %}?{% if not solo_destacados %}destacado=1{% endif %}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}{% if solo_no_leidos %}&no_leidos=1{% endif %}"
        class="sidebar-link sidebar-filter sidebar-filter-star {% if solo_destacados %}active{% endif %}"
        title="Ver solo destacados">
       <span class="sidebar-link-ico" aria-hidden="true">
@@ -108,14 +108,14 @@
       <span class="sidebar-link-text">Destacados</span>
       {% if cant_destacados %}<span class="sidebar-link-count">{{ cant_destacados }}</span>{% endif %}
     </a>
-    <a href="?{% if not solo_adjuntos %}adjuntos=1{% endif %}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}{% if solo_no_leidos %}&no_leidos=1{% endif %}"
+    <a href="{% url 'inbox' %}?{% if not solo_adjuntos %}adjuntos=1{% endif %}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}{% if solo_no_leidos %}&no_leidos=1{% endif %}"
        class="sidebar-link sidebar-filter {% if solo_adjuntos %}active{% endif %}"
        title="Ver solo correos con adjuntos">
       <span class="sidebar-link-ico" aria-hidden="true">📎</span>
       <span class="sidebar-link-text">Con adjunto</span>
     </a>
     {% if cant_pospuestos or ver_pospuestos %}
-    <a href="?{% if not ver_pospuestos %}pospuestos=1{% endif %}"
+    <a href="{% url 'inbox' %}?{% if not ver_pospuestos %}pospuestos=1{% endif %}"
        class="sidebar-link sidebar-filter {% if ver_pospuestos %}active{% endif %}"
        title="Ver correos pospuestos (snooze)">
       <span class="sidebar-link-ico" aria-hidden="true">💤</span>
@@ -127,7 +127,7 @@
 <nav class="sidebar-section" aria-label="Etiquetas">
     <div class="sidebar-label">Etiquetas</div>
     {% for et in etiquetas_disponibles %}
-    <a href="?etiqueta={{ et.id }}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}{% if solo_no_leidos %}&no_leidos=1{% endif %}"
+    <a href="{% url 'inbox' %}?etiqueta={{ et.id }}{% if carpeta %}&carpeta={{ carpeta }}{% endif %}{% if query %}&q={{ query|urlencode }}{% endif %}{% if orden and orden != 'desc' %}&orden={{ orden }}{% endif %}{% if solo_no_leidos %}&no_leidos=1{% endif %}"
        class="sidebar-link sidebar-tag {% if etiqueta_actual.id == et.id %}active{% endif %}"
        data-color="{{ et.color }}"
        title="Filtrar por «{{ et.nombre }}»">

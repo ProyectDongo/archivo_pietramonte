@@ -25,7 +25,7 @@
     </div>
     {% endif %}
 
-    <form method="post" class="reenvio-form" novalidate>
+    <form method="post" class="reenvio-form" novalidate enctype="multipart/form-data" id="compose-form">
       {% csrf_token %}
 
       <label class="adv-field" style="display:block;margin-bottom:1rem">
@@ -73,6 +73,19 @@
                   style="width:100%;font-family:inherit;font-size:14px;padding:10px 12px;border-radius:8px;border:1px solid #d0d0d0;line-height:1.5">{{ cuerpo|default:'' }}</textarea>
       </label>
 
+      <div class="adv-field" style="display:block;margin-bottom:1rem">
+        <span class="adv-label">Adjuntos</span>
+        <label class="compose-dropzone" id="compose-dropzone" tabindex="0">
+          <input type="file" name="adjuntos" id="compose-files" multiple hidden>
+          <span class="compose-dropzone-ico" aria-hidden="true">📎</span>
+          <span class="compose-dropzone-text">
+            <strong>Soltá archivos acá</strong> o hacé click para elegir
+          </span>
+          <span class="compose-dropzone-hint">Máx 10 archivos · 25 MB total</span>
+        </label>
+        <ul class="compose-attach-list" id="compose-attach-list" hidden role="list"></ul>
+      </div>
+
       <div class="reenvio-rate" style="background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:13px">
         ℹ️ Envíos en las últimas 24h: <strong>{{ usados }}/{{ limite }}</strong>
         {% if restantes == 0 %}
@@ -91,4 +104,7 @@
     </form>
   </div>
 </article>
+
+{% load static %}
+<script src="{% static 'js/compose_attach.js' %}" defer></script>
 {% endblock %}
