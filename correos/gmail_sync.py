@@ -33,15 +33,28 @@ class ImapError(RuntimeError):
 @contextmanager
 def imap_connection():
     """
-    Context manager que abre IMAP4_SSL contra Gmail con las credenciales
-    de EMAIL_HOST_USER + EMAIL_HOST_PASSWORD (la misma App Password de SMTP).
+    Context manager que abre IMAP4_SSL contra Gmail con la App Password.
     Hace logout al salir, incluso si hay excepción.
+
+    Credenciales (lookup en orden):
+      1. GMAIL_IMAP_USER + GMAIL_IMAP_PASSWORD  ← preferidas, separadas del SMTP
+      2. EMAIL_HOST_USER + EMAIL_HOST_PASSWORD  ← fallback histórico (cuando el
+         outbound SMTP también era Gmail). Cuando el outbound se mueve a otro
+         proveedor (ej. Resend), las EMAIL_HOST_* dejan de servir para IMAP y
+         hay que setear las GMAIL_IMAP_* explícitas con la App Password.
     """
-    user = settings.EMAIL_HOST_USER
-    pwd  = settings.EMAIL_HOST_PASSWORD
+    user = (
+        getattr(settings, 'GMAIL_IMAP_USER', '')
+        or settings.EMAIL_HOST_USER
+    )
+    pwd  = (
+        getattr(settings, 'GMAIL_IMAP_PASSWORD', '')
+        or settings.EMAIL_HOST_PASSWORD
+    )
     if not user or not pwd:
         raise ImapError(
-            'Falta EMAIL_HOST_USER / EMAIL_HOST_PASSWORD en env. '
+            'Falta GMAIL_IMAP_USER / GMAIL_IMAP_PASSWORD (o el fallback '
+            'EMAIL_HOST_USER / EMAIL_HOST_PASSWORD) en env. '
             'Configurá la App Password de Gmail antes de sincronizar.'
         )
     host = getattr(settings, 'GMAIL_IMAP_HOST', 'imap.gmail.com')
