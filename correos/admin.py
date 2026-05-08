@@ -20,7 +20,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.utils.html import format_html
 
-from .models import AdminTOTP, Adjunto, Buzon, BuzonGmailLabel, Correo, Etiqueta, IntentoLogin, ReenvioCorreo, UsuarioPortal
+from .models import AdminTOTP, Adjunto, Buzon, BuzonGmailLabel, Correo, Etiqueta, EventoAuditoria, IntentoLogin, ReenvioCorreo, UsuarioPortal
 
 logger = logging.getLogger('correos.admin')
 
@@ -454,3 +454,27 @@ class BuzonGmailLabelAdmin(admin.ModelAdmin):
         lineas = [l for l in out.getvalue().splitlines() if 'nuevos' in l or 'sin novedades' in l]
         msg = ' · '.join(lineas[:5]) or 'Sync corrió. Ver detalles en BD.'
         self.message_user(request, msg, messages.SUCCESS)
+
+
+# ─── Auditoría: read-only ────────────────────────────────────────────────
+@admin.register(EventoAuditoria)
+class EventoAuditoriaAdmin(admin.ModelAdmin):
+    list_display    = ('creado', 'usuario', 'accion', 'target_tipo', 'target_id', 'ip_corta')
+    list_filter     = ('accion', 'target_tipo', 'creado')
+    search_fields   = ('usuario__email', 'ip_hash', 'target_tipo')
+    readonly_fields = [f.name for f in EventoAuditoria._meta.fields]
+    date_hierarchy  = 'creado'
+
+    def ip_corta(self, obj):
+        return (obj.ip_hash or '')[:10] + '…'
+    ip_corta.short_description = 'IP (hash)'
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        # Permitir borrado en bloque solo a superusers (limpiar bitácora vieja)
+        return request.user.is_superuser

@@ -563,6 +563,84 @@ class BuzonGmailLabel(models.Model):
         return f'{self.label_name} → {self.buzon.email}{estado}'
 
 
+class EventoAuditoria(models.Model):
+    """
+    Bitácora minimalista de acciones sensibles per-usuario en el portal.
+    Cubre lo que NO está ya logueado por modelos específicos
+    (`IntentoLogin`, `ReenvioCorreo`, `CorreoEnviado`):
+      - cambios de password
+      - setup/regeneración de 2FA
+      - acciones masivas (bulk_acciones)
+      - snooze / unsnooze
+      - asignar/quitar etiquetas
+      - cambios de firma del buzón
+      - creación/borrado de borradores
+
+    Diseño:
+      - usuario nullable (FK SET_NULL) para sobrevivir borrado de cuentas.
+      - target_id genérico (int) — apunta al objeto afectado pero NO usa
+        GenericForeignKey (overhead innecesario para una bitácora).
+      - target_tipo es un string corto que indica de qué tabla viene
+        (correo, buzon, etiqueta, borrador, etc).
+      - meta JSONField para detalle libre (qué cambió, antes/después).
+      - ip_hash igual que IntentoLogin (no PII).
+
+    Retención: si crece mucho, agregar cron que purgue entradas > 1 año.
+    """
+    ACCIONES = [
+        # Auth / 2FA
+        ('login_ok',           'Login exitoso'),
+        ('logout',             'Logout'),
+        ('password_cambio',    'Cambio de password'),
+        ('totp_setup',         '2FA configurado'),
+        ('totp_reset',         '2FA reseteado'),
+        ('recovery_regen',     'Recovery codes regenerados'),
+        # Correos / acciones bulk
+        ('bulk_leer',          'Marcar leídos en masa'),
+        ('bulk_no_leer',       'Marcar no-leídos en masa'),
+        ('bulk_destacar',      'Destacar en masa'),
+        ('bulk_etiquetar',     'Etiquetar en masa'),
+        # Snooze
+        ('snooze',             'Posponer correo'),
+        ('unsnooze',           'Cancelar snooze'),
+        # Etiquetas
+        ('etiqueta_crear',     'Etiqueta creada'),
+        ('etiqueta_asignar',   'Etiqueta asignada a correo'),
+        ('etiqueta_quitar',    'Etiqueta quitada de correo'),
+        # Firma
+        ('firma_actualizar',   'Firma del buzón actualizada'),
+        # Borradores
+        ('borrador_crear',     'Borrador creado'),
+        ('borrador_borrar',    'Borrador descartado'),
+    ]
+
+    usuario      = models.ForeignKey('UsuarioPortal', on_delete=models.SET_NULL,
+                                     null=True, blank=True,
+                                     related_name='eventos_auditoria')
+    accion       = models.CharField(max_length=30, choices=ACCIONES, db_index=True)
+    target_tipo  = models.CharField(max_length=20, blank=True, default='',
+                                    help_text='Modelo afectado (correo, buzon, etiqueta, borrador, …).')
+    target_id    = models.PositiveIntegerField(null=True, blank=True,
+                                               help_text='PK del objeto afectado.')
+    meta         = models.JSONField(default=dict, blank=True,
+                                    help_text='Detalle libre: ids, valores, etc.')
+    ip_hash      = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    creado       = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = 'Evento de auditoría'
+        verbose_name_plural = 'Eventos de auditoría'
+        ordering = ['-creado']
+        indexes = [
+            models.Index(fields=['usuario', '-creado'],     name='correos_evt_usr_act_idx'),
+            models.Index(fields=['accion', '-creado'],      name='correos_evt_acc_act_idx'),
+        ]
+
+    def __str__(self):
+        u = self.usuario.email if self.usuario else 'anon'
+        return f'{self.creado:%Y-%m-%d %H:%M} {u} {self.accion} {self.target_tipo}#{self.target_id or "-"}'
+
+
 class AdminTOTP(models.Model):
     """
     2FA del superuser de Django (auth.User). 1:1 con User.

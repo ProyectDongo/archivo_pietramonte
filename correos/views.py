@@ -19,7 +19,8 @@ from django.views.decorators.http import require_http_methods, require_POST
 from . import captcha, totp as totp_helpers
 from .models import (
     Adjunto, BorradorCorreo, Buzon, Correo, CorreoEnviado, CorreoLeido,
-    CorreoSnooze, Etiqueta, IntentoLogin, ReenvioCorreo, UsuarioPortal, hash_ip,
+    CorreoSnooze, Etiqueta, EventoAuditoria, IntentoLogin, ReenvioCorreo,
+    UsuarioPortal, hash_ip,
 )
 from .throttle import throttle_user
 from taller.anti_bot import verify_turnstile
@@ -92,6 +93,30 @@ def portal_login_required(view):
             return redirect('login')
         return view(request, *args, **kwargs)
     return wrapper
+
+
+# ─── Audit log helper ──────────────────────────────────────────────────────
+def _audit(request, accion: str, target_tipo: str = '', target_id: int = None, **meta):
+    """
+    Emite un evento de auditoría. No bloquea el flujo si falla — la bitácora
+    no debe tumbar la operación principal.
+
+    Uso:
+        _audit(request, 'snooze', 'correo', correo.id, until=str(until_at))
+        _audit(request, 'firma_actualizar', 'buzon', buzon.id)
+    """
+    try:
+        usuario = _usuario_actual(request)
+        EventoAuditoria.objects.create(
+            usuario=usuario,
+            accion=accion,
+            target_tipo=target_tipo[:20],
+            target_id=target_id,
+            meta=meta or {},
+            ip_hash=hash_ip(_get_ip(request)),
+        )
+    except Exception:
+        logger.warning('Falló insertar EventoAuditoria accion=%s', accion, exc_info=True)
 
 
 # ─── Helpers de sesión multi-buzón ─────────────────────────────────────────
@@ -1736,6 +1761,8 @@ def snooze_correo_view(request, correo_id):
         usuario=usuario, correo=correo,
         defaults={'until_at': until_at},
     )
+    _audit(request, 'snooze', 'correo', correo.id,
+           until=obj.until_at.isoformat(), preset=preset or 'custom')
     return JsonResponse({
         'ok': True,
         'until': obj.until_at.isoformat(),
@@ -1749,6 +1776,8 @@ def unsnooze_correo_view(request, correo_id):
     """POST → cancela el snooze de un correo (vuelve a la bandeja)."""
     usuario, correo = _correo_si_visible(request, correo_id)
     deleted, _ = CorreoSnooze.objects.filter(usuario=usuario, correo=correo).delete()
+    if deleted:
+        _audit(request, 'unsnooze', 'correo', correo.id)
     return JsonResponse({'ok': True, 'eliminado': deleted > 0})
 
 
@@ -1786,9 +1815,11 @@ def asignar_etiqueta_view(request, correo_id):
     if accion == 'quitar':
         correo.etiquetas.remove(etiqueta)
         asignada = False
+        _audit(request, 'etiqueta_quitar', 'correo', correo.id, etiqueta_id=etiqueta.id)
     else:
         correo.etiquetas.add(etiqueta)
         asignada = True
+        _audit(request, 'etiqueta_asignar', 'correo', correo.id, etiqueta_id=etiqueta.id)
 
     return JsonResponse({
         'asignada': asignada,
@@ -1828,6 +1859,9 @@ def crear_etiqueta_view(request):
     if not creada and etiqueta.color != color:
         etiqueta.color = color
         etiqueta.save(update_fields=['color'])
+    if creada:
+        _audit(request, 'etiqueta_crear', 'etiqueta', etiqueta.id,
+               nombre=etiqueta.nombre, buzon_id=buzon.id)
 
     return JsonResponse({
         'creada': creada,
@@ -1889,6 +1923,7 @@ def firma_view(request):
             'firma_activa', 'firma_nombre', 'firma_cargo',
             'firma_telefono', 'firma_email_visible', 'firma_web',
         ])
+        _audit(request, 'firma_actualizar', 'buzon', buzon.id, activa=buzon.firma_activa)
         messages.success(request, 'Firma guardada. Se aplica desde el próximo correo enviado.')
         return redirect('firma')
 
@@ -1968,6 +2003,7 @@ def borradores_view(request):
         asunto=(request.POST.get('asunto') or '')[:1000],
         cuerpo=(request.POST.get('cuerpo') or '')[:50000],
     )
+    _audit(request, 'borrador_crear', 'borrador', b.id, modo=b.modo, buzon_id=buzon.id)
     return JsonResponse(_borrador_dict(b))
 
 
@@ -1989,6 +2025,7 @@ def borrador_detalle_view(request, borrador_id):
         return JsonResponse(_borrador_dict(b))
 
     if request.method == 'DELETE':
+        _audit(request, 'borrador_borrar', 'borrador', b.id)
         b.delete()
         return JsonResponse({'ok': True})
 
@@ -2473,6 +2510,19 @@ def bulk_acciones_view(request):
             Buzon.objects.get(id=primer_buzon_id).correos.count() -
             CorreoLeido.objects.filter(usuario=usuario, correo__buzon_id=primer_buzon_id).count()
         )
+
+    # Audit
+    _AUDIT_BULK = {
+        'leer':              'bulk_leer',
+        'no_leer':           'bulk_no_leer',
+        'destacar':          'bulk_destacar',
+        'no_destacar':       'bulk_destacar',
+        'asignar_etiqueta':  'bulk_etiquetar',
+        'quitar_etiqueta':   'bulk_etiquetar',
+    }
+    if afectados and accion in _AUDIT_BULK:
+        _audit(request, _AUDIT_BULK[accion], 'correo', None,
+               accion_concreta=accion, n=afectados, ids_sample=ids[:10])
 
     return JsonResponse({
         'ok': True,
