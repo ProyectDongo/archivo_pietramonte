@@ -183,12 +183,13 @@ class Command(BaseCommand):
                         cuerpo_html=html,
                         tiene_adjunto=bool(adjuntos_data),
                     )
-                    for nombre, mime, payload in adjuntos_data:
+                    for nombre, mime, payload, content_id in adjuntos_data:
                         adj = Adjunto(
                             correo=correo,
                             nombre_original=nombre,
                             mime_type=mime[:200],
                             tamano_bytes=len(payload),
+                            content_id=content_id,
                         )
                         adj.archivo.save(nombre, ContentFile(payload), save=False)
                         adj.save()

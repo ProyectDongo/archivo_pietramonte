@@ -628,3 +628,227 @@ class CSPHeadersTests(TestCase):
         c = Client(HTTP_HOST='localhost')
         r = c.get('/')
         self.assertEqual(r.get('X-Frame-Options'), 'DENY')
+
+
+# ─── Avatar iniciales ────────────────────────────────────────────────────
+# Bug histórico: 'Rodrigo Del saz <a@b.cl>' → 'R<' en el avatar (el `<` del
+# email se contaba como segunda inicial). Test asegura que no vuelve.
+class AvatarInicialesFilterTests(TestCase):
+    def test_nombre_con_email_descarta_email(self):
+        from correos.templatetags.correos_tags import avatar_iniciales
+        self.assertEqual(avatar_iniciales('Rodrigo Del saz <a@b.cl>'), 'RS')
+
+    def test_solo_nombre(self):
+        from correos.templatetags.correos_tags import avatar_iniciales
+        self.assertEqual(avatar_iniciales('Ana Ledezma'), 'AL')
+
+    def test_solo_email_entre_brackets(self):
+        from correos.templatetags.correos_tags import avatar_iniciales
+        # No hay nombre — fallback al local-part + domain del email
+        self.assertEqual(avatar_iniciales('<solo@email.cl>'), 'SE')
+
+    def test_email_bare_sin_brackets(self):
+        from correos.templatetags.correos_tags import avatar_iniciales
+        self.assertEqual(avatar_iniciales('a@b.cl'), 'AB')
+        self.assertEqual(avatar_iniciales('OficinaInternet@rtsp.cl'), 'OR')
+
+    def test_vacios_devuelven_signo_pregunta(self):
+        from correos.templatetags.correos_tags import avatar_iniciales
+        self.assertEqual(avatar_iniciales(''), '?')
+        self.assertEqual(avatar_iniciales('   '), '?')
+        self.assertEqual(avatar_iniciales(None), '?')
+
+
+# ─── cid: resolution ──────────────────────────────────────────────────────
+# Tests para que `<img src="cid:xxx">` en cuerpo_html se resuelva a la URL
+# interna autenticada del adjunto, y para isolation cross-buzón.
+@override_settings(STORAGES={
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+})
+class CidResolutionTests(TestCase):
+
+    def setUp(self):
+        cache.clear()
+
+        # Buzón de alice + un correo con HTML que referencia un cid
+        self.b_alice = Buzon.objects.create(email='alice.bandeja@pietramonte.cl')
+        self.u_alice = UsuarioPortal(email='alice@gmail.com', activo=True)
+        self.u_alice.set_password('PassMuy.Larga2026!')
+        self.u_alice.save()
+        self.u_alice.buzones.add(self.b_alice)
+
+        self.cid = '5db34974-7359-4231-bea1-d6cca25338e2@gmail.com'
+        self.correo = Correo.objects.create(
+            buzon=self.b_alice,
+            asunto='factura',
+            cuerpo_html=f'<p>Acuso recibo</p><img src="cid:{self.cid}" alt="firma">',
+        )
+        self.adj_inline = Adjunto(
+            correo=self.correo,
+            nombre_original='firma.png',
+            mime_type='image/png',
+            tamano_bytes=8,
+            content_id=self.cid,
+        )
+        # bytes mínimos pero válidos como PNG-ish (no validamos magic, solo
+        # mime_type para decidir inline)
+        self.adj_inline.archivo.save(
+            'firma.png',
+            ContentFile(b'\x89PNG\r\n\x1a\n'),
+            save=False,
+        )
+        self.adj_inline.save()
+
+        # Buzón ajeno con un cid igual — para test de isolation
+        self.b_bob = Buzon.objects.create(email='bob.bandeja@pietramonte.cl')
+        self.u_bob = UsuarioPortal(email='bob@gmail.com', activo=True)
+        self.u_bob.set_password('PassMuy.Larga2026!')
+        self.u_bob.save()
+        self.u_bob.buzones.add(self.b_bob)
+        self.correo_bob = Correo.objects.create(buzon=self.b_bob, asunto='ajeno')
+        self.adj_bob = Adjunto(
+            correo=self.correo_bob,
+            nombre_original='secreto.png',
+            mime_type='image/png',
+            tamano_bytes=8,
+            content_id=self.cid,  # mismo cid → simula colisión
+        )
+        self.adj_bob.archivo.save('secreto.png', ContentFile(b'\x89PNG'), save=False)
+        self.adj_bob.save()
+
+    def _login(self, usuario, buzon):
+        c = Client(HTTP_HOST='localhost')
+        s = c.session
+        s['usuario_email'] = usuario.email
+        s['buzon_actual_id'] = buzon.id
+        s['buzon_actual_email'] = buzon.email
+        s.save()
+        return c
+
+    def test_resolver_cid_en_html_mapea_a_url_interna(self):
+        from correos.templatetags.correos_tags import _resolver_cid_en_html
+        out = _resolver_cid_en_html(self.correo.cuerpo_html, self.correo)
+        # cid: ya no está, hay una URL interna
+        self.assertNotIn('cid:', out)
+        self.assertIn(f'/intranet/correo/{self.correo.id}/cid/', out)
+
+    def test_resolver_cid_no_resuelto_queda_intacto(self):
+        from correos.templatetags.correos_tags import _resolver_cid_en_html
+        # cid que no existe entre los adjuntos → bleach lo strippea después
+        # pero acá solo verificamos que _resolver_cid_en_html no lo toca.
+        html = '<img src="cid:fantasma">'
+        out = _resolver_cid_en_html(html, self.correo)
+        self.assertEqual(out, html)
+
+    def test_render_correo_html_strip_de_imgs_externas(self):
+        """`<img>` con src http externa debe ser strippeado (anti tracking)."""
+        from correos.templatetags.correos_tags import render_correo_html
+        c = Correo.objects.create(
+            buzon=self.b_alice,
+            cuerpo_html='<p>x</p><img src="https://tracking.evil/pixel.png">',
+        )
+        out = str(render_correo_html(c))
+        self.assertIn('<p>x</p>', out)
+        self.assertNotIn('tracking.evil', out)
+        self.assertNotIn('<img', out)
+
+    def test_render_correo_html_permite_data_image(self):
+        from correos.templatetags.correos_tags import render_correo_html
+        c = Correo.objects.create(
+            buzon=self.b_alice,
+            cuerpo_html='<img src="data:image/png;base64,iVBORw0KGgo=">',
+        )
+        out = str(render_correo_html(c))
+        self.assertIn('data:image/png', out)
+
+    def test_render_correo_html_resuelve_cid_a_url(self):
+        from correos.templatetags.correos_tags import render_correo_html
+        out = str(render_correo_html(self.correo))
+        self.assertIn(f'/intranet/correo/{self.correo.id}/cid/', out)
+        self.assertNotIn('cid:', out)
+
+    def test_cid_view_sirve_imagen_a_dueno(self):
+        c = self._login(self.u_alice, self.b_alice)
+        r = c.get(f'/intranet/correo/{self.correo.id}/cid/{self.cid}')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r['X-Content-Type-Options'], 'nosniff')
+        self.assertEqual(r['Content-Type'], 'image/png')
+
+    def test_cid_view_404_a_otro_usuario(self):
+        """Bob no puede acceder al cid del correo de Alice."""
+        c = self._login(self.u_bob, self.b_bob)
+        r = c.get(f'/intranet/correo/{self.correo.id}/cid/{self.cid}')
+        self.assertEqual(r.status_code, 404)
+
+    def test_cid_view_no_cross_buzon_con_mismo_cid(self):
+        """
+        Alice y Bob tienen ambos un adjunto con el mismo content_id, pero
+        en correos distintos. La URL de Alice NUNCA debe servir el adjunto
+        de Bob (la lookup se restringe a `correo=correo_id`).
+        """
+        c = self._login(self.u_alice, self.b_alice)
+        r = c.get(f'/intranet/correo/{self.correo.id}/cid/{self.cid}')
+        self.assertEqual(r.status_code, 200)
+        # El bytes que sirve es el de alice (firma.png), no el de bob (secreto.png)
+        self.assertIn(b'\x89PNG', b''.join(r.streaming_content))
+
+    def test_cid_view_404_si_content_id_no_es_imagen(self):
+        # Un adjunto con content_id pero mime no-image → no debe servirse
+        # como inline (defense en depth contra abuso del endpoint).
+        adj_pdf = Adjunto(
+            correo=self.correo,
+            nombre_original='evil.pdf',
+            mime_type='application/pdf',
+            tamano_bytes=5,
+            content_id='pdf-cid-x',
+        )
+        adj_pdf.archivo.save('evil.pdf', ContentFile(b'%PDF\n'), save=False)
+        adj_pdf.save()
+        c = self._login(self.u_alice, self.b_alice)
+        r = c.get(f'/intranet/correo/{self.correo.id}/cid/pdf-cid-x')
+        self.assertEqual(r.status_code, 404)
+
+    def test_cid_view_sin_login_redirige(self):
+        c = Client(HTTP_HOST='localhost')
+        r = c.get(f'/intranet/correo/{self.correo.id}/cid/{self.cid}')
+        self.assertEqual(r.status_code, 302)
+
+    def test_strip_cid_brackets_en_texto(self):
+        from correos.templatetags.correos_tags import _strip_cid_brackets_en_texto
+        texto = 'Acuso recibo.\n[cid:5db34974-...] \nGracias!'
+        out = _strip_cid_brackets_en_texto(texto)
+        self.assertNotIn('[cid:', out)
+        self.assertIn('Acuso recibo.', out)
+        self.assertIn('Gracias!', out)
+
+    def test_strip_cid_brackets_no_toca_otros_brackets(self):
+        from correos.templatetags.correos_tags import _strip_cid_brackets_en_texto
+        texto = 'Atte. [Equipo Soporte]'
+        self.assertEqual(_strip_cid_brackets_en_texto(texto), texto)
+
+
+# ─── HTML sanitización ────────────────────────────────────────────────────
+# Tests anti-XSS sobre el render del cuerpo HTML de correos.
+class HtmlSanitizationTests(TestCase):
+    def test_script_tag_strippeado(self):
+        from correos.templatetags.correos_tags import sanitizar_email_html
+        out = sanitizar_email_html('<p>hola</p><script>alert(1)</script>')
+        self.assertNotIn('<script', out)
+        self.assertNotIn('alert', out)
+
+    def test_eventos_on_strippeados(self):
+        from correos.templatetags.correos_tags import sanitizar_email_html
+        out = sanitizar_email_html('<a href="x" onclick="alert(1)">x</a>')
+        self.assertNotIn('onclick', out)
+        self.assertNotIn('alert', out)
+
+    def test_javascript_url_strippeada(self):
+        from correos.templatetags.correos_tags import sanitizar_email_html
+        out = sanitizar_email_html('<a href="javascript:alert(1)">x</a>')
+        self.assertNotIn('javascript:', out)
+
+    def test_iframe_strippeado(self):
+        from correos.templatetags.correos_tags import sanitizar_email_html
+        out = sanitizar_email_html('<iframe src="evil"></iframe>')
+        self.assertNotIn('<iframe', out)

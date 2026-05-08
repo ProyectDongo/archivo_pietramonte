@@ -1285,9 +1285,25 @@
   align-items: flex-start;
   gap: 12px;
   margin-bottom: 1rem;
+  /* Permite que .preview-actions baje a una fila propia cuando el panel
+     se achica, en vez de pisar la columna del avatar+meta. */
+  flex-wrap: wrap;
 }
-.preview-meta-main { flex: 1; min-width: 0; }
-.preview-from { font-size: 14px; font-weight: 700; color: var(--gd); line-height: 1.2; }
+.preview-meta-main {
+  flex: 1 1 220px;   /* puede crecer y achicarse, pero no por debajo de 220px */
+  min-width: 0;
+}
+.preview-from {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--gd);
+  line-height: 1.2;
+  /* Mismo motivo que preview-from-mail: sin esto, nombres largos rompen
+     palabra por palabra en columnas angostas (síntoma "R< / D< / saz"). */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .preview-from-mail {
   font-size: 12px;
   color: var(--gl);
@@ -1302,6 +1318,14 @@
   font-size: 11px;
   color: var(--gl);
   margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Pantallas medianas: ocultamos el ISO redundante (la fecha amigable basta).
+   El ISO completo queda accesible via title="..." en hover. */
+@media (max-width: 1380px) {
+  .preview-date .date-iso { display: none; }
 }
 .preview-open-btn {
   display: inline-flex;
@@ -2366,10 +2390,14 @@
   flex-shrink: 0;
   max-width: 100%;
 }
-/* En anchos chicos del preview (cuando el split achica), ocultamos los
-   labels de los botones de acción y dejamos solo los iconos. Así caben
-   los 5 botones sin pisar la columna del meta del correo. */
-@media (max-width: 1280px) {
+/* En anchos chicos del preview (cuando el split achica o el usuario zoomea),
+   ocultamos los labels de los botones de acción y dejamos solo los iconos.
+   Así caben los 5 botones sin pisar la columna del meta del correo.
+
+   Se sube el breakpoint a 1400px porque a 1280-1400 con sidebar visible y
+   un buzón seleccionado, los 5 botones con labels (~600px) pisan al avatar
+   + nombre del remitente. */
+@media (max-width: 1400px) {
   .preview-actions .preview-reply-btn span,
   .preview-actions .preview-fwd-btn span,
   .preview-actions .preview-unread-btn span,
@@ -2381,5 +2409,17 @@
   .preview-actions .preview-unread-btn,
   .preview-actions .preview-open-btn {
     padding: 8px 10px;
+  }
+}
+
+/* Defensa adicional: si aún con iconos-only no hay espacio (zoom alto,
+   pantallas muy chicas, ventanas redimensionadas), las acciones bajan
+   completas a una segunda fila bajo el avatar + nombre — gracias al
+   flex-wrap añadido a .preview-head-top. Acá solo aseguramos que cuando
+   bajen, queden alineadas a la izquierda y no flotando a la derecha. */
+@media (max-width: 900px) {
+  .preview-actions {
+    flex-basis: 100%;
+    justify-content: flex-start;
   }
 }

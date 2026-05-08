@@ -48,12 +48,15 @@
   <div class="correo-body">
     <div class="cuerpo-label">Contenido del mensaje</div>
     {% if correo.cuerpo_html %}
-    {# bleach + CSSSanitizer matan <script>, eventos on*, javascript: URLs e <img>. #}
-    {# Después es seguro emitir como HTML con |safe. #}
-    <div class="cuerpo-html">{{ correo.cuerpo_html|sanitizar_email_html|safe }}</div>
+    {# render_correo_html: pre-resuelve cid:xxx → URL interna autenticada
+       (sirve la imagen embebida desde nuestro propio dominio) y sanitiza
+       con bleach. <img> permitido solo con src relativa o data:image. #}
+    <div class="cuerpo-html">{% render_correo_html correo %}</div>
     {% elif correo.cuerpo_texto %}
-    {# Django autoescapa por defecto: <, >, &, ', " quedan neutralizados → no XSS #}
-    <div class="cuerpo-texto">{{ correo.cuerpo_texto }}</div>
+    {# Django autoescapa por defecto: <, >, &, ', " quedan neutralizados → no XSS.
+       limpiar_cid_brackets quita los `[cid:xxx]` literales que quedaron del
+       cuerpo (sin imagen inline para resolver, son ruido). #}
+    <div class="cuerpo-texto">{{ correo.cuerpo_texto|limpiar_cid_brackets }}</div>
     {% else %}
     <div class="sin-cuerpo">Este correo no tiene cuerpo en texto plano o es solo adjunto.</div>
     {% endif %}

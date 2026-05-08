@@ -230,6 +230,14 @@ class Adjunto(models.Model):
     archivo         = models.FileField(upload_to='adjuntos/%Y/%m/')
     creado          = models.DateTimeField(auto_now_add=True)
 
+    # Content-ID del part MIME (sin angle brackets). Solo lo traen los adjuntos
+    # *inline* (imágenes embebidas en HTML). Se usa para resolver `cid:xxx`
+    # en el cuerpo HTML al renderizar — sino se ve `[cid:xxx]` como texto.
+    content_id      = models.CharField(
+        max_length=300, blank=True, default='',
+        help_text='Content-ID (sin <>) del adjunto inline. Vacío para attachments normales.',
+    )
+
     class Meta:
         verbose_name = 'Adjunto'
         verbose_name_plural = 'Adjuntos'

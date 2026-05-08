@@ -14,7 +14,9 @@
       <div class="preview-meta-main">
         <div class="preview-from" title="{{ correo.remitente }}">{{ correo.remitente_nombre|default:correo.remitente }}</div>
         <div class="preview-from-mail" title="{{ correo.remitente_email }}">{{ correo.remitente_email }}</div>
-        <div class="preview-date">{{ correo.fecha|fecha_amigable }}{% if correo.fecha %} · {{ correo.fecha|date:"d/m/Y H:i" }}{% endif %}</div>
+        <div class="preview-date" title="{{ correo.fecha|fecha_iso }}">
+          <span class="date-friendly">{{ correo.fecha|fecha_amigable }}</span>{% if correo.fecha %}<span class="date-iso"> · {{ correo.fecha|date:"d/m/Y H:i" }}</span>{% endif %}
+        </div>
       </div>
       <div class="preview-actions">
         <a href="{% url 'responder_correo' correo.id %}" class="preview-reply-btn" title="Responder al remitente">
@@ -83,9 +85,12 @@
 
   <div class="preview-body">
     {% if correo.cuerpo_html %}
-    <div class="preview-content preview-content-html">{{ correo.cuerpo_html|sanitizar_email_html|safe }}</div>
+    {# render_correo_html resuelve cid: → URL interna autenticada y sanitiza
+       con bleach. <img> sólo se permite si src es relativa (nuestra URL)
+       o data:image — los http/https externos quedan bloqueados (tracking). #}
+    <div class="preview-content preview-content-html">{% render_correo_html correo %}</div>
     {% elif correo.cuerpo_texto %}
-    <div class="preview-content">{{ correo.cuerpo_texto }}</div>
+    <div class="preview-content">{{ correo.cuerpo_texto|limpiar_cid_brackets }}</div>
     {% else %}
     <div class="preview-empty-body">Este correo no tiene cuerpo en texto plano o es solo adjunto.</div>
     {% endif %}

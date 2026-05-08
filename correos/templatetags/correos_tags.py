@@ -2,6 +2,7 @@
 Template tags personalizados.
 """
 import hashlib
+import re
 
 from django import template
 from django.utils import timezone
@@ -70,16 +71,51 @@ def fecha_iso(dt):
     return dt_local.strftime('%Y-%m-%d %H:%M:%S (%z)')
 
 
+_RE_EMAIL_BRACKET = re.compile(r'<[^>]+>')
+
+
+def _ini_email(direccion: str) -> str:
+    """Iniciales de un email "bare": 'a@b.cl' → 'AB', 'oficina@rtsp.cl' → 'OR'."""
+    local, _, domain = direccion.partition('@')
+    return ((local[:1] or '?') + (domain[:1] or '?')).upper()
+
+
 @register.filter
 def avatar_iniciales(texto):
-    """Devuelve hasta 2 letras iniciales: 'Ana Ledezma' → 'AL'."""
+    """
+    Devuelve hasta 2 letras iniciales del remitente.
+
+    Casos:
+      'Ana Ledezma'                       → 'AL'
+      'Rodrigo Del saz <a@b.cl>'          → 'RS'   (sin contar el email)
+      '<solo@email.cl>'                   → 'SE'   (local + domain del email)
+      'oficina@rtsp.cl'                   → 'OR'
+      'soporte'                           → 'SO'
+      ''                                  → '?'
+
+    Antes el bug: 'Rodrigo Del saz <a@b.cl>' producía 'R<' porque '<a@b.cl>'
+    se contaba como una palabra y su primer char era '<'.
+    """
     if not texto:
         return '?'
-    palabras = [p for p in str(texto).strip().split() if p]
+    # Quitar "<email>" si el texto trae 'Nombre <email>'.
+    limpio = _RE_EMAIL_BRACKET.sub('', str(texto)).strip().strip('"\' ')
+    palabras = [p for p in limpio.split() if p]
+
+    # Caso: el texto era solo '<email>' (sin nombre). Volver al original sin <>.
     if not palabras:
-        return '?'
+        bare = str(texto).strip().strip('<>"\' ')
+        if '@' in bare:
+            return _ini_email(bare)
+        return bare[:2].upper() if bare else '?'
+
+    # Una sola palabra: si es un email, partir por @; sino tomar 2 primeros chars.
     if len(palabras) == 1:
-        return palabras[0][:2].upper()
+        p = palabras[0]
+        if '@' in p:
+            return _ini_email(p)
+        return p[:2].upper()
+
     return (palabras[0][0] + palabras[-1][0]).upper()
 
 
@@ -152,17 +188,67 @@ def dict_get(d, key):
 
 # ─── Sanitización de HTML de email ─────────────────────────────────────────
 # bleach + tinycss2 (extras [css]) — limpia tags peligrosos, eventos JS,
-# javascript: URLs, y propiedades CSS arbitrarias. Dos cleaners separados
-# cacheados a nivel módulo:
-#   - INBOUND (display en el portal): strip <img> para evitar tracking pixels
-#     y cid: rotos. Sin background-image (otra forma de tracking).
-#   - OUTBOUND (emails que enviamos): permite <img>, cid:, data: para que
-#     el destinatario vea el formato/imágenes originales como en Gmail.
+# javascript: URLs, y propiedades CSS arbitrarias. Tres cleaners cacheados:
+#
+#   - INBOUND_STRICT (legacy filter `sanitizar_email_html`): strip todas las
+#     <img>. Se mantiene por compatibilidad pero ya no se usa en los templates.
+#
+#   - INBOUND_SAFE_IMGS (`render_correo_html` simple_tag): permite <img> SOLO
+#     con src relativa (nuestras URLs internas para cid:) o data:image. Bloquea
+#     URLs externas (anti tracking-pixel). Asume que `cid:` ya fue pre-resuelto
+#     por _resolver_cid_en_html() ANTES de invocar el cleaner.
+#
+#   - OUTBOUND (emails que enviamos): permite <img>, cid:, data: porque van
+#     adjuntos del lado nuestro y el destinatario los embebe.
 _EMAIL_CLEANER_INBOUND = None
+_EMAIL_CLEANER_INBOUND_SAFE_IMGS = None
 _EMAIL_CLEANER_OUTBOUND = None
 
 
-def _make_email_cleaner(allow_imgs: bool):
+_CSS_PROPS = [
+    'color', 'background-color',
+    'font', 'font-family', 'font-size', 'font-weight', 'font-style',
+    'font-variant', 'line-height', 'letter-spacing', 'text-align',
+    'text-decoration', 'text-transform', 'text-indent', 'white-space',
+    'vertical-align',
+    'margin', 'margin-top', 'margin-bottom', 'margin-left', 'margin-right',
+    'padding', 'padding-top', 'padding-bottom', 'padding-left', 'padding-right',
+    'border', 'border-top', 'border-bottom', 'border-left', 'border-right',
+    'border-color', 'border-style', 'border-width', 'border-radius',
+    'border-collapse', 'border-spacing',
+    'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height',
+    'display', 'list-style', 'list-style-type', 'list-style-position',
+    'overflow', 'word-wrap', 'word-break',
+]
+
+
+def _img_attr_filter_safe(tag, name, value):
+    """
+    Filtro de atributos para <img> en modo INBOUND_SAFE_IMGS.
+
+    src permitido SOLO si:
+      - empieza con '/'  (URL interna nuestra, ej. /intranet/correo/X/cid/Y)
+      - empieza con 'data:image/'  (imagen base64 inline, signatures)
+
+    Cualquier otro src (http, https, cid: no resuelto, javascript:, etc.) se
+    bloquea y bleach quita el tag completo (porque sin src válido no sirve).
+    """
+    if name in {'alt', 'width', 'height', 'border', 'title', 'style', 'class'}:
+        return True
+    if name == 'src':
+        v = (value or '').strip()
+        if v.startswith('/'):
+            return True
+        if v.lower().startswith('data:image/'):
+            return True
+        return False
+    return False
+
+
+def _make_email_cleaner(modo: str):
+    """
+    modo ∈ {'inbound_strict', 'inbound_safe_imgs', 'outbound'}.
+    """
     import bleach
     from bleach.css_sanitizer import CSSSanitizer
 
@@ -188,30 +274,22 @@ def _make_email_cleaner(allow_imgs: bool):
     }
     protocols = ['http', 'https', 'mailto', 'tel']
 
-    if allow_imgs:
+    if modo == 'outbound':
         tags.add('img')
         attrs['img'] = ['src', 'alt', 'width', 'height', 'border', 'title', 'style']
         # cid: para imágenes inline del propio email; data: para base64.
         protocols.extend(['data', 'cid'])
+    elif modo == 'inbound_safe_imgs':
+        tags.add('img')
+        # Filtro callable: bleach llama img_attr_filter(tag, name, value) por
+        # cada atributo. La validación de src vive ahí (ver _img_attr_filter_safe).
+        attrs['img'] = _img_attr_filter_safe
+        # data: necesario para que el sanitizer no bloquee data:image/... por protocol.
+        protocols.append('data')
+    elif modo != 'inbound_strict':
+        raise ValueError(f'modo desconocido: {modo}')
 
-    css_sanitizer = CSSSanitizer(
-        allowed_css_properties=[
-            'color', 'background-color',
-            'font', 'font-family', 'font-size', 'font-weight', 'font-style',
-            'font-variant', 'line-height', 'letter-spacing', 'text-align',
-            'text-decoration', 'text-transform', 'text-indent', 'white-space',
-            'vertical-align',
-            'margin', 'margin-top', 'margin-bottom', 'margin-left', 'margin-right',
-            'padding', 'padding-top', 'padding-bottom', 'padding-left', 'padding-right',
-            'border', 'border-top', 'border-bottom', 'border-left', 'border-right',
-            'border-color', 'border-style', 'border-width', 'border-radius',
-            'border-collapse', 'border-spacing',
-            'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height',
-            'display', 'list-style', 'list-style-type', 'list-style-position',
-            'overflow', 'word-wrap', 'word-break',
-        ],
-    )
-
+    css_sanitizer = CSSSanitizer(allowed_css_properties=_CSS_PROPS)
     return bleach.Cleaner(
         tags=tags,
         attributes=attrs,
@@ -225,15 +303,79 @@ def _make_email_cleaner(allow_imgs: bool):
 def _email_cleaner_inbound():
     global _EMAIL_CLEANER_INBOUND
     if _EMAIL_CLEANER_INBOUND is None:
-        _EMAIL_CLEANER_INBOUND = _make_email_cleaner(allow_imgs=False)
+        _EMAIL_CLEANER_INBOUND = _make_email_cleaner('inbound_strict')
     return _EMAIL_CLEANER_INBOUND
+
+
+def _email_cleaner_inbound_safe_imgs():
+    global _EMAIL_CLEANER_INBOUND_SAFE_IMGS
+    if _EMAIL_CLEANER_INBOUND_SAFE_IMGS is None:
+        _EMAIL_CLEANER_INBOUND_SAFE_IMGS = _make_email_cleaner('inbound_safe_imgs')
+    return _EMAIL_CLEANER_INBOUND_SAFE_IMGS
 
 
 def _email_cleaner_outbound():
     global _EMAIL_CLEANER_OUTBOUND
     if _EMAIL_CLEANER_OUTBOUND is None:
-        _EMAIL_CLEANER_OUTBOUND = _make_email_cleaner(allow_imgs=True)
+        _EMAIL_CLEANER_OUTBOUND = _make_email_cleaner('outbound')
     return _EMAIL_CLEANER_OUTBOUND
+
+
+# ─── Resolución de cid: a URLs internas ────────────────────────────────────
+# `cid:5db34974-...` es la sintaxis MIME para referenciar un adjunto inline
+# desde el HTML del mismo correo (ej: `<img src="cid:xxx">` en una signature
+# o screenshot embebido). Sin resolver, queda como texto literal "[cid:xxx]"
+# en el render → feo y roto.
+#
+# Captura tanto el formato dentro de una URL `cid:xxx` (en src/href) como
+# la forma "marcada como link plain text" `[cid:xxx]` que se cuela cuando
+# el cliente convirtió HTML a texto plano y la app lo renderea pre-formato.
+_RE_CID_URL = re.compile(r'cid:([^"\'\s>)\]]+)', re.IGNORECASE)
+_RE_CID_BRACKETED = re.compile(r'\[\s*cid\s*:\s*([^\]\s]+)\s*\]', re.IGNORECASE)
+
+
+def _resolver_cid_en_html(html: str, correo) -> str:
+    """
+    Reemplaza `cid:xxx` en HTML por URLs internas autenticadas para los
+    adjuntos del correo dado. Las refs no resueltas quedan tal cual y bleach
+    las strippa (cid: no está en el protocols whitelist del cleaner safe-imgs).
+
+    Una sola query a Adjunto: devuelve un dict {content_id: url} y reemplaza
+    en bloque.
+    """
+    if not html or 'cid:' not in html.lower():
+        return html
+
+    from django.urls import reverse
+    cids = list(correo.adjuntos.exclude(content_id='')
+                       .values_list('content_id', flat=True))
+    if not cids:
+        return html
+
+    cid_to_url = {
+        cid: reverse('adjunto_por_cid',
+                     kwargs={'correo_id': correo.id, 'content_id': cid})
+        for cid in cids
+    }
+
+    def repl(m):
+        cid = m.group(1).strip().rstrip('>"\')')
+        return cid_to_url.get(cid, m.group(0))
+
+    return _RE_CID_URL.sub(repl, html)
+
+
+def _strip_cid_brackets_en_texto(texto: str) -> str:
+    """
+    Elimina `[cid:xxx]` del cuerpo en TEXTO PLANO. Cuando el correo tiene
+    cuerpo HTML (con su <img> que pre-resolvemos), esta forma de bracket
+    aparece como ruido en el fallback de texto plano.
+
+    Solo strippa el bracket — el resto del texto queda intacto.
+    """
+    if not texto or '[cid:' not in texto.lower():
+        return texto
+    return _RE_CID_BRACKETED.sub('', texto).rstrip()
 
 
 @register.filter(is_safe=True)
@@ -254,6 +396,51 @@ def sanitizar_email_html(html: str) -> str:
         return strip_tags(html)
 
 
+@register.simple_tag
+def render_correo_html(correo):
+    """
+    Renderiza el HTML de un correo con cid: resueltos a URLs internas y
+    sanitización con `<img>` permitido SOLO con src interna o data:image.
+
+    Uso en template:
+        {% render_correo_html correo %}
+
+    Garantías de seguridad:
+      1. Pre-pass: `cid:xxx` se mapea a /intranet/correo/<id>/cid/<xxx>
+         (URL autenticada que valida acceso al buzón antes de servir).
+      2. Bleach con cleaner inbound_safe_imgs: strippa <script>, eventos on*,
+         javascript: URLs, src http/https externos (anti tracking-pixel),
+         CSS arbitrario, etc.
+      3. Tags <img> con src no permitido se eliminan por completo.
+
+    Devuelve `mark_safe(html_limpio)` — listo para emitir directo en plantilla.
+    """
+    from django.utils.safestring import mark_safe
+
+    html = correo.cuerpo_html or ''
+    if not html:
+        return ''
+    try:
+        html = _resolver_cid_en_html(html, correo)
+        return mark_safe(_email_cleaner_inbound_safe_imgs().clean(html))
+    except Exception:
+        from django.utils.html import strip_tags
+        return mark_safe(strip_tags(html))
+
+
+@register.filter(is_safe=True)
+def limpiar_cid_brackets(texto):
+    """
+    Filter para usar en el render del cuerpo en TEXTO PLANO. Quita los
+    `[cid:xxx]` literales que quedan cuando el correo trae imágenes inline
+    pero solo estamos mostrando la versión texto.
+
+    Uso:
+        {{ correo.cuerpo_texto|limpiar_cid_brackets }}
+    """
+    return _strip_cid_brackets_en_texto(texto or '')
+
+
 @register.filter(is_safe=True)
 def sanitizar_email_html_outbound(html: str) -> str:
     """
@@ -261,15 +448,21 @@ def sanitizar_email_html_outbound(html: str) -> str:
     con <img>, cid: y data: para que el destinatario vea el formato original
     como en Gmail. Sigue bloqueando scripts, iframes, javascript: URLs, etc.
 
+    Strippa texto literal `[cid:xxx]` que algunos clientes meten cuando
+    convierten HTML con imágenes inline a texto plano. Sin esto, el destinatario
+    veía "[cid:5db3...]" en el medio del cuerpo (ver screenshots de la sesión
+    de UX 2026-05-08).
+
     Uso: {{ correo.cuerpo_html|sanitizar_email_html_outbound|safe }}
     """
     if not html:
         return ''
     try:
-        return _email_cleaner_outbound().clean(html)
+        clean = _email_cleaner_outbound().clean(html)
     except Exception:
         from django.utils.html import strip_tags
         return strip_tags(html)
+    return _strip_cid_brackets_en_texto(clean)
 
 
 @register.simple_tag(takes_context=True)

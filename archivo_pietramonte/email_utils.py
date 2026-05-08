@@ -59,6 +59,7 @@ def enviar_mail(
     cc: Iterable[str] | str | None = None,
     bcc: Iterable[str] | str | None = None,
     adjuntos: list[tuple[str, bytes, str]] | None = None,
+    inline_images: list[tuple[str, bytes, str, str]] | None = None,
     headers: dict | None = None,    # ej {'In-Reply-To': '<xxx>', 'References': '<xxx>'}
     fail_silently: bool = False,
 ) -> int:
@@ -68,16 +69,26 @@ def enviar_mail(
 
     Parameters
     ----------
-    asunto       Subject del email.
-    para         Destinatario(s).
-    template     Path del template SIN extensión. Renderiza .html (obligatorio)
-                 y .txt (opcional — si falta, se deriva del HTML con strip_tags).
-    contexto     Dict para los templates.
-    from_alias   Override del From (ej: settings.EMAIL_AGENDA_FROM). Si es None,
-                 usa DEFAULT_FROM_EMAIL.
-    reply_to     Direcciones que reciben las respuestas (lista o string).
-    adjuntos     Lista de (filename, content_bytes, mimetype).
+    asunto         Subject del email.
+    para           Destinatario(s).
+    template       Path del template SIN extensión. Renderiza .html (obligatorio)
+                   y .txt (opcional — si falta, se deriva del HTML con strip_tags).
+    contexto       Dict para los templates.
+    from_alias     Override del From (ej: settings.EMAIL_AGENDA_FROM). Si es None,
+                   usa DEFAULT_FROM_EMAIL.
+    reply_to       Direcciones que reciben las respuestas (lista o string).
+    adjuntos       Lista de (filename, content_bytes, mimetype) — attachments
+                   normales (van como descargables, no se embeben).
+    inline_images  Lista de (filename, content_bytes, mimetype, content_id) —
+                   imágenes referenciadas desde el HTML como `<img src="cid:xxx">`.
+                   Se adjuntan con `Content-ID: <xxx>` y `Content-Disposition:
+                   inline` para que el cliente del destinatario las resuelva.
+                   Sin esto, las refs cid: salen rotas (el recipient ve `[cid:xxx]`).
     """
+    from email.mime.image import MIMEImage
+    from email.mime.base import MIMEBase
+    from email import encoders
+
     contexto = contexto or {}
     para_list      = _to_list(para)
     reply_to_list  = _to_list(reply_to) or None
@@ -107,7 +118,29 @@ def enviar_mail(
         reply_to=reply_to_list,
         headers=headers or None,
     )
+    # Cambiamos el subtype default ('mixed') a 'related' SOLO si hay inline
+    # images. 'related' es el contenedor MIME correcto para HTML + recursos
+    # referenciados con cid: — sin esto algunos clientes no resuelven.
+    if inline_images:
+        msg.mixed_subtype = 'related'
+
     msg.attach_alternative(html_body, 'text/html')
+
+    if inline_images:
+        for filename, content, mimetype, cid in inline_images:
+            # Si el mime es image/<algo>, MIMEImage es el wrapper correcto.
+            # Si por algún motivo viene otra cosa, fallback a MIMEBase genérico.
+            main, _, sub = (mimetype or 'application/octet-stream').partition('/')
+            if main == 'image' and sub:
+                part = MIMEImage(content, _subtype=sub)
+            else:
+                part = MIMEBase(main or 'application', sub or 'octet-stream')
+                part.set_payload(content)
+                encoders.encode_base64(part)
+            # Content-ID DEBE ir entre <>. El HTML referencia "cid:xxx" sin <>.
+            part.add_header('Content-ID', f'<{cid}>')
+            part.add_header('Content-Disposition', 'inline', filename=filename or 'inline')
+            msg.attach(part)
 
     if adjuntos:
         for filename, content, mimetype in adjuntos:

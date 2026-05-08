@@ -151,21 +151,43 @@ def _nombre_seguro(nombre: str, fallback: str = 'archivo.bin') -> str:
     return nombre[:200]
 
 
+def _extraer_content_id(parte) -> str:
+    """
+    Devuelve el Content-ID de una parte MIME, sin los angle brackets.
+    Formato típico del header: '<5db34974-7359-4231-bea1-d6cca25338e2@gmail.com>'
+    Devolvemos: '5db34974-7359-4231-bea1-d6cca25338e2@gmail.com'
+    Si no hay Content-ID, '' (no es inline / no se puede mapear desde HTML).
+    """
+    raw = parte.get('Content-ID') or ''
+    return str(raw).strip().strip('<>').strip()[:300]
+
+
 def extraer_adjuntos(msg):
     """
-    Devuelve lista de tuplas (nombre_original, mime_type, contenido_bytes)
-    para todos los adjuntos del mensaje.
+    Devuelve lista de tuplas (nombre, mime, payload, content_id) para todos
+    los adjuntos del mensaje. content_id viene sin <>; '' si no es inline.
+
+    Reglas:
+      - Una parte es "adjunto" si Content-Disposition tiene 'attachment' o
+        si tiene filename (cubre el caso de imágenes inline con disposition
+        'inline; filename="..."').
+      - También se considera adjunto cualquier parte con Content-ID — incluso
+        sin filename — porque pueden ser imágenes inline referenciadas como
+        `<img src="cid:xxx">` sin nombre de archivo (Outlook lo hace).
     """
     adjuntos = []
     if not msg.is_multipart():
         return adjuntos
 
     for parte in msg.walk():
-        disposition = str(parte.get('Content-Disposition', ''))
-        if 'attachment' not in disposition.lower():
-            # También considera inline con filename (imágenes embebidas)
-            if 'filename' not in disposition.lower():
-                continue
+        disposition = str(parte.get('Content-Disposition', '')).lower()
+        content_id = _extraer_content_id(parte)
+        es_attachment = 'attachment' in disposition
+        tiene_filename = 'filename' in disposition
+        # Consideramos adjunto si: 1) attachment explícito, 2) tiene filename
+        # (inline con archivo), o 3) tiene Content-ID (imagen embebida sin nombre).
+        if not (es_attachment or tiene_filename or content_id):
+            continue
         try:
             payload = parte.get_payload(decode=True)
             if not payload:
@@ -173,9 +195,14 @@ def extraer_adjuntos(msg):
             if len(payload) > MAX_ADJUNTO_BYTES:
                 continue
             nombre = decodificar_header(parte.get_filename() or '')
+            if not nombre and content_id:
+                # Inline sin nombre: usamos el cid + extensión del mime para
+                # tener algo que mostrar/descargar.
+                ext = (parte.get_content_subtype() or 'bin').lower()
+                nombre = f'inline-{content_id[:40]}.{ext}'
             nombre = _nombre_seguro(nombre)
             mime = parte.get_content_type() or 'application/octet-stream'
-            adjuntos.append((nombre, mime, payload))
+            adjuntos.append((nombre, mime, payload, content_id))
         except Exception:
             continue
     return adjuntos
@@ -307,12 +334,13 @@ class Command(BaseCommand):
                             existing_msgids.add(msg_id_short)
 
                         # Guardar adjuntos en el filesystem + crear registros
-                        for nombre, mime, payload in adjuntos_data:
+                        for nombre, mime, payload, content_id in adjuntos_data:
                             adj = Adjunto(
                                 correo=correo,
                                 nombre_original=nombre,
                                 mime_type=mime[:200],
                                 tamano_bytes=len(payload),
+                                content_id=content_id,
                             )
                             # archivo.save() respeta upload_to='adjuntos/%Y/%m/'
                             # y agrega sufijo único si hay colisión

@@ -871,16 +871,23 @@ def reenviar_correo_view(request, correo_id):
         }, status=400)
 
     # ─── Adjuntos: re-leer del disco para reattachar ───────────────────
-    adjuntos_payload = []
+    # Separamos en dos: los que tienen content_id (imágenes inline referenciadas
+    # con `cid:xxx` desde el HTML del correo) van como parts MIME inline; el
+    # resto va como attachments normales descargables.
+    adjuntos_payload: list[tuple[str, bytes, str]] = []
+    inline_payload:   list[tuple[str, bytes, str, str]] = []
     for adj in correo.adjuntos.all():
         try:
             with adj.archivo.open('rb') as f:
                 content = f.read()
-            adjuntos_payload.append((adj.nombre_original, content,
-                                     adj.mime_type or 'application/octet-stream'))
         except Exception:
             # Si el archivo se perdió en disco, seguimos sin ese adjunto
             continue
+        mime = adj.mime_type or 'application/octet-stream'
+        if adj.content_id and mime.lower().startswith('image/'):
+            inline_payload.append((adj.nombre_original, content, mime, adj.content_id))
+        else:
+            adjuntos_payload.append((adj.nombre_original, content, mime))
 
     # ─── Send ──────────────────────────────────────────────────────────
     # From = la dirección del BUZÓN (consistente con responder). Antes usaba
@@ -902,6 +909,7 @@ def reenviar_correo_view(request, correo_id):
         from_alias=_from_alias_buzon(correo.buzon),
         reply_to=[usuario.email],
         adjuntos=adjuntos_payload,
+        inline_images=inline_payload,
     )
 
     # ─── Audit log ─────────────────────────────────────────────────────
@@ -1097,6 +1105,24 @@ def responder_correo_view(request, correo_id):
         headers['In-Reply-To'] = correo.mensaje_id
         headers['References']  = correo.mensaje_id
 
+    # ─── Inline images del quote ─────────────────────────────────────────
+    # El template embebe correo_original.cuerpo_html con sus refs `cid:xxx`.
+    # Si no adjuntamos las inline images del original con sus Content-IDs,
+    # el destinatario ve `[cid:xxx]` roto en el quote. Solo metemos las que
+    # son imágenes (consistente con render del portal).
+    inline_payload: list[tuple[str, bytes, str, str]] = []
+    if correo.cuerpo_html:
+        for adj in correo.adjuntos.exclude(content_id=''):
+            mime = (adj.mime_type or '').lower()
+            if not mime.startswith('image/'):
+                continue
+            try:
+                with adj.archivo.open('rb') as f:
+                    content = f.read()
+            except Exception:
+                continue
+            inline_payload.append((adj.nombre_original, content, adj.mime_type, adj.content_id))
+
     # ─── Send ──────────────────────────────────────────────────────────
     resultado = safe_send(
         asunto=asunto,
@@ -1112,6 +1138,7 @@ def responder_correo_view(request, correo_id):
         # NO Reply-To: queremos que las respuestas vuelvan al BUZÓN (no al
         # usuario portal). Gmail sync IMAP las trae al archivo automáticamente.
         headers=headers,
+        inline_images=inline_payload,
     )
 
     # ─── Guardar copia en BD como 'enviados' (solo si se mandó OK) ────
@@ -1205,6 +1232,54 @@ def adjunto_view(request, adjunto_id):
     # Refuerza nosniff y no permitir que se sirva en frames de terceros
     response['X-Content-Type-Options'] = 'nosniff'
     response['Content-Security-Policy'] = "default-src 'none'; sandbox"
+    return response
+
+
+@portal_login_required
+@never_cache
+def adjunto_por_cid_view(request, correo_id, content_id):
+    """
+    Sirve un adjunto INLINE referenciado por Content-ID. Se usa para
+    resolver `cid:xxx` que vienen en `<img src="cid:xxx">` dentro del HTML
+    de un correo.
+
+    Restricciones extra vs. adjunto_view:
+      - Solo sirve imágenes (mime image/*). Si el cid apunta a otra cosa,
+        404 — no queremos que esto sea un canal de descarga oculto.
+      - Cache-Control private + max-age 1d: el cid es estable para el correo,
+        evitamos pegarle al disk en cada open del preview.
+      - Content-Disposition inline siempre (necesario para que el navegador
+        lo embeba como <img>).
+    """
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+
+    correo = get_object_or_404(Correo, id=correo_id)
+    if not usuario.puede_ver(correo.buzon):
+        raise Http404
+
+    # Buscamos el adjunto SOLO dentro de los del propio correo. Eso evita
+    # que alguien con acceso a un buzón pueda enumerar cids de otros buzones.
+    adjunto = get_object_or_404(Adjunto, correo=correo, content_id=content_id)
+
+    if not (adjunto.mime_type or '').lower().startswith('image/'):
+        raise Http404  # cid: solo para imágenes inline
+
+    try:
+        f = adjunto.archivo.open('rb')
+    except FileNotFoundError:
+        raise Http404('Archivo no encontrado en disco')
+
+    response = FileResponse(
+        f,
+        content_type=adjunto.mime_type or 'application/octet-stream',
+        as_attachment=False,
+        filename=adjunto.nombre_original,
+    )
+    response['X-Content-Type-Options'] = 'nosniff'
+    response['Content-Security-Policy'] = "default-src 'none'; sandbox"
+    response['Cache-Control'] = 'private, max-age=86400'
     return response
 
 
