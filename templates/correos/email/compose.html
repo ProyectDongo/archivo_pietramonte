@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+{% load correos_tags %}<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
@@ -11,11 +11,9 @@
 
         <tr><td style="padding:24px">
           <div style="font-size:14px;line-height:1.6;white-space:pre-wrap;color:#222">{{ cuerpo_usuario|default:"" }}</div>
+          {% if buzon %}{% firma_html buzon %}{% endif %}
         </td></tr>
 
-        <tr><td style="background:#fafafa;padding:14px 24px;border-top:1px solid #e8e8e8;font-size:11px;color:#888;text-align:center">
-          Enviado desde {{ enviado_por }} · Archivo de Correos Pietramonte
-        </td></tr>
       </table>
     </td></tr>
   </table>

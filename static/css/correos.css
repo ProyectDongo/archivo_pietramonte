@@ -4523,3 +4523,268 @@
 [data-theme="dark"] .sidebar-draft-meta,
 [data-theme="dark"] .sidebar-draft-more { color: #9aa0a6; }
 [data-theme="dark"] .sidebar-draft-more { border-top-color: #383f45; }
+
+/* ==========================================================================
+   Modo lectura: cuando hay un correo abierto, la lista se reduce a una
+   columna compacta y el preview toma la mayoría del ancho. Reversible con
+   "Volver a la lista" o Esc.
+   ========================================================================== */
+@media (min-width: 901px) {
+  .inbox-shell.is-reading { grid-template-columns: 0 1fr; }
+  .inbox-shell.is-reading .inbox-sidebar { display: none; }
+  .inbox-shell.is-reading .inbox-split { grid-template-columns: 280px 1fr; }
+  .inbox-shell.is-reading .stats-panel,
+  .inbox-shell.is-reading .toolbar-adv,
+  .inbox-shell.is-reading .active-filters { display: none; }
+
+  /* Filas compactas en modo lectura: avatar + sender + fecha (no snippet) */
+  .inbox-shell.is-reading .correo-row {
+    grid-template-columns: 22px 28px 32px 1fr auto;
+    padding: 8px 12px;
+    min-height: 40px;
+  }
+  .inbox-shell.is-reading .correo-row .row-star { display: none; }
+  .inbox-shell.is-reading .correo-row .correo-content {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .inbox-shell.is-reading .correo-row .correo-snippet,
+  .inbox-shell.is-reading .correo-row .correo-sep { display: none; }
+  .inbox-shell.is-reading .correo-row .correo-subject {
+    display: block;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .inbox-shell.is-reading .correo-row .correo-from {
+    font-size: 11px;
+    color: var(--gl);
+  }
+  .inbox-shell.is-reading .correo-row.is-read .correo-from { color: var(--gl); }
+}
+
+/* Botón "Volver a la lista" en el preview header — visible solo en modo lectura desktop */
+.preview-back-list {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 0 16px;
+  padding: 6px 12px;
+  background: var(--off);
+  border: 1px solid var(--bdr);
+  border-radius: 6px;
+  color: var(--gd);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.preview-back-list:hover { background: var(--off2); border-color: var(--gl); }
+@media (min-width: 901px) {
+  .inbox-shell.is-reading .preview-back-list { display: inline-flex; }
+}
+
+[data-theme="dark"] .preview-back-list { background: #252b30; border-color: #383f45; color: #c0c4c8; }
+[data-theme="dark"] .preview-back-list:hover { background: #2c3338; color: #fff; }
+
+/* ==========================================================================
+   Tipografía mejorada del cuerpo del correo (preview + detalle)
+   ========================================================================== */
+.preview-content,
+.preview-content-html,
+.detalle-content,
+.correo-body .correo-cuerpo,
+.correo-cuerpo-html {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, 'Noto Sans', sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--gd);
+  max-width: 760px;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 8px 4px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.preview-content p,
+.preview-content-html p,
+.detalle-content p {
+  margin: 0 0 1em;
+}
+
+.preview-content-html h1,
+.preview-content-html h2,
+.preview-content-html h3,
+.preview-content-html h4 {
+  line-height: 1.3;
+  margin-top: 1.4em;
+  margin-bottom: .6em;
+  font-weight: 700;
+}
+
+.preview-content-html ul,
+.preview-content-html ol {
+  margin: 0 0 1em;
+  padding-left: 1.6em;
+}
+.preview-content-html li { margin-bottom: .3em; }
+
+.preview-content-html blockquote {
+  margin: 1em 0;
+  padding: .4em 1em;
+  border-left: 3px solid var(--bdr);
+  color: var(--gm);
+  background: var(--off);
+  border-radius: 0 6px 6px 0;
+}
+
+.preview-body {
+  padding: 16px 24px 24px;
+  overflow-x: auto;
+}
+
+@media (min-width: 901px) {
+  .inbox-shell.is-reading .preview-body { padding: 24px 40px 32px; }
+  .inbox-shell.is-reading .preview-content,
+  .inbox-shell.is-reading .preview-content-html { font-size: 15px; }
+  .inbox-shell.is-reading .preview-head { padding: 18px 28px 14px; }
+  .inbox-shell.is-reading .preview-subject {
+    font-size: 22px;
+    line-height: 1.35;
+    font-weight: 700;
+  }
+}
+
+/* Preview en modo NO-lectura (split): contenido un poco más chico para que entre en el panel angosto */
+@media (min-width: 901px) {
+  .inbox-shell:not(.is-reading) .preview-content,
+  .inbox-shell:not(.is-reading) .preview-content-html {
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .inbox-shell:not(.is-reading) .preview-body { padding: 14px 18px; }
+}
+
+/* Detalle (página completa) — misma tipografía premium */
+.correo-body .correo-cuerpo,
+.correo-cuerpo-html {
+  padding: 8px 0;
+}
+
+[data-theme="dark"] .preview-content-html blockquote {
+  background: #252b30;
+  border-left-color: #383f45;
+  color: #c0c4c8;
+}
+
+/* ==========================================================================
+   Editor de firma del buzón
+   ========================================================================== */
+.firma-edit-card { max-width: 1080px; margin: 0 auto; }
+
+.firma-edit-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+
+@media (max-width: 800px) {
+  .firma-edit-grid { grid-template-columns: 1fr; }
+}
+
+.firma-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.firma-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--off);
+  border: 1px solid var(--bdr);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gd);
+  cursor: pointer;
+}
+.firma-toggle input { width: 16px; height: 16px; accent-color: var(--r); }
+
+.firma-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.firma-field label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--gl);
+}
+.firma-field input {
+  padding: 10px 12px;
+  border: 1px solid var(--bdr);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--gd);
+  background: var(--w);
+  transition: border-color .15s;
+}
+.firma-field input:focus { border-color: var(--r); outline: 0; }
+.firma-field small { font-size: 11px; color: var(--gl); margin-top: 2px; }
+.firma-field small strong { color: var(--gd); }
+
+.firma-actions { margin-top: 8px; }
+
+.firma-preview-pane {
+  position: sticky;
+  top: 80px;
+  background: var(--off);
+  border: 1px solid var(--bdr);
+  border-radius: 10px;
+  padding: 18px;
+}
+.firma-preview-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--gl);
+  margin-bottom: 12px;
+}
+.firma-preview-frame {
+  background: var(--w);
+  border: 1px solid var(--bdr);
+  border-radius: 8px;
+  padding: 18px;
+  min-height: 100px;
+}
+.firma-preview-frame:empty::before {
+  content: '(Sin firma — el correo se enviará sin firma extra al final)';
+  color: var(--gl);
+  font-size: 12px;
+  font-style: italic;
+}
+.firma-preview-hint {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--gl);
+  line-height: 1.4;
+}
+
+[data-theme="dark"] .firma-toggle { background: #252b30; border-color: #383f45; color: #e8eaed; }
+[data-theme="dark"] .firma-field input { background: #252b30; color: #e8eaed; border-color: #383f45; }
+[data-theme="dark"] .firma-preview-pane { background: #252b30; border-color: #383f45; }
+[data-theme="dark"] .firma-preview-frame { background: #1d2226; border-color: #383f45; }

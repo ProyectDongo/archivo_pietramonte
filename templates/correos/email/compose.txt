@@ -1,4 +1,2 @@
-{{ cuerpo_usuario|default:"" }}
-
---
-Enviado desde {{ enviado_por }} · Archivo de Correos Pietramonte
+{% load correos_tags %}{{ cuerpo_usuario|default:"" }}
+{% if buzon %}{% firma_texto buzon %}{% endif %}

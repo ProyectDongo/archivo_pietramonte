@@ -259,6 +259,14 @@ GMAIL_IMAP_USER     = os.getenv('GMAIL_IMAP_USER', '')
 GMAIL_IMAP_PASSWORD = os.getenv('GMAIL_IMAP_PASSWORD', '')
 
 
+# ─── Firmas de correo saliente ────────────────────────────────────────────
+# URL absoluta del logo que se embebe en el HTML de las firmas. Tiene que ser
+# accesible públicamente desde clientes externos (Gmail, Outlook). Subir el
+# archivo a static/img/firma_logo.png y poner acá la URL completa.
+# Si está vacío, las firmas se renderizan sin logo (solo texto).
+FIRMA_LOGO_URL = os.getenv('FIRMA_LOGO_URL', '')
+
+
 # ─── Anti-bot del form público de reservas ────────────────────────────────
 # Cloudflare Turnstile: gratis, invisible para humanos legítimos. Sacá las
 # claves en https://dash.cloudflare.com/ → Turnstile → Add Site.

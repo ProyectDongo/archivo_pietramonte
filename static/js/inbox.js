@@ -86,6 +86,20 @@
     cargarPreview(row);
   });
 
+  function entrarReadingMode() {
+    const shell = document.querySelector('.inbox-shell');
+    if (shell) shell.classList.add('is-reading');
+  }
+  function salirReadingMode() {
+    const shell = document.querySelector('.inbox-shell');
+    if (shell) shell.classList.remove('is-reading');
+    lista.querySelectorAll('.correo-row.active').forEach(function (r) { r.classList.remove('active'); });
+    preview.innerHTML = '<div class="preview-empty"><div class="preview-empty-icon">✉️</div>' +
+      '<p>Selecciona un correo para ver su contenido aquí</p>' +
+      '<p class="preview-empty-hint"><kbd>j</kbd> / <kbd>k</kbd> navegar · <kbd>s</kbd> destacar · <kbd>Enter</kbd> abrir</p></div>';
+    history.replaceState(null, '', '/intranet/bandeja/');
+  }
+
   function cargarPreview(row, opts) {
     opts = opts || {};
     const url = row.dataset.previewUrl;
@@ -94,6 +108,7 @@
 
     lista.querySelectorAll('.correo-row.active').forEach(function (r) { r.classList.remove('active'); });
     row.classList.add('active');
+    entrarReadingMode();
 
     preview.innerHTML = '<div class="preview-loading">Cargando…</div>';
     if (window.innerWidth <= 900) preview.classList.add('show');
@@ -138,6 +153,11 @@
 
   // ─── Conectar interactividad del preview cuando llega por AJAX ──────────
   function wireUpPreview() {
+    // Botón "Volver a la lista" → sale de modo lectura
+    const backBtn = preview.querySelector('#preview-back-list');
+    if (backBtn) {
+      backBtn.addEventListener('click', salirReadingMode);
+    }
     // Estrella prominente
     const star = preview.querySelector('.preview-star');
     if (star) {
@@ -395,6 +415,16 @@
     } else if (e.key === 's' && idx >= 0) {
       e.preventDefault();
       toggleStarRow(filas[idx].dataset.correoId, filas[idx]);
+    } else if (e.key === 'Escape') {
+      const shell = document.querySelector('.inbox-shell.is-reading');
+      const fab = document.getElementById('compose-fab');
+      const lb = document.getElementById('lightbox');
+      const av = document.getElementById('adj-viewer');
+      // Solo salir de reading mode si no hay otro modal abierto.
+      if (shell && (!fab || fab.hidden) && (!lb || lb.hidden) && (!av || av.hidden)) {
+        e.preventDefault();
+        salirReadingMode();
+      }
     }
   });
 

@@ -1107,6 +1107,7 @@ def reenviar_correo_view(request, correo_id):
         template='correos/email/reenvio',
         contexto={
             'correo': correo,
+            'buzon': correo.buzon,
             'mensaje_extra': nota,
             'reenviado_por': usuario.email,
         },
@@ -1335,6 +1336,7 @@ def responder_correo_view(request, correo_id):
         template='correos/email/respuesta',
         contexto={
             'correo_original': correo,
+            'buzon':           correo.buzon,
             'cuerpo_usuario':  cuerpo,
             'enviado_por':     correo.buzon.email,
         },
@@ -1819,6 +1821,48 @@ def crear_etiqueta_view(request):
     })
 
 
+# ─── Firma del buzón actual (editor en el portal) ─────────────────────────
+@portal_login_required
+@require_http_methods(['GET', 'POST'])
+def firma_view(request):
+    """
+    GET  → form de edición de la firma del buzón actual + preview en vivo.
+    POST → guarda los campos de firma y devuelve a la misma página.
+    """
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+    buzon = _buzon_actual(request, usuario)
+    if not buzon:
+        raise Http404
+
+    if request.method == 'POST':
+        buzon.firma_activa = request.POST.get('firma_activa') == '1'
+        buzon.firma_nombre        = (request.POST.get('firma_nombre') or '').strip()[:120]
+        buzon.firma_cargo         = (request.POST.get('firma_cargo') or '').strip()[:120]
+        buzon.firma_telefono      = (request.POST.get('firma_telefono') or '').strip()[:40]
+        email_v = (request.POST.get('firma_email_visible') or '').strip()
+        if email_v:
+            from django.core.exceptions import ValidationError
+            from django.core.validators import validate_email
+            try:
+                validate_email(email_v)
+                buzon.firma_email_visible = email_v[:254]
+            except ValidationError:
+                messages.error(request, 'El email visible no tiene un formato válido.')
+                return render(request, 'correos/firma_edit.html', {'buzon': buzon})
+        else:
+            buzon.firma_email_visible = ''
+        buzon.save(update_fields=[
+            'firma_activa', 'firma_nombre', 'firma_cargo',
+            'firma_telefono', 'firma_email_visible',
+        ])
+        messages.success(request, 'Firma guardada. Se aplica desde el próximo correo enviado.')
+        return redirect('firma')
+
+    return render(request, 'correos/firma_edit.html', {'buzon': buzon})
+
+
 # ─── Borradores (drafts) ──────────────────────────────────────────────────
 def _borrador_dict(b: BorradorCorreo) -> dict:
     return {
@@ -2011,6 +2055,7 @@ def borrador_enviar_view(request, borrador_id):
 
     contexto = {
         'asunto':         asunto,
+        'buzon':          buzon,
         'cuerpo_usuario': cuerpo,
         'enviado_por':    buzon.email,
     }
@@ -2207,6 +2252,7 @@ def compose_view(request):
         template='correos/email/compose',
         contexto={
             'asunto':         asunto,
+            'buzon':          buzon,
             'cuerpo_usuario': cuerpo,
             'enviado_por':    buzon.email,
         },

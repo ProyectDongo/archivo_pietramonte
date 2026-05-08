@@ -20,6 +20,7 @@
         {% if mensaje_extra %}
         <tr><td style="padding:18px 24px 6px">
           <div style="background:#FFF8E1;border-left:4px solid #FFB300;padding:12px 14px;border-radius:6px;font-size:14px;line-height:1.5;white-space:pre-wrap">{{ mensaje_extra }}</div>
+          {% if buzon %}{% firma_html buzon %}{% endif %}
           <div style="font-size:12px;color:#666;margin-top:8px">— Reenviado por {{ reenviado_por }}</div>
         </td></tr>
         {% endif %}

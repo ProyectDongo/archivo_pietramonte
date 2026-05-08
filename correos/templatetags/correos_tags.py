@@ -5,7 +5,10 @@ import hashlib
 import re
 
 from django import template
+from django.conf import settings
 from django.utils import timezone
+from django.utils.html import escape
+from django.utils.safestring import mark_safe
 
 register = template.Library()
 
@@ -514,3 +517,113 @@ def url_sin_filtros(context, *quitar):
     qs.pop('page', None)
     encoded = qs.urlencode()
     return f'{base}?{encoded}' if encoded else base
+
+
+# ─── Render de firma de buzón (auto-append en correos salientes) ──────────
+def render_firma_html(buzon) -> str:
+    """
+    Devuelve el HTML de la firma de un buzón, con escape de los datos del
+    usuario. Si el buzón no tiene firma activa o no tiene datos, devuelve ''.
+
+    Layout: tabla MIME-safe (style inline) — el logo a la izquierda y los
+    datos a la derecha. Si solo está seteado el email visible (caso default),
+    sale logo + email nada más.
+    """
+    if not buzon or not getattr(buzon, 'firma_activa', True):
+        return ''
+
+    nombre   = (buzon.firma_nombre or '').strip()
+    cargo    = (buzon.firma_cargo or '').strip()
+    telefono = (buzon.firma_telefono or '').strip()
+    email_v  = (buzon.firma_email_visible or buzon.email or '').strip()
+    logo_url = getattr(settings, 'FIRMA_LOGO_URL', '') or ''
+
+    # Si no hay nada que mostrar, no firmamos.
+    if not (nombre or cargo or telefono or email_v or logo_url):
+        return ''
+
+    # Construir las filas de datos (tabla interna).
+    filas = []
+    if nombre:
+        filas.append(
+            f'<tr><td style="font-size:14px;font-weight:700;color:#1a1f22;'
+            f'padding:0 0 4px;line-height:1.3">{escape(nombre)}</td></tr>'
+        )
+    if cargo:
+        filas.append(
+            f'<tr><td style="font-size:11px;font-weight:600;letter-spacing:1px;'
+            f'text-transform:uppercase;color:#6b7280;padding:0 0 8px">'
+            f'{escape(cargo)}</td></tr>'
+        )
+    if telefono:
+        filas.append(
+            f'<tr><td style="font-size:13px;color:#394348;padding:2px 0">'
+            f'<span style="color:#C80C0F;font-weight:700;margin-right:6px">&#9742;</span>'
+            f'{escape(telefono)}</td></tr>'
+        )
+    if email_v:
+        filas.append(
+            f'<tr><td style="font-size:13px;color:#394348;padding:2px 0">'
+            f'<span style="color:#C80C0F;font-weight:700;margin-right:6px">&#9993;</span>'
+            f'<a href="mailto:{escape(email_v)}" style="color:#394348;text-decoration:none">'
+            f'{escape(email_v)}</a></td></tr>'
+        )
+
+    datos_tabla = (
+        '<table cellpadding="0" cellspacing="0" border="0" role="presentation" '
+        'style="border-collapse:collapse;border-left:3px solid #C80C0F;'
+        'padding-left:14px;margin-left:14px">'
+        + ''.join(filas)
+        + '</table>'
+    )
+
+    # Logo (opcional)
+    logo_celda = ''
+    if logo_url:
+        logo_celda = (
+            f'<td valign="middle" style="padding-right:14px">'
+            f'<img src="{escape(logo_url)}" alt="Pietramonte" '
+            f'style="display:block;max-width:140px;height:auto" width="140"></td>'
+        )
+
+    html = (
+        '<div class="pm-firma" style="margin-top:24px;padding-top:14px;'
+        'border-top:1px solid #e8e8e8;font-family:-apple-system,BlinkMacSystemFont,'
+        '\'Segoe UI\',Helvetica,Arial,sans-serif">'
+        '<table cellpadding="0" cellspacing="0" border="0" role="presentation" '
+        'style="border-collapse:collapse">'
+        f'<tr>{logo_celda}<td valign="middle">{datos_tabla}</td></tr>'
+        '</table></div>'
+    )
+    return html
+
+
+def render_firma_texto(buzon) -> str:
+    """Versión texto plano de la firma (para multipart/alternative)."""
+    if not buzon or not getattr(buzon, 'firma_activa', True):
+        return ''
+    nombre   = (buzon.firma_nombre or '').strip()
+    cargo    = (buzon.firma_cargo or '').strip()
+    telefono = (buzon.firma_telefono or '').strip()
+    email_v  = (buzon.firma_email_visible or buzon.email or '').strip()
+
+    lineas = ['--']
+    if nombre:   lineas.append(nombre)
+    if cargo:    lineas.append(cargo)
+    if telefono: lineas.append(f'Tel: {telefono}')
+    if email_v:  lineas.append(email_v)
+    if len(lineas) == 1:   # solo el "--"
+        return ''
+    return '\n'.join(lineas)
+
+
+@register.simple_tag
+def firma_html(buzon):
+    """Renderiza la firma HTML del buzón. Marcada como segura (escaping interno)."""
+    return mark_safe(render_firma_html(buzon))
+
+
+@register.simple_tag
+def firma_texto(buzon):
+    """Renderiza la firma en texto plano del buzón."""
+    return render_firma_texto(buzon)

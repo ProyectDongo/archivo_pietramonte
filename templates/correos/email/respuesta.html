@@ -13,9 +13,9 @@
         {# ─── Cuerpo del usuario (la respuesta real) ─────────── #}
         <tr><td style="padding:24px">
           <div style="font-size:14px;line-height:1.6;white-space:pre-wrap;color:#222">{{ cuerpo_usuario|default:"" }}</div>
+          {% if buzon %}{% firma_html buzon %}{% endif %}
         </td></tr>
 
-        {# ─── Separador "On X, Y wrote:" ──────────────────────── #}
         <tr><td style="padding:0 24px 12px">
           <div style="border-top:1px solid #e0e0e0;padding-top:12px;color:#777;font-size:12px">
             El {% if correo_original.fecha %}{{ correo_original.fecha|date:"d/m/Y H:i" }}{% else %}—{% endif %},
@@ -23,9 +23,6 @@
           </div>
         </td></tr>
 
-        {# ─── Cuerpo del original quoteado ────────────────────── #}
-        {# Si el original tenía HTML, lo embebemos sanitizado (con imgs)         #}
-        {# para preservar formato. Fallback a texto plano.                       #}
         <tr><td style="padding:0 24px 24px">
           <blockquote style="margin:0;padding:0 0 0 14px;border-left:3px solid #d0d0d0;color:#555">
             {% if correo_original.cuerpo_html %}
@@ -34,11 +31,6 @@
             <div style="font-size:13px;line-height:1.6;white-space:pre-wrap">{{ correo_original.cuerpo_texto|default:"(este correo no tiene cuerpo de texto plano)" }}</div>
             {% endif %}
           </blockquote>
-        </td></tr>
-
-        {# ─── Footer técnico ──────────────────────────────────── #}
-        <tr><td style="background:#fafafa;padding:14px 24px;border-top:1px solid #e8e8e8;font-size:11px;color:#888;text-align:center">
-          Enviado desde {{ enviado_por }} · Archivo de Correos Pietramonte
         </td></tr>
       </table>
     </td></tr>
