@@ -2528,6 +2528,39 @@
   line-height: 1.4;
 }
 
+/* ─── Buzones colapsable: ocultar del 5to en adelante por default ───
+   Los buzones extra (sidebar-buzon-overflow) están display:none mientras
+   .sidebar-buzon-list NO tenga clase .expanded. JS la añade cuando:
+     1) el usuario clickea "Ver todos"
+     2) el buzón activo está entre los ocultos (auto-expand para no desorientar)
+*/
+.sidebar-buzon-list:not(.expanded) .sidebar-buzon-overflow { display: none; }
+
+.sidebar-buzones-toggle {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--gl);
+  font-family: var(--f);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 12px;
+  margin-top: 2px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.sidebar-buzones-toggle:hover { background: var(--off); color: var(--gd); }
+.sidebar-buzones-toggle .toggle-chev { transition: transform .25s ease; flex-shrink: 0; }
+.sidebar-buzones-toggle[aria-expanded="true"] .toggle-chev { transform: rotate(180deg); }
+.sidebar-buzones-toggle .toggle-text-less { display: none; }
+.sidebar-buzones-toggle[aria-expanded="true"] .toggle-text-more { display: none; }
+.sidebar-buzones-toggle[aria-expanded="true"] .toggle-text-less { display: inline; }
+
 /* Avatar small (28px) usado en sidebar y stats senders */
 .avatar.avatar-sm {
   width: 28px;

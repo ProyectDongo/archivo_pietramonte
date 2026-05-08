@@ -554,5 +554,39 @@
     const dot = link.querySelector('.tag-dot');
     if (color && dot) dot.style.backgroundColor = color;
   });
+
+  // ─── Buzones colapsable ──────────────────────────────────────────────
+  // Por default mostramos solo los primeros 4 buzones. Botón "Ver todos (N)"
+  // expande. Auto-expand si el buzón activo está entre los ocultos (sino el
+  // usuario no ve cuál tiene seleccionado).
+  const buzonList = document.getElementById('sidebar-buzon-list');
+  const buzonsToggle = document.getElementById('sidebar-buzones-toggle');
+  if (buzonList && buzonsToggle) {
+    const STORAGE_KEY = 'pm:sidebar:buzones_expanded';
+
+    // Leer preferencia persistida
+    let expandido = false;
+    try { expandido = localStorage.getItem(STORAGE_KEY) === '1'; } catch (e) {}
+
+    // Auto-expand si el activo está oculto (overflow). En ese caso NO
+    // toca la preferencia persistida — el usuario lo verá expandido en esta
+    // sesión y el toggle sigue funcionando para colapsarlo si quiere.
+    const activeOverflow = buzonList.querySelector(
+      '.sidebar-buzon-overflow .sidebar-buzon.active'
+    );
+    if (activeOverflow) expandido = true;
+
+    if (expandido) {
+      buzonList.classList.add('expanded');
+      buzonsToggle.setAttribute('aria-expanded', 'true');
+    }
+
+    buzonsToggle.addEventListener('click', function () {
+      const ahoraExpandido = !buzonList.classList.contains('expanded');
+      buzonList.classList.toggle('expanded', ahoraExpandido);
+      buzonsToggle.setAttribute('aria-expanded', String(ahoraExpandido));
+      try { localStorage.setItem(STORAGE_KEY, ahoraExpandido ? '1' : '0'); } catch (e) {}
+    });
+  }
 })();
 

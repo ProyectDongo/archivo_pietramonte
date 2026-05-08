@@ -16,13 +16,19 @@ En mobile se vuelve un drawer (off-canvas) con backdrop.
          stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
   </button>
 
-  {# ─── Buzones ─── #}
+  {# ─── Buzones (con colapsable a partir del 5to) ─── #}
   <nav class="sidebar-section" aria-label="Cambiar buzón">
     <div class="sidebar-label">Buzones</div>
-    <ul class="sidebar-buzon-list" role="list">
+    <ul class="sidebar-buzon-list" id="sidebar-buzon-list" role="list">
       {% for b in buzones_visibles %}
       {% with no_leidos=no_leidos_por_buzon|dict_get:b.id %}
-      <li>
+      {% comment %}
+      Los buzones del 5to en adelante quedan ocultos por default (clase
+      sidebar-buzon-overflow). El JS los muestra si:
+        - El buzón activo está entre ellos (auto-expand)
+        - El usuario clickeó "Ver todos" antes (persistencia en localStorage)
+      {% endcomment %}
+      <li class="{% if forloop.counter > 4 %}sidebar-buzon-overflow{% endif %}">
         <form method="post" action="{% url 'cambiar_buzon' %}" class="sidebar-buzon-form">
           {% csrf_token %}
           <input type="hidden" name="buzon_id" value="{{ b.id }}">
@@ -38,6 +44,18 @@ En mobile se vuelve un drawer (off-canvas) con backdrop.
       {% endwith %}
       {% endfor %}
     </ul>
+    {% if buzones_visibles|length > 4 %}
+    <button type="button" class="sidebar-buzones-toggle" id="sidebar-buzones-toggle"
+            aria-controls="sidebar-buzon-list" aria-expanded="false">
+      <span class="toggle-text-more">Ver todos ({{ buzones_visibles|length }})</span>
+      <span class="toggle-text-less">Mostrar menos</span>
+      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+           class="toggle-chev">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </button>
+    {% endif %}
   </nav>
 
   {# ─── Carpetas (filtros por tipo_carpeta) ─── #}

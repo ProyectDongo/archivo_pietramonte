@@ -101,6 +101,10 @@ class Correo(models.Model):
             models.Index(fields=['buzon', '-fecha']),
             models.Index(fields=['buzon', 'destacado']),
             models.Index(fields=['buzon', 'tipo_carpeta', '-fecha']),
+            # Para el conteo de "con adjunto" que se hace en _stats_de y para
+            # el filtro ?adjuntos=1 — antes era seq scan parcial sobre el buzón.
+            models.Index(fields=['buzon', 'tiene_adjunto'],
+                         name='correos_cor_buzon_a_d2f8e1_idx'),
         ]
 
     def __str__(self):

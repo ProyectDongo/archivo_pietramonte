@@ -7,9 +7,22 @@ Middleware propio mínimo — sin dependencias externas.
     - Cross-Origin-Resource-Policy.
     - CSP estricta para todo el sitio EXCEPTO el admin de Django,
       que necesita inline-script/style por su diseño legacy.
+
+  AdminLoginRateLimitMiddleware:
+    - Rate-limit de intentos de login al admin Django (django.contrib.auth).
+      El portal tiene su propio rate-limit en login_view, pero el admin usa
+      el flujo built-in que no lo tiene. Sin esto, brute-force ilimitado del
+      password admin (aunque 2FA TOTP cierra la puerta igual, no hay razón
+      para dejar el password expuesto a fuerza bruta).
 """
+import logging
 
 from django.conf import settings
+from django.core.cache import cache
+from django.http import HttpResponse
+
+
+logger = logging.getLogger('archivo_pietramonte.middleware')
 
 
 # CSP estricta: público + portal + adjuntos.
@@ -85,4 +98,66 @@ class SecurityHeadersMiddleware:
 
         response.setdefault('Permissions-Policy', _PERMISSIONS_POLICY)
         response.setdefault('Cross-Origin-Resource-Policy', 'same-origin')
+        return response
+
+
+# ─── Brute-force admin login ───────────────────────────────────────────────
+ADMIN_LOGIN_RL_VENTANA = 15 * 60      # 15 min
+ADMIN_LOGIN_RL_MAX     = 8            # 8 intentos fallidos por IP en la ventana
+
+
+class AdminLoginRateLimitMiddleware:
+    """
+    Bloquea intentos de POST al login del admin Django si una IP supera
+    8 fallos en 15 minutos. Reusa el cache backend (Redis si REDIS_URL,
+    sino LocMemCache).
+
+    Detecta el "fallo" mirando el status_code de la respuesta: si el
+    POST a /<admin>/login/ devuelve 200, el form falló y se quedó en la
+    misma página (Django re-renderiza con error). Si devolvió 302 →
+    autenticación OK, no contamos.
+
+    El portal del usuario (login_view en correos/views.py) ya tiene su
+    propio rate-limit; este middleware sólo cubre la URL del admin que
+    usa el flujo built-in de django.contrib.auth.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+        self.admin_login_path = '/' + settings.ADMIN_URL_PATH + 'login/'
+
+    def __call__(self, request):
+        # Solo POST al endpoint exacto del login admin
+        es_admin_login = (
+            request.method == 'POST'
+            and request.path == self.admin_login_path
+        )
+        if not es_admin_login:
+            return self.get_response(request)
+
+        # Importamos local para evitar ciclos (correos.views importa middleware indirectamente)
+        from correos.views import _get_ip
+        from correos.models import hash_ip
+        ip_h = hash_ip(_get_ip(request))
+        key = f'rl:admin_login:{ip_h}'
+
+        n_fallos = cache.get(key, 0)
+        if n_fallos >= ADMIN_LOGIN_RL_MAX:
+            logger.warning('Bloqueo brute-force admin ip_hash=%s fallos=%d', ip_h[:12], n_fallos)
+            resp = HttpResponse(
+                'Demasiados intentos de login. Esperá 15 minutos antes de volver a intentar.',
+                status=429,
+                content_type='text/plain; charset=utf-8',
+            )
+            resp['Retry-After'] = str(ADMIN_LOGIN_RL_VENTANA)
+            return resp
+
+        response = self.get_response(request)
+
+        # 302 (redirect) = login OK → reset. 200 (re-render del form) = fallo.
+        if response.status_code == 302:
+            cache.delete(key)
+        else:
+            cache.set(key, n_fallos + 1, ADMIN_LOGIN_RL_VENTANA)
+
         return response

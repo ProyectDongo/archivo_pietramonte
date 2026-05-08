@@ -11,6 +11,7 @@ sesión no tiene `admin_2fa_ok=True`.
 """
 from __future__ import annotations
 
+import logging
 import time
 
 from django.conf import settings
@@ -24,6 +25,8 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from correos import totp as totp_helpers
 from correos.models import AdminTOTP, IntentoLogin, hash_ip
+
+logger = logging.getLogger('archivo_pietramonte.admin_2fa')
 
 
 # Tras setup: ventana de 30 min para descargar PDF / imprimir / confirmar.
@@ -60,7 +63,8 @@ def _log(request, user, motivo: str, exito: bool) -> None:
             exito=exito,
         )
     except Exception:
-        pass
+        # No bloquear el flujo de auth por un fallo de logging.
+        logger.exception('Fallo registrando IntentoLogin admin motivo=%s', motivo)
 
 
 # ─── Setup ─────────────────────────────────────────────────────────────────

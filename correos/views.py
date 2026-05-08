@@ -1,3 +1,4 @@
+import logging
 import time
 from datetime import timedelta
 from functools import wraps
@@ -19,7 +20,10 @@ from .models import (
     Adjunto, Buzon, Correo, CorreoEnviado, CorreoLeido, Etiqueta, IntentoLogin,
     ReenvioCorreo, UsuarioPortal, hash_ip,
 )
+from .throttle import throttle_user
 from taller.anti_bot import verify_turnstile
+
+logger = logging.getLogger('correos.views')
 
 
 # Tiempo máximo entre password OK y completar 2FA (segundos).
@@ -28,11 +32,52 @@ PRE_2FA_TTL = 5 * 60
 
 # ─── Helpers ───────────────────────────────────────────────────────────────
 def _get_ip(request) -> str:
-    """Toma la IP real considerando que Cloudflare/Tunnel mete X-Forwarded-For."""
-    fwd = request.META.get('HTTP_X_FORWARDED_FOR', '')
-    if fwd:
-        return fwd.split(',')[0].strip()
-    return request.META.get('REMOTE_ADDR', '')
+    """
+    Devuelve la IP del cliente. Si la conexión llega de un proxy de confianza
+    (settings.TRUSTED_PROXIES), respetamos X-Forwarded-For; sino caemos a
+    REMOTE_ADDR. Esto evita spoofing si alguna vez alguien expone Django sin
+    Cloudflare delante (el atacante podría setear XFF y burlar el rate-limit).
+
+    En Coolify+Tunnel, TRUSTED_PROXIES debe incluir la red interna de Docker
+    (ej. '172.17.0.0/16') o IP del tunnel para que XFF sea respetado.
+    Sin TRUSTED_PROXIES seteado, modo conservador: solo REMOTE_ADDR.
+    """
+    remote = request.META.get('REMOTE_ADDR', '')
+    trusted = getattr(settings, 'TRUSTED_PROXIES', None) or []
+    if not trusted:
+        return remote
+
+    if _ip_in_trusted(remote, trusted):
+        fwd = request.META.get('HTTP_X_FORWARDED_FOR', '')
+        if fwd:
+            # Tomamos el primer IP de la cadena, que es el cliente original.
+            return fwd.split(',')[0].strip()
+    return remote
+
+
+def _ip_in_trusted(ip: str, trusted_list) -> bool:
+    """¿La IP `ip` está en algún CIDR / IP literal de `trusted_list`?"""
+    if not ip:
+        return False
+    import ipaddress
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    for entry in trusted_list:
+        entry = entry.strip()
+        if not entry:
+            continue
+        try:
+            if '/' in entry:
+                if ip_obj in ipaddress.ip_network(entry, strict=False):
+                    return True
+            else:
+                if ip_obj == ipaddress.ip_address(entry):
+                    return True
+        except ValueError:
+            continue
+    return False
 
 
 def _ua(request) -> str:
@@ -50,15 +95,30 @@ def portal_login_required(view):
 
 # ─── Helpers de sesión multi-buzón ─────────────────────────────────────────
 def _usuario_actual(request) -> UsuarioPortal | None:
-    """Devuelve el UsuarioPortal de la sesión o None si la sesión es inválida."""
+    """
+    Devuelve el UsuarioPortal de la sesión o None si la sesión es inválida.
+
+    Cachea el resultado en `request._portal_user` para que views + context
+    processor + middleware reusen la misma instancia y no peguemos a la BD
+    múltiples veces por request. Sentinel `False` distingue "no hay usuario"
+    de "todavía no consultado".
+    """
+    cached = getattr(request, '_portal_user', None)
+    if cached is not None:
+        return cached or None    # False sentinel → None
+
     email = request.session.get('usuario_email')
     if not email:
+        request._portal_user = False
         return None
     try:
-        return UsuarioPortal.objects.get(email=email, activo=True)
+        usuario = UsuarioPortal.objects.get(email=email, activo=True)
     except UsuarioPortal.DoesNotExist:
         request.session.flush()
+        request._portal_user = False
         return None
+    request._portal_user = usuario
+    return usuario
 
 
 def _buzon_actual(request, usuario: UsuarioPortal) -> Buzon | None:
@@ -121,8 +181,10 @@ def _log_intento(request, ip_h: str, email: str, motivo: str, exito: bool,
             motivo=motivo,
         )
     except Exception:
-        # Nunca bloquear el flujo de login por un fallo de logging
-        pass
+        # Nunca bloquear el flujo de login por un fallo de logging — pero al
+        # menos dejamos rastro para diagnosticar si Postgres está caído o si
+        # el modelo cambió bajo nuestros pies.
+        logger.warning('No se pudo registrar IntentoLogin motivo=%s', motivo, exc_info=True)
 
 
 # ─── Vistas públicas ───────────────────────────────────────────────────────
@@ -140,6 +202,14 @@ def healthz_view(request):
     """
     from django.http import HttpResponse
     return HttpResponse('ok', content_type='text/plain')
+
+
+def privacidad_view(request):
+    """
+    Política de privacidad y cookies. Página estática pública, sin BD.
+    Linkeada desde el banner de cookies y desde el footer del landing.
+    """
+    return render(request, 'correos/privacidad.html')
 
 
 # ─── Login ─────────────────────────────────────────────────────────────────
@@ -575,6 +645,7 @@ def _no_leidos_por_buzon(usuario: UsuarioPortal, buzones) -> dict:
 
 
 @portal_login_required
+@throttle_user('inbox', per_minute=120)   # 2/seg sostenido — más que suficiente para navegación humana
 @never_cache
 def inbox_view(request):
     usuario = _usuario_actual(request)
@@ -600,13 +671,17 @@ def inbox_view(request):
     else:
         carpeta = ''   # normaliza a vacío = "todos"
 
-    # Conteos por carpeta para mostrar en los chips. Cheap con el index nuevo.
-    counts_carpeta = {
-        'inbox':    buzon.correos.filter(tipo_carpeta='inbox').count(),
-        'enviados': buzon.correos.filter(tipo_carpeta='enviados').count(),
-        'otros':    buzon.correos.filter(tipo_carpeta='otros').count(),
-        'total':    buzon.correos.count(),
-    }
+    # Conteos por carpeta — un solo GROUP BY en vez de 4 queries separadas.
+    # Antes: 4 count() = 4 round-trips a postgres. Ahora: 1 query agrupa todo
+    # y el total sale de la suma. Usa el índice (buzon, tipo_carpeta, -fecha).
+    counts_qs = buzon.correos.values('tipo_carpeta').annotate(n=Count('id'))
+    counts_carpeta = {'inbox': 0, 'enviados': 0, 'otros': 0, 'total': 0}
+    for row in counts_qs:
+        tipo = row['tipo_carpeta']
+        n = row['n']
+        if tipo in counts_carpeta:
+            counts_carpeta[tipo] = n
+        counts_carpeta['total'] += n
 
     query = (request.GET.get('q') or '').strip()[:200]
     if query:
@@ -687,6 +762,7 @@ def inbox_view(request):
 
 
 @portal_login_required
+@throttle_user('detalle', per_minute=240)   # AJAX preview rebota acá si no es fetch
 @never_cache
 def detalle_view(request, correo_id):
     usuario = _usuario_actual(request)
@@ -1159,7 +1235,13 @@ def responder_correo_view(request, correo_id):
             # Marcado como leído por el que lo envió (es su propio mensaje)
             CorreoLeido.objects.get_or_create(usuario=usuario, correo=sent_correo)
         except Exception:
-            # No bloquear el flujo si el save falla — el envío ya pasó.
+            # No bloquear el flujo si el save falla — el envío SMTP ya pasó.
+            # Pero el audit log sí lo guardamos abajo (CorreoEnviado), así que
+            # tenemos rastro del envío. Logueamos para diagnóstico.
+            logger.warning(
+                'Envío SMTP OK pero fallo al guardar Correo en pestaña Enviados '
+                '(usuario=%s, msg_id=%s)', usuario.email, new_msg_id, exc_info=True,
+            )
             sent_correo = None
 
     # ─── Audit ─────────────────────────────────────────────────────────
@@ -1198,6 +1280,7 @@ def responder_correo_view(request, correo_id):
 
 
 @portal_login_required
+@throttle_user('adjunto', per_minute=120)
 @never_cache
 def adjunto_view(request, adjunto_id):
     """
@@ -1236,6 +1319,7 @@ def adjunto_view(request, adjunto_id):
 
 
 @portal_login_required
+@throttle_user('cid', per_minute=300)   # imagenes inline: muchas por correo, generoso
 @never_cache
 def adjunto_por_cid_view(request, correo_id, content_id):
     """
@@ -1284,6 +1368,7 @@ def adjunto_por_cid_view(request, correo_id, content_id):
 
 
 @portal_login_required
+@throttle_user('preview', per_minute=240)   # 4/seg — j/k navegación rápida pero no abuso
 @never_cache
 def correo_preview_view(request, correo_id):
     """

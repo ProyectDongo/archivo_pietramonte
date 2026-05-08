@@ -163,7 +163,9 @@ class Command(BaseCommand):
                             parsed = timezone.make_aware(parsed)
                         fecha = parsed
                     except Exception:
-                        pass
+                        # Fecha mal-formateada en el correo original. Lo guardamos
+                        # con fecha=None y seguimos. Trazamos para diagnóstico.
+                        logger.warning('Fecha no parseable %r en uid=%s', fecha_str, uid)
 
                 texto, html = extraer_cuerpos(msg)
                 texto = texto.replace('\x00', '')

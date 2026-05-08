@@ -11,6 +11,7 @@ con nombre único, fuera del directorio del repositorio.
 import email
 import email.header
 import email.utils
+import logging
 import mailbox
 import re
 from pathlib import Path
@@ -21,6 +22,8 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from correos.models import Adjunto, Buzon, Correo
+
+logger = logging.getLogger('correos.import_mbox')
 
 
 # Tamaño máximo por adjunto (más grande lo saltamos para no inflar disco)
@@ -204,6 +207,9 @@ def extraer_adjuntos(msg):
             mime = parte.get_content_type() or 'application/octet-stream'
             adjuntos.append((nombre, mime, payload, content_id))
         except Exception:
+            # Adjunto corrupto / encoding raro / etc. Lo saltamos pero dejamos
+            # rastro — sin esto debugear archivos .mbox grandes era a ciegas.
+            logger.warning('Adjunto saltado (parte MIME corrupta)', exc_info=True)
             continue
     return adjuntos
 
@@ -298,7 +304,7 @@ class Command(BaseCommand):
                                     parsed = timezone.make_aware(parsed)
                                 fecha = parsed
                             except Exception:
-                                pass
+                                logger.debug('Fecha no parseable %r', fecha_str)
 
                         # Dedup: si ya importamos este mensaje_id en este buzón, skip.
                         # No dedupea cuando msg_id=='' (sin Message-ID).

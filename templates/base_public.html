@@ -8,6 +8,11 @@
 </head>
 <body>
   {% block body %}{% endblock %}
+
+  {# Cookie consent — sólo páginas públicas. El portal interno no lo necesita
+     (cookies estrictamente necesarias). Si el usuario ya decidió, queda hidden. #}
+  {% include 'partials/_cookie_consent.html' %}
+
   {% block extra_js %}{% endblock %}
 </body>
 </html>

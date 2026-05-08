@@ -12,6 +12,8 @@ Notas de seguridad:
     que pasa por AUTH_PASSWORD_VALIDATORS.
   - Eliminar usuarios en admin → revoca su acceso. No borra sus IntentoLogin.
 """
+import logging
+
 from django import forms
 from django.contrib import admin, messages
 from django.contrib.auth.password_validation import validate_password
@@ -19,6 +21,8 @@ from django.core.exceptions import ValidationError
 from django.utils.html import format_html
 
 from .models import AdminTOTP, Adjunto, Buzon, BuzonGmailLabel, Correo, Etiqueta, IntentoLogin, ReenvioCorreo, UsuarioPortal
+
+logger = logging.getLogger('correos.admin')
 
 
 # ─── UsuarioPortal ─────────────────────────────────────────────────────────
@@ -153,7 +157,7 @@ class UsuarioPortalAdmin(admin.ModelAdmin):
                     exito=False,
                 )
             except Exception:
-                pass
+                logger.exception('No se pudo registrar IntentoLogin de totp_reset para %r', u.email)
         self.message_user(
             request,
             f'2FA reseteado para {n} usuario(s). En su próximo login lo configurarán de cero.',

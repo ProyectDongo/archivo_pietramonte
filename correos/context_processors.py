@@ -5,18 +5,22 @@ del área autenticada.
   - usuario_actual:    instancia UsuarioPortal o None
   - buzones_visibles:  queryset de buzones que el usuario puede ver
   - buzon_actual:      Buzon actualmente seleccionado (o None)
+
+Reusa el cache `request._portal_user` que setea `_usuario_actual` en views.py
+— sino estaríamos consultando UsuarioPortal dos veces por request (una en
+la view, otra acá). Ahora es 1 query.
 """
-from .models import Buzon, UsuarioPortal
+from .models import Buzon
 
 
 def portal(request):
-    email = request.session.get('usuario_email') if hasattr(request, 'session') else None
-    if not email:
+    if not hasattr(request, 'session'):
         return {}
 
-    try:
-        usuario = UsuarioPortal.objects.get(email=email, activo=True)
-    except UsuarioPortal.DoesNotExist:
+    # Importamos local para evitar ciclo de imports views → context_processors → views.
+    from .views import _usuario_actual
+    usuario = _usuario_actual(request)
+    if not usuario:
         return {}
 
     visibles = usuario.buzones_visibles()

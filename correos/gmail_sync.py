@@ -58,7 +58,9 @@ def imap_connection():
         try:
             imap.logout()
         except Exception:
-            pass
+            # logout post-fetch — fallar acá no afecta la sincronización ya hecha,
+            # pero queremos saberlo (puede indicar conexión muerta / Gmail caído).
+            logger.warning('Fallo en imap.logout()', exc_info=True)
 
 
 # Regex para parsear la respuesta de imap.list():

@@ -70,6 +70,9 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     # Exige 2FA en /admin-* — debe ir DESPUÉS de AuthenticationMiddleware.
     'archivo_pietramonte.admin_2fa.Admin2FAMiddleware',
+    # Rate-limit del login admin (8 fallos/15min/IP). El portal tiene su propio
+    # rate-limit en login_view; este middleware solo cubre /admin-*/login/.
+    'archivo_pietramonte.middleware.AdminLoginRateLimitMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -133,10 +136,13 @@ SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_DB_ALIAS = 'default'
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Lax'
-# 2 h de inactividad → expira. SAVE_EVERY_REQUEST renueva la cookie en cada hit,
-# así una sesión activa nunca caduca pero una abandonada muere sola.
-SESSION_COOKIE_AGE = 60 * 60 * 2
-SESSION_SAVE_EVERY_REQUEST = True
+# 8 horas — cubre una jornada de taller sin re-login. La sesión se renueva
+# desde la última actividad significativa (login, cambiar buzón, etc.). Antes
+# usábamos SESSION_SAVE_EVERY_REQUEST=True para renovar en CADA request, pero
+# eso hace 1 UPDATE a django_session por hit (pesado en un inbox que recarga
+# por cambio de pestaña). Con False solo escribimos cuando session.modified=True.
+SESSION_COOKIE_AGE = 60 * 60 * 8
+SESSION_SAVE_EVERY_REQUEST = False
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 
 
@@ -262,3 +268,90 @@ DISPOSABLE_DOMAINS_EXTRA = env_list('DISPOSABLE_DOMAINS_EXTRA', '')
 
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# ─── Cache backend ─────────────────────────────────────────────────────────
+# Si REDIS_URL está seteado (ej. redis://redis:6379/0), usamos Redis. Es el
+# único backend que es safe entre múltiples gunicorn workers — fundamental
+# para que rate-limit y throttle compartan estado.
+# Sin REDIS_URL caemos a LocMemCache (per-worker, suficiente para dev local
+# y para deploys de un solo worker). El rate-limit funciona pero un atacante
+# podría rotar entre workers para evadir; en prod multi-worker sin Redis,
+# Cloudflare upstream cubre la diferencia.
+REDIS_URL = os.getenv('REDIS_URL', '').strip()
+
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+            'TIMEOUT': 300,
+            'OPTIONS': {
+                # Pool con tamaño razonable; Coolify Redis maneja conexiones.
+                'pool_class': 'redis.connection.ConnectionPool',
+            },
+        },
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'pietramonte-default',
+            'TIMEOUT': 300,
+        },
+    }
+
+
+# ─── Proxies confiables (validación de X-Forwarded-For) ────────────────────
+# CSV de IPs / CIDRs de los proxies que pueden setear XFF. Si la conexión
+# llega de un IP que NO está en esta lista, ignoramos XFF y usamos REMOTE_ADDR
+# (sino un atacante podría spoofear su IP burlando rate-limit).
+# En Coolify detrás de Cloudflare Tunnel, el tunnel local termina en el host
+# del container → la IP origin es la del propio docker network. Si dejamos
+# vacío, _get_ip cae a REMOTE_ADDR siempre (más conservador).
+TRUSTED_PROXIES = env_list('TRUSTED_PROXIES', '')
+
+
+# ─── Logging ────────────────────────────────────────────────────────────────
+# Sin LOGGING configurado, los `except Exception: pass` (gmail_sync, import_mbox,
+# admin_2fa) se comían excepciones sin dejar trazas. Ahora hay un handler
+# stderr (Coolify lo captura como log del container) con timestamp + level +
+# logger name. Loggers específicos por app a nivel INFO; resto a WARNING.
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'standard': {
+            'format': '[{asctime}] {levelname:7s} {name}: {message}',
+            'style': '{',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+    },
+    'handlers': {
+        'stderr': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'standard',
+            'level': 'DEBUG',
+        },
+    },
+    'root': {
+        'handlers': ['stderr'],
+        'level': 'WARNING',
+    },
+    'loggers': {
+        # Apps propias: detalle más granular para diagnóstico operacional.
+        'correos':            {'level': LOG_LEVEL, 'handlers': ['stderr'], 'propagate': False},
+        'taller':             {'level': LOG_LEVEL, 'handlers': ['stderr'], 'propagate': False},
+        'archivo_pietramonte':{'level': LOG_LEVEL, 'handlers': ['stderr'], 'propagate': False},
+        # Django: sólo warnings y errores; sino spamea con cada request 200.
+        'django':             {'level': 'WARNING', 'handlers': ['stderr'], 'propagate': False},
+        # SQL queries solo si DEBUG=True y LOG_SQL=1; útil para optimizar.
+        'django.db.backends': {
+            'level': 'DEBUG' if (DEBUG and env_bool('LOG_SQL', False)) else 'WARNING',
+            'handlers': ['stderr'],
+            'propagate': False,
+        },
+    },
+}
