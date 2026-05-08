@@ -1562,6 +1562,7 @@ def correo_preview_view(request, correo_id):
 
 # ─── Prefill JSON para el compose flotante (reply inline) ──────────────────
 @portal_login_required
+@throttle_user('prefill', per_minute=120)
 def correo_prefill_view(request, correo_id):
     """
     GET → devuelve JSON con el prefill {to, cc, asunto} para responder o
@@ -1690,6 +1691,7 @@ _SNOOZE_PRESETS = {
 
 @portal_login_required
 @require_POST
+@throttle_user('snooze', per_minute=60)
 def snooze_correo_view(request, correo_id):
     """
     POST → posponer un correo per-usuario.
@@ -1742,6 +1744,7 @@ def snooze_correo_view(request, correo_id):
 
 @portal_login_required
 @require_POST
+@throttle_user('snooze', per_minute=60)
 def unsnooze_correo_view(request, correo_id):
     """POST → cancela el snooze de un correo (vuelve a la bandeja)."""
     usuario, correo = _correo_si_visible(request, correo_id)
@@ -1834,6 +1837,7 @@ def crear_etiqueta_view(request):
 
 # ─── Firma del buzón actual (editor en el portal) ─────────────────────────
 @portal_login_required
+@throttle_user('firma', per_minute=60)
 @require_http_methods(['GET', 'POST'])
 def firma_view(request):
     """
@@ -1852,7 +1856,23 @@ def firma_view(request):
         buzon.firma_nombre        = (request.POST.get('firma_nombre') or '').strip()[:120]
         buzon.firma_cargo         = (request.POST.get('firma_cargo') or '').strip()[:120]
         buzon.firma_telefono      = (request.POST.get('firma_telefono') or '').strip()[:40]
-        buzon.firma_web           = (request.POST.get('firma_web') or '').strip()[:120]
+        # Validación de firma_web: aceptamos formato "www.x.cl" o con http(s)://.
+        # Rechazamos esquemas peligrosos (javascript:, data:, vbscript:, file:).
+        web_raw = (request.POST.get('firma_web') or '').strip()[:120]
+        if web_raw:
+            web_lower = web_raw.lower()
+            esquemas_peligrosos = ('javascript:', 'data:', 'vbscript:', 'file:', 'about:')
+            if any(web_lower.startswith(s) for s in esquemas_peligrosos):
+                messages.error(request, 'El sitio web tiene un formato no permitido.')
+                return render(request, 'correos/firma_edit.html', {'buzon': buzon})
+            # Permitimos solo letras/dígitos/puntos/guiones + slash/colon/path.
+            # Patrón liberal pero suficiente para descartar texto extraño.
+            if not re.match(r'^(https?://)?[a-zA-Z0-9._\-]+(\.[a-zA-Z]{2,})+(/[\w\-./?=&%#:+~]*)?$', web_raw):
+                messages.error(request, 'El sitio web tiene un formato inválido. Ej.: www.empresa.cl')
+                return render(request, 'correos/firma_edit.html', {'buzon': buzon})
+            buzon.firma_web = web_raw
+        else:
+            buzon.firma_web = ''
         email_v = (request.POST.get('firma_email_visible') or '').strip()
         if email_v:
             from django.core.exceptions import ValidationError
@@ -1893,6 +1913,7 @@ _BORRADOR_CAMPOS_EDITABLES = {'to', 'cc', 'asunto', 'cuerpo', 'modo'}
 
 
 @portal_login_required
+@throttle_user('borradores', per_minute=120)
 @require_http_methods(['GET', 'POST'])
 def borradores_view(request):
     """
@@ -1951,6 +1972,7 @@ def borradores_view(request):
 
 
 @portal_login_required
+@throttle_user('borradores', per_minute=240)
 @require_http_methods(['GET', 'POST', 'DELETE'])
 def borrador_detalle_view(request, borrador_id):
     """
@@ -1993,6 +2015,7 @@ def borrador_detalle_view(request, borrador_id):
 
 @portal_login_required
 @require_POST
+@throttle_user('enviar', per_minute=20)
 def borrador_enviar_view(request, borrador_id):
     """
     POST → toma un borrador, valida, manda el correo (vía safe_send),
@@ -2141,6 +2164,7 @@ def borrador_enviar_view(request, borrador_id):
 
 # ─── Compose: escribir un correo nuevo desde cero ────────────────────────
 @portal_login_required
+@throttle_user('enviar', per_minute=20)
 @never_cache
 @require_http_methods(['GET', 'POST'])
 def compose_view(request):
@@ -2353,6 +2377,7 @@ _BULK_ACCIONES_VALIDAS = {
 
 @portal_login_required
 @require_POST
+@throttle_user('bulk', per_minute=30)
 def bulk_acciones_view(request):
     """
     POST → ejecuta una acción sobre varios correos a la vez.
