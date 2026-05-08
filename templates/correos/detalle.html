@@ -2,84 +2,23 @@
 {% load correos_tags %}
 
 {% block title %}{{ correo.asunto|truncatechars:50 }}{% endblock %}
+{% block body_class %}page-detalle{% endblock %}
 
 {% block content %}
-<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem">
+<div class="detalle-toolbar">
   <a href="{% url 'inbox' %}" class="back-link">← Volver a la bandeja</a>
-  <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-    <a href="{% url 'responder_correo' correo.id %}" class="btn-reenviar"
-       title="Responder al remitente desde {{ correo.buzon.email }}">
-      ↩ Responder
-    </a>
-    <a href="{% url 'responder_correo' correo.id %}?modo=todos" class="btn-reenviar"
-       title="Responder a todos los destinatarios">
-      ↩↩ Responder a todos
-    </a>
-    <a href="{% url 'reenviar_correo' correo.id %}" class="btn-reenviar"
-       title="Reenviar este correo a un destinatario externo">
-      📤 Reenviar
-    </a>
-  </div>
 </div>
 
-<article class="correo-card">
-  <header class="correo-head">
-    <div class="correo-asunto">{{ correo.asunto|default:"(sin asunto)" }}</div>
-    <div class="correo-meta">
-      <div class="meta-item">
-        <span class="meta-label">De</span>
-        <span class="meta-value">{{ correo.remitente|default:"Desconocido" }}</span>
-      </div>
-      <div class="meta-item">
-        <span class="meta-label">Para</span>
-        <span class="meta-value">{{ correo.destinatario|default:"—"|truncatechars:80 }}</span>
-      </div>
-      <div class="meta-item">
-        <span class="meta-label">Fecha</span>
-        <span class="meta-value">
-          {% if correo.fecha %}
-          {{ correo.fecha|date:"d \d\e F \d\e Y" }} a las {{ correo.fecha|time:"H:i" }}
-          {% else %}Sin fecha{% endif %}
-        </span>
-      </div>
-    </div>
-  </header>
+<div class="detalle-shell">
+  {% include 'correos/_correo_preview.html' %}
+</div>
 
-  <div class="correo-body">
-    <div class="cuerpo-label">Contenido del mensaje</div>
-    {% if correo.cuerpo_html %}
-    {% comment %}
-    render_correo_html: pre-resuelve cid:xxx → URL interna autenticada
-    (sirve la imagen embebida desde nuestro propio dominio) y sanitiza
-    con bleach. <img> permitido solo con src relativa o data:image.
-    {% endcomment %}
-    <div class="cuerpo-html">{% render_correo_html correo %}</div>
-    {% elif correo.cuerpo_texto %}
-    {% comment %}
-    Django autoescapa por defecto: <, >, &, ', " quedan neutralizados → no XSS.
-    limpiar_cid_brackets quita los `[cid:xxx]` literales que quedaron del
-    cuerpo (sin imagen inline para resolver, son ruido).
-    {% endcomment %}
-    <div class="cuerpo-texto">{{ correo.cuerpo_texto|limpiar_cid_brackets }}</div>
-    {% else %}
-    <div class="sin-cuerpo">Este correo no tiene cuerpo en texto plano o es solo adjunto.</div>
-    {% endif %}
-  </div>
+<script id="etiquetas-disponibles-data" type="application/json">
+[{% for et in etiquetas_disponibles %}{"id":{{ et.id }},"nombre":"{{ et.nombre|escapejs }}","color":"{{ et.color }}"}{% if not forloop.last %},{% endif %}{% endfor %}]
+</script>
+{% endblock %}
 
-  {% with adjuntos=correo.adjuntos.all %}
-  {% if adjuntos %}
-  <div class="correo-adjuntos">
-    <div class="adj-list-label">📎 Adjuntos ({{ adjuntos|length }})</div>
-    {% include 'correos/_adjuntos_galeria.html' with adjuntos=adjuntos %}
-  </div>
-  {% endif %}
-  {% endwith %}
-
-  <footer class="correo-footer">
-    <span>ID: {{ correo.mensaje_id|default:"—"|truncatechars:60 }}</span>
-    {% if correo.tiene_adjunto and not correo.adjuntos.exists %}
-    <span class="adj-badge-warn">📎 Marcado con adjuntos pero no se importaron archivos</span>
-    {% endif %}
-  </footer>
-</article>
+{% block extra_js %}
+{% load static %}
+<script src="{% static 'js/correo_actions.js' %}" defer></script>
 {% endblock %}

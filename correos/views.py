@@ -908,10 +908,21 @@ def detalle_view(request, correo_id):
     # Marca como leído per-usuario (idempotente).
     CorreoLeido.objects.get_or_create(usuario=usuario, correo=correo)
 
+    # Estado de snooze actual (per-usuario) para el botón Posponer/Pospuesto
+    snz = CorreoSnooze.objects.filter(
+        usuario=usuario, correo=correo, until_at__gt=timezone.now()
+    ).first()
+    correo.snoozed_until = snz.until_at if snz else None
+
+    # Hilo de conversación (otros correos del mismo asunto en el mismo buzón)
+    thread = _hilo_de(correo)[:20]
+
     return render(request, 'correos/detalle.html', {
         'buzon': correo.buzon,
         'correo': correo,
         'buzones_visibles': usuario.buzones_visibles(),
+        'thread': thread,
+        'etiquetas_disponibles': correo.buzon.etiquetas.all().order_by('nombre'),
     })
 
 

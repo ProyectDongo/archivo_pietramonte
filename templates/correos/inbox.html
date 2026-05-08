@@ -347,9 +347,6 @@
 
   </section>
 </div>
-<script id="etiquetas-disponibles-data" type="application/json">
-[{% for et in etiquetas_disponibles %}{"id":{{ et.id }},"nombre":"{{ et.nombre|escapejs }}","color":"{{ et.color }}"}{% if not forloop.last %},{% endif %}{% endfor %}]
-</script>
 {% endblock %}
 
 {% block extra_js %}
