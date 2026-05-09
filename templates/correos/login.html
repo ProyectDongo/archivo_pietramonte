@@ -41,7 +41,6 @@
     <form method="post" novalidate autocomplete="off" id="login-form" data-loaded-at="{{ page_loaded_at }}">
       {% csrf_token %}
 
-      {# Honeypot: invisible para humanos. Bots tienden a rellenar todos los campos. #}
       <div class="hp-wrap" aria-hidden="true">
         <label for="website">Sitio web (no rellenar)</label>
         <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
@@ -82,7 +81,6 @@
         </div>
       </div>
 
-      {# ─── Cloudflare Turnstile (invisible para humanos legítimos) ────── #}
       <input type="hidden" name="page_loaded_at" id="page-loaded-at" value="{{ page_loaded_at }}">
       {% if turnstile_site_key %}
       <div class="cf-turnstile-wrap">

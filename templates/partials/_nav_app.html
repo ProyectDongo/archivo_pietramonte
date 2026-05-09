@@ -9,7 +9,6 @@
   </a>
 
   <div class="app-nav-center">
-    {# Selector de buzones — solo aparece si hay más de uno visible #}
     {% if buzones_visibles|length > 1 %}
     <form method="post" action="{% url 'cambiar_buzon' %}" class="buzon-selector" id="buzon-form">
       {% csrf_token %}

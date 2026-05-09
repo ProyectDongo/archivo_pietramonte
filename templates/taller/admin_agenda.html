@@ -81,7 +81,6 @@
   </div>
   {% endif %}
 
-  {# ─── Stats ──────────────────────────────────────────────────── #}
   <div class="pa-stats">
     <div class="pa-stat"><div class="n">{{ stats.reservas_hoy_total }}</div><div class="l">Hoy · activas</div></div>
     <div class="pa-stat"><div class="n">{{ stats.reservas_hoy_completas }}</div><div class="l">Hoy · completadas</div></div>
@@ -91,10 +90,8 @@
     </div>
   </div>
 
-  {# ─── Grid principal ─────────────────────────────────────────── #}
   <div class="pa-grid">
 
-    {# ─── Reservas de HOY ─────────────────────────────────────── #}
     <div>
       <div class="pa-card">
         <h2>📅 Reservas de hoy ({{ hoy|date:"d/m/Y" }})</h2>
@@ -118,7 +115,6 @@
         {% endfor %}
       </div>
 
-      {# ─── Sin confirmar por llamada (próximas 48h) ──────────── #}
       <div class="pa-card" style="margin-top:14px">
         <h2>📞 Pendientes de confirmar por llamada (próximas 24h)</h2>
         {% for r in pendientes_llamada %}
@@ -139,7 +135,6 @@
         {% endfor %}
       </div>
 
-      {# ─── Reservas de mañana ─────────────────────────────────── #}
       <div class="pa-card" style="margin-top:14px">
         <h2>📅 Reservas de mañana ({{ manana|date:"d/m/Y" }})</h2>
         {% for r in reservas_manana %}
@@ -161,7 +156,6 @@
       </div>
     </div>
 
-    {# ─── Resumen semana ───────────────────────────────────────── #}
     <div>
       <div class="pa-card">
         <h2>📈 Próximos 7 días</h2>

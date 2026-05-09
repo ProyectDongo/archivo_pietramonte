@@ -10,7 +10,6 @@
 {% block content %}
 <div class="reserva-card">
 
-  {# ─── Estado banner ─────────────────────────────────── #}
   {% if reserva.estado == 'confirmada_email' or reserva.estado == 'confirmada_llamada' %}
   <div class="reserva-banner ok">
     ✅ Reserva confirmada · {{ reserva.fecha|date:"l d \d\e F" }} a las {{ reserva.hora_inicio|time:"H:i" }}
@@ -81,7 +80,6 @@
     {% if reserva.contexto_problema %}<div class="rr-row"><span class="rr-l">Contexto</span><em>{{ reserva.contexto_problema }}</em></div>{% endif %}
   </div>
 
-  {# ─── Acciones ─────────────────────────────────────── #}
   {% if puede_cancelar %}
   <div class="reserva-acciones">
     <form method="post" action="{% url 'cancelar_reserva' token=token %}"

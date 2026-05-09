@@ -10,13 +10,11 @@
     <tr><td align="center">
       <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;background:#ffffff;border-radius:12px;border:1px solid #e8e8e8;overflow:hidden">
 
-        {# ─── Header ─────────────────────────────────────────── #}
         <tr><td style="background:#C80C0F;color:#fff;padding:18px 24px">
           <div style="font-weight:700;font-size:18px;letter-spacing:.5px">PIETRAMONTE</div>
           <div style="font-size:13px;opacity:.9">Correo reenviado</div>
         </td></tr>
 
-        {# ─── Mensaje extra del que reenvía ──────────────────── #}
         {% if mensaje_extra %}
         <tr><td style="padding:18px 24px 6px">
           <div style="background:#FFF8E1;border-left:4px solid #FFB300;padding:12px 14px;border-radius:6px;font-size:14px;line-height:1.5;white-space:pre-wrap">{{ mensaje_extra }}</div>
@@ -25,13 +23,11 @@
         </td></tr>
         {% endif %}
 
-        {# ─── Separador ──────────────────────────────────────── #}
         <tr><td style="padding:18px 24px 0">
           <div style="border-top:1px solid #e0e0e0;padding-top:14px;color:#888;font-size:12px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">
             Mensaje original reenviado
           </div>
 
-          {# ─── Encabezados del correo original ─────────────── #}
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:#444;background:#fafafa;border-radius:8px;padding:12px;margin-bottom:14px">
             <tr><td style="padding:4px 8px;color:#888;width:80px">De:</td>
                 <td style="padding:4px 8px"><strong>{{ correo.remitente|default:"—" }}</strong></td></tr>
@@ -44,10 +40,6 @@
           </table>
         </td></tr>
 
-        {# ─── Cuerpo del correo original ─────────────────────── #}
-        {# Si el original tenía HTML, lo incluimos (sanitizado, pero deja imgs   #}
-        {# para que el destinatario vea el formato como en Gmail). Si solo       #}
-        {# había texto plano, fallback al rendering anterior.                    #}
         <tr><td style="padding:0 24px 24px">
           {% if correo.cuerpo_html %}
           <div style="font-size:14px;line-height:1.6;color:#222">{{ correo.cuerpo_html|sanitizar_email_html_outbound|safe }}</div>
@@ -56,7 +48,6 @@
           {% endif %}
         </td></tr>
 
-        {# ─── Footer ─────────────────────────────────────────── #}
         <tr><td style="background:#fafafa;padding:14px 24px;border-top:1px solid #e8e8e8;font-size:11px;color:#888;text-align:center">
           Archivo de Correos Pietramonte · Reenviado vía portal interno · Las respuestas llegan a {{ reenviado_por }}
         </td></tr>

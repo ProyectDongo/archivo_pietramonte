@@ -25,7 +25,6 @@
     </div>
     {% endif %}
 
-    {# ─── Resumen del correo a reenviar ───────────────────────── #}
     <div class="reenvio-summary">
       <div class="meta-item">
         <span class="meta-label">Asunto original</span>
@@ -49,7 +48,6 @@
       {% endif %}
     </div>
 
-    {# ─── Form ───────────────────────────────────────────────── #}
     <form method="post" class="reenvio-form" novalidate>
       {% csrf_token %}
 

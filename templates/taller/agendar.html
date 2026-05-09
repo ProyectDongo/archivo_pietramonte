@@ -26,10 +26,8 @@
 
 <div class="agendar-layout">
 
-  {# ─── Catálogo + form (izquierda) ──────────────────────────────────── #}
   <div class="agendar-main">
 
-    {# ── Tabs servicio / repuesto ── #}
     <div class="cat-tabs" role="tablist">
       <button type="button" class="cat-tab active" data-tipo="servicio" role="tab" aria-selected="true">
         🔧 Servicios
@@ -39,7 +37,6 @@
       </button>
     </div>
 
-    {# ── Grid catálogo: SERVICIOS ── #}
     <section id="cat-servicio" class="cat-grid" data-tipo-panel="servicio">
       {% for it in servicios %}
       {% include 'taller/_catalogo_card.html' with it=it %}
@@ -48,7 +45,6 @@
       {% endfor %}
     </section>
 
-    {# ── Grid catálogo: REPUESTOS ── #}
     <section id="cat-repuesto" class="cat-grid hidden" data-tipo-panel="repuesto">
       {% for it in repuestos %}
       {% include 'taller/_catalogo_card.html' with it=it %}
@@ -57,15 +53,12 @@
       {% endfor %}
     </section>
 
-    {# ─── Calendario + form ──────────────────────────────────────────── #}
     <form method="post" action="{% url 'confirmar_reserva' %}" id="agendar-form" class="agendar-form" novalidate>
       {% csrf_token %}
 
-      {# Honeypot — invisible para humanos, los bots lo llenan #}
       <input type="text" name="website" tabindex="-1" autocomplete="off"
              style="position:absolute;left:-9999px;top:-9999px;visibility:hidden" aria-hidden="true">
 
-      {# Items elegidos (se llena via JS desde el cart) #}
       <div id="form-items-hidden"></div>
 
       <h2>📅 Día y hora</h2>
@@ -157,7 +150,6 @@
       <h2>🛡️ Verificación</h2>
       <p class="form-hint">Para evitar reservas falsas, resolvé el captcha y mandá la cita.</p>
 
-      {# ── Captcha Fernet ── #}
       <div class="captcha-wrap">
         <p class="captcha-pregunta">{{ fernet_challenge.pregunta }}</p>
         <input type="hidden" name="captcha_token" value="{{ fernet_challenge.token }}">
@@ -173,7 +165,6 @@
         </div>
       </div>
 
-      {# ── Cloudflare Turnstile (invisible para humanos) ── #}
       {% if turnstile_site_key %}
       <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}" data-theme="light"></div>
       {% else %}
@@ -191,7 +182,6 @@
     </form>
   </div>
 
-  {# ─── Carrito flotante (derecha) ────────────────────────────────────── #}
   <aside class="cart" id="cart" aria-live="polite">
     <h3>🛒 Tu cotización</h3>
     <div id="cart-items">

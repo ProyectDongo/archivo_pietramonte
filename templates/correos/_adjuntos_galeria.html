@@ -1,7 +1,5 @@
 {% load correos_tags %}
-{# ─── Galería de adjuntos: imágenes (thumbnail grid) + otros (lista) ───── #}
 <div class="adj-galeria">
-  {# ─── Imágenes ─────────────────────────────────────────────────────── #}
   <div class="adj-imgs-grid">
     {% for a in adjuntos %}
       {% if a|es_imagen %}
@@ -16,7 +14,6 @@
     {% endfor %}
   </div>
 
-  {# ─── Otros archivos ───────────────────────────────────────────────── #}
   <ul class="adj-list adj-list-tipos" role="list">
     {% for a in adjuntos %}
       {% if not a|es_imagen %}

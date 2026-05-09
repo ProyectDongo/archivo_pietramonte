@@ -4713,7 +4713,14 @@
 .preview-content p,
 .preview-content-html p,
 .detalle-content p {
-  margin: 0 0 1em;
+  margin: 0 0 0.35em;
+}
+/* <p> dentro de celdas de tabla (ej: correos de Outlook) no necesitan margen */
+.preview-content-html td p,
+.preview-content-html th p,
+.cuerpo-html td p,
+.cuerpo-html th p {
+  margin: 0;
 }
 
 .preview-content-html h1,

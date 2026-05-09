@@ -38,7 +38,6 @@
     </div>
     {% endif %}
 
-    {# ─── Resumen del correo original ──────────────────────────── #}
     <div class="reenvio-summary">
       <div class="meta-item">
         <span class="meta-label">En respuesta a</span>
@@ -56,7 +55,6 @@
       </div>
     </div>
 
-    {# ─── Form ───────────────────────────────────────────────── #}
     <form method="post" class="reenvio-form" novalidate>
       {% csrf_token %}
       <input type="hidden" name="modo" value="{{ modo }}">
