@@ -12,6 +12,10 @@
   --gm:   #394348;          /* grafito medio */
   --gl:   #6b7280;          /* gris texto secundario */
 
+  --navy:       #1e3a6e;    /* azul institucional (header) */
+  --navy-mid:   #2952a3;    /* azul institucional medio */
+  --navy-light: #ebf0f9;    /* fondo activo institucional */
+
   --w:    #ffffff;
   --off:  #fafaf9;          /* off-white sutil */
   --off2: #f4f3f1;

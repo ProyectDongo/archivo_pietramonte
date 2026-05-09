@@ -5,7 +5,7 @@
 
 /* ─── NAV de la app autenticada ────────────────────────────── */
 .app-nav {
-  background: var(--gd);
+  background: var(--navy);
   border-bottom: 1px solid rgba(255,255,255,.06);
   padding: 0 clamp(16px, 4vw, 32px);
   display: flex;
@@ -510,8 +510,9 @@
   border-color: var(--bdr);
 }
 .buzon-tab.active {
-  background: rgba(200,12,15,.08);
-  border-color: rgba(200,12,15,.25);
+  background: var(--navy-light);
+  border-color: rgba(30,58,110,.3);
+  color: var(--navy);
 }
 .buzon-tab .avatar {
   width: 24px; height: 24px; font-size: 10px;
@@ -2612,23 +2613,25 @@
   padding: 8px 14px;
   background: transparent;
   border: none;
+  border-left: 3px solid transparent;
   outline: none;
   -webkit-appearance: none;
   appearance: none;
-  border-radius: 99px;
+  border-radius: 6px;
   cursor: pointer;
   text-align: left;
   font-family: var(--f);
   font-size: 13px;
   color: var(--gd);
-  transition: background .15s ease;
+  transition: background .15s ease, border-color .15s ease;
 }
 .sidebar-buzon:hover { background: var(--off); }
 .sidebar-buzon.active {
-  background: rgba(200,12,15,.08);
+  background: var(--navy-light);
   font-weight: 600;
+  border-left-color: var(--navy);
 }
-.sidebar-buzon.active .sidebar-buzon-name { color: var(--r); }
+.sidebar-buzon.active .sidebar-buzon-name { color: var(--navy); }
 .sidebar-buzon.has-unread .sidebar-buzon-name { font-weight: 700; }
 .sidebar-buzon-name {
   overflow: hidden;
@@ -2705,21 +2708,23 @@
   text-decoration: none;
   font-size: 13px;
   color: var(--gm);
-  border-radius: 99px;
-  transition: background .15s, color .15s;
+  border-radius: 6px;
+  border: none;
+  border-left: 3px solid transparent;
+  transition: background .15s, color .15s, border-color .15s;
   /* Para botones (sidebar-tag-new) */
   width: 100%;
   background: transparent;
-  border: none;
   cursor: pointer;
   font-family: var(--f);
   text-align: left;
 }
 .sidebar-link:hover { background: var(--off); color: var(--gd); }
 .sidebar-link.active {
-  background: rgba(200,12,15,.08);
-  color: var(--r);
+  background: var(--navy-light);
+  color: var(--navy);
   font-weight: 600;
+  border-left-color: var(--navy);
 }
 .sidebar-link-ico {
   display: inline-flex;
@@ -2741,7 +2746,7 @@
   text-align: center;
 }
 .sidebar-link.active .sidebar-link-count {
-  background: var(--r);
+  background: var(--navy);
   color: var(--w);
 }
 
@@ -2912,7 +2917,7 @@
   flex-shrink: 0;
 }
 .inbox-title-email {
-  color: var(--r);
+  color: var(--navy);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3533,7 +3538,7 @@
 [data-theme="dark"] .sidebar-link:hover,
 [data-theme="dark"] .sidebar-buzon:hover { background: #252b30; color: #fff; }
 [data-theme="dark"] .sidebar-link.active,
-[data-theme="dark"] .sidebar-buzon.active { background: rgba(200,12,15,.18); color: #fff; }
+[data-theme="dark"] .sidebar-buzon.active { background: rgba(30,58,110,.45); color: #90b8ef; border-left-color: #90b8ef; }
 [data-theme="dark"] .sidebar-label { color: #9aa0a6; }
 [data-theme="dark"] .sidebar-link-count { background: #2c3338; color: #c0c4c8; }
 [data-theme="dark"] .sidebar-badge { background: var(--r); color: #fff; }
