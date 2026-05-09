@@ -4404,6 +4404,48 @@
   padding: 12px 0;
   min-height: 120px;
 }
+.compose-fab-editor-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.compose-fab-editor-wrap .ql-toolbar.ql-snow {
+  border: 0;
+  border-bottom: 1px solid var(--bdr);
+  padding: 4px 6px;
+  background: transparent;
+}
+.compose-fab-editor-wrap .ql-container.ql-snow {
+  border: 0;
+  flex: 1;
+  font-family: inherit;
+  font-size: 14px;
+}
+.compose-fab-editor-wrap .ql-editor {
+  padding: 10px 0;
+  min-height: 110px;
+  max-height: 280px;
+  overflow-y: auto;
+  color: var(--gd);
+  line-height: 1.55;
+}
+.compose-fab-editor-wrap .ql-editor.ql-blank::before {
+  color: #aaa;
+  font-style: normal;
+  left: 0;
+}
+.compose-fab-editor-wrap .ql-snow .ql-stroke { stroke: var(--gl); }
+.compose-fab-editor-wrap .ql-snow .ql-fill { fill: var(--gl); }
+.compose-fab-editor-wrap .ql-snow .ql-picker { color: var(--gl); }
+.compose-fab-editor-wrap .ql-snow.ql-toolbar button:hover .ql-stroke,
+.compose-fab-editor-wrap .ql-snow.ql-toolbar button.ql-active .ql-stroke { stroke: var(--r); }
+.compose-fab-editor-wrap .ql-snow.ql-toolbar button:hover .ql-fill,
+.compose-fab-editor-wrap .ql-snow.ql-toolbar button.ql-active .ql-fill { fill: var(--r); }
+[data-theme="dark"] .compose-fab-editor-wrap .ql-editor { color: #e4e4e4; }
+[data-theme="dark"] .compose-fab-editor-wrap .ql-snow .ql-stroke { stroke: #aaa; }
+[data-theme="dark"] .compose-fab-editor-wrap .ql-snow .ql-fill { fill: #aaa; }
 
 .compose-fab-foot {
   display: flex;

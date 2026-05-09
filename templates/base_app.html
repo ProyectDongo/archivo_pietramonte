@@ -7,6 +7,7 @@
 <meta name="csrf-token" content="{{ csrf_token }}">
   {% load static %}
   <link rel="stylesheet" href="{% static 'css/correos.css' %}">
+  <link rel="stylesheet" href="{% static 'css/quill.snow.css' %}">
   {% block extra_head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
@@ -65,7 +66,10 @@
         <span class="compose-fab-label">Asunto</span>
         <input type="text" name="asunto" autocomplete="off" maxlength="500" required>
       </label>
-      <textarea name="cuerpo" class="compose-fab-body" placeholder="Escribí tu mensaje…" maxlength="50000" required></textarea>
+      <div class="compose-fab-editor-wrap">
+        <div class="compose-fab-editor" data-placeholder="Escribí tu mensaje…"></div>
+        <input type="hidden" name="cuerpo" class="compose-fab-cuerpo-hidden" maxlength="50000">
+      </div>
       <div class="compose-fab-attach-list" id="cf-attach-list" hidden></div>
       <footer class="compose-fab-foot">
         <button type="submit" class="compose-fab-send">Enviar</button>
@@ -99,6 +103,7 @@
   <script src="{% static 'js/app_nav.js' %}" defer></script>
   <script src="{% static 'js/lightbox.js' %}" defer></script>
   <script src="{% static 'js/adj_viewer.js' %}" defer></script>
+  <script src="{% static 'js/quill.js' %}" defer></script>
   <script src="{% static 'js/compose_floating.js' %}" defer></script>
   <script src="{% static 'js/theme.js' %}" defer></script>
   {% block extra_js %}{% endblock %}

@@ -13,8 +13,8 @@
     to:     form.querySelector('[name="to"]'),
     cc:     form.querySelector('[name="cc"]'),
     asunto: form.querySelector('[name="asunto"]'),
-    cuerpo: form.querySelector('[name="cuerpo"]'),
   };
+  const cuerpoHidden = form.querySelector('.compose-fab-cuerpo-hidden');
   const ccRow = fab.querySelector('.compose-fab-row-cc');
   const ccToggle = fab.querySelector('.compose-fab-cc-toggle');
   const attachList = document.getElementById('cf-attach-list');
@@ -28,6 +28,28 @@
   let saveTimer = null;
   let saveStatusTimer = null;
   let dirty = false;
+
+  // ─── Quill (editor rico) ──────────────────────────────────────────────
+  let quill = null;
+  const editorEl = form.querySelector('.compose-fab-editor');
+  if (editorEl && typeof Quill !== 'undefined') {
+    quill = new Quill(editorEl, {
+      theme: 'snow',
+      modules: {
+        toolbar: [['bold', 'italic', 'underline'], ['link'], ['clean']],
+      },
+      placeholder: editorEl.dataset.placeholder || 'Escribí tu mensaje…',
+    });
+    quill.on('text-change', function () {
+      if (cuerpoHidden) cuerpoHidden.value = quill.root.innerHTML;
+      dirty = true;
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(autosave, 1500);
+    });
+    quill.clipboard.addMatcher(Node.ELEMENT_NODE, function (node, delta) {
+      return delta.compose(new window.Quill.imports['delta']([{ retain: delta.length(), attributes: { bold: null, italic: null, underline: null, color: null, background: null, size: null, font: null } }]));
+    });
+  }
   let attachments = [];
 
   function setEstado(nuevo) {
@@ -49,17 +71,23 @@
   }
 
   function payload() {
+    const cuerpoVal = quill
+      ? quill.root.innerHTML
+      : (cuerpoHidden ? cuerpoHidden.value : '');
     return {
       to:     inputs.to.value || '',
       cc:     inputs.cc.value || '',
       asunto: inputs.asunto.value || '',
-      cuerpo: inputs.cuerpo.value || '',
+      cuerpo: cuerpoVal,
       modo:   modo,
     };
   }
 
   function vacio() {
-    return !inputs.to.value && !inputs.cc.value && !inputs.asunto.value && !inputs.cuerpo.value;
+    const cuerpoVacio = quill
+      ? quill.getText().trim() === ''
+      : !(cuerpoHidden && cuerpoHidden.value);
+    return !inputs.to.value && !inputs.cc.value && !inputs.asunto.value && cuerpoVacio;
   }
 
   function autosave() {
@@ -95,7 +123,17 @@
     inputs.to.value     = (data && data.to)     || '';
     inputs.cc.value     = (data && data.cc)     || '';
     inputs.asunto.value = (data && data.asunto) || '';
-    inputs.cuerpo.value = (data && data.cuerpo) || '';
+    const cuerpoData = (data && data.cuerpo) || '';
+    if (quill) {
+      if (cuerpoData.trim().startsWith('<')) {
+        quill.root.innerHTML = cuerpoData;
+      } else {
+        quill.setText(cuerpoData);
+      }
+      if (cuerpoHidden) cuerpoHidden.value = quill.root.innerHTML;
+    } else if (cuerpoHidden) {
+      cuerpoHidden.value = cuerpoData;
+    }
     if (inputs.cc.value) {
       ccRow.hidden = false;
       ccToggle.hidden = true;
@@ -170,7 +208,7 @@
   };
 
   // ─── Inputs y autosave ────────────────────────────────────────────────
-  ['to', 'cc', 'asunto', 'cuerpo'].forEach(k => {
+  ['to', 'cc', 'asunto'].forEach(k => {
     inputs[k].addEventListener('input', programarSave);
   });
 

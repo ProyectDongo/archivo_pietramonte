@@ -474,6 +474,12 @@ _RE_LINKIFY = re.compile(r'(https?://[^\s<>\'"]{4,})')
 _RE_ANGLE_PHONE = re.compile(r'<(\+[\d\s\-().]{4,})>')
 
 
+@register.filter
+def is_html_content(text):
+    t = (text or '').strip()
+    return bool(t) and t[0] == '<'
+
+
 @register.filter(is_safe=True)
 def render_texto_plano(texto):
     """

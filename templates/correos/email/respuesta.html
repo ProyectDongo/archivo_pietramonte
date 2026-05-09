@@ -24,7 +24,11 @@
         <tr><td style="background:{{ brand_color }};height:4px;font-size:0;line-height:0">&nbsp;</td></tr>
 
         <tr><td style="padding:28px 32px 16px">
+          {% if cuerpo_usuario|is_html_content %}
+          <div style="font-size:14px;line-height:1.65;color:#222">{{ cuerpo_usuario|sanitizar_email_html_outbound|safe }}</div>
+          {% else %}
           <div style="font-size:14px;line-height:1.65;color:#222;white-space:pre-wrap">{{ cuerpo_usuario|default:"" }}</div>
+          {% endif %}
         </td></tr>
 
         <tr><td style="padding:16px 32px 28px;border-top:1px solid #f0f0f0">
