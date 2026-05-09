@@ -2602,7 +2602,7 @@
 
 /* Buzones (con avatar) */
 .sidebar-buzon-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
-.sidebar-buzon-form { margin: 0; }
+.sidebar-buzon-form { margin: 0; display: block; width: 100%; }
 .sidebar-buzon {
   width: 100%;
   display: grid;
@@ -2612,6 +2612,9 @@
   padding: 8px 14px;
   background: transparent;
   border: none;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
   border-radius: 99px;
   cursor: pointer;
   text-align: left;
