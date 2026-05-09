@@ -1146,6 +1146,7 @@ def reenviar_correo_view(request, correo_id):
             'buzon': correo.buzon,
             'mensaje_extra': nota,
             'reenviado_por': usuario.email,
+            **_brand_email_ctx(),
         },
         from_alias=_from_alias_buzon(correo.buzon),
         reply_to=[usuario.email],
@@ -1196,6 +1197,15 @@ def _enviados_recientes(usuario: UsuarioPortal) -> int:
     """Cantidad de respuestas/composiciones del usuario en las últimas RESP_RL_HORAS."""
     desde = timezone.now() - timedelta(hours=RESP_RL_HORAS)
     return CorreoEnviado.objects.filter(usuario=usuario, enviado_en__gte=desde).count()
+
+
+def _brand_email_ctx() -> dict:
+    """Variables de marca para los templates de email saliente."""
+    return {
+        'brand_logo_url':    getattr(settings, 'FIRMA_LOGO_URL', ''),
+        'brand_color':       getattr(settings, 'BRAND_PRIMARY_COLOR', '#C80C0F'),
+        'brand_company_name': getattr(settings, 'BRAND_COMPANY_NAME', 'Pietramonte Automotriz'),
+    }
 
 
 def _from_alias_buzon(buzon: Buzon) -> str:
@@ -1375,6 +1385,7 @@ def responder_correo_view(request, correo_id):
             'buzon':           correo.buzon,
             'cuerpo_usuario':  cuerpo,
             'enviado_por':     correo.buzon.email,
+            **_brand_email_ctx(),
         },
         from_alias=_from_alias_buzon(correo.buzon),
         # NO Reply-To: queremos que las respuestas vuelvan al BUZÓN (no al
@@ -2130,6 +2141,7 @@ def borrador_enviar_view(request, borrador_id):
         'buzon':          buzon,
         'cuerpo_usuario': cuerpo,
         'enviado_por':    buzon.email,
+        **_brand_email_ctx(),
     }
     if template == 'correos/email/respuesta' and b.correo_original:
         contexto['correo_original'] = b.correo_original
@@ -2328,6 +2340,7 @@ def compose_view(request):
             'buzon':          buzon,
             'cuerpo_usuario': cuerpo,
             'enviado_por':    buzon.email,
+            **_brand_email_ctx(),
         },
         from_alias=_from_alias_buzon(buzon),
         headers=headers,

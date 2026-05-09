@@ -271,6 +271,8 @@ FIRMA_LOGO_URL = os.getenv('FIRMA_LOGO_URL', '')
 # overridear con env var (ej. BRAND_PRIMARY_COLOR=#1976D2 para azul).
 BRAND_PRIMARY_COLOR = os.getenv('BRAND_PRIMARY_COLOR', '#C80C0F')
 
+BRAND_COMPANY_NAME = os.getenv('BRAND_COMPANY_NAME', 'Pietramonte Automotriz')
+
 
 # ─── Anti-bot del form público de reservas ────────────────────────────────
 # Cloudflare Turnstile: gratis, invisible para humanos legítimos. Sacá las
