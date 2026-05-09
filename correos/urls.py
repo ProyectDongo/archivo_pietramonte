@@ -45,4 +45,6 @@ urlpatterns = [
     path('intranet/borradores/',                         views.borradores_view,           name='borradores'),
     path('intranet/borradores/<int:borrador_id>/',       views.borrador_detalle_view,     name='borrador_detalle'),
     path('intranet/borradores/<int:borrador_id>/enviar/', views.borrador_enviar_view,     name='borrador_enviar'),
+    path('intranet/borradores/<int:borrador_id>/adjuntos/',              views.borrador_adjunto_upload_view, name='borrador_adjunto_upload'),
+    path('intranet/borradores/<int:borrador_id>/adjuntos/<int:adj_id>/', views.borrador_adjunto_delete_view, name='borrador_adjunto_delete'),
 ]

@@ -17,6 +17,9 @@
   };
   const ccRow = fab.querySelector('.compose-fab-row-cc');
   const ccToggle = fab.querySelector('.compose-fab-cc-toggle');
+  const attachList = document.getElementById('cf-attach-list');
+  const fileInput  = form.querySelector('.compose-fab-file-input');
+  const attachBtn  = form.querySelector('.compose-fab-attach-btn');
 
   let estado = 'hidden';
   let borradorId = null;
@@ -25,6 +28,7 @@
   let saveTimer = null;
   let saveStatusTimer = null;
   let dirty = false;
+  let attachments = [];
 
   function setEstado(nuevo) {
     estado = nuevo;
@@ -142,6 +146,8 @@
           .catch(() => { setStatus('No se pudo cargar el borrador', 'error'); });
       } else {
         borradorId = null;
+        attachments = [];
+        renderAttachments();
         poblar({
           to:     opts.to || '',
           cc:     opts.cc || '',
@@ -197,6 +203,8 @@
           });
         }
         borradorId = null;
+        attachments = [];
+        renderAttachments();
         setEstado('hidden');
       }
     });
@@ -207,6 +215,107 @@
   head.addEventListener('click', function (e) {
     if (e.target.closest('[data-cf-action]')) return;
     if (estado === 'minimized') setEstado('normal');
+  });
+
+  // ─── Adjuntos ─────────────────────────────────────────────────────────
+
+  function formatSize(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+    return (b / 1048576).toFixed(1) + ' MB';
+  }
+
+  function renderAttachments() {
+    if (!attachList) return;
+    attachList.innerHTML = '';
+    attachments.forEach(function (a) {
+      const item = document.createElement('div');
+      item.className = 'cf-attach-item';
+      item.innerHTML =
+        '<span class="cf-attach-name" title="' + a.nombre + '">' + a.nombre + '</span>'
+        + '<span class="cf-attach-size">' + formatSize(a.tamanio) + '</span>'
+        + '<button type="button" class="cf-attach-remove" data-id="' + a.id + '" aria-label="Quitar adjunto">×</button>';
+      attachList.appendChild(item);
+    });
+    attachList.hidden = attachments.length === 0;
+  }
+
+  function removeAttachment(adjId) {
+    if (!borradorId) return;
+    fetch('/intranet/borradores/' + borradorId + '/adjuntos/' + adjId + '/', {
+      method: 'DELETE',
+      credentials: 'same-origin',
+      headers: { 'X-CSRFToken': PM.csrf, 'X-Requested-With': 'fetch' },
+    }).then(function () {
+      attachments = attachments.filter(function (a) { return a.id !== adjId; });
+      renderAttachments();
+    });
+  }
+
+  function uploadFiles(files) {
+    if (!files || files.length === 0) return;
+    function doUpload() {
+      Array.from(files).forEach(function (file) {
+        const fd = new FormData();
+        fd.append('file', file);
+        setStatus('Subiendo adjunto…', 'saving');
+        fetch('/intranet/borradores/' + borradorId + '/adjuntos/', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'X-CSRFToken': PM.csrf, 'X-Requested-With': 'fetch' },
+          body: fd,
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (resp) {
+            if (resp.id) {
+              attachments.push({ id: resp.id, nombre: resp.nombre, tamanio: resp.tamanio });
+              renderAttachments();
+              setStatus('Adjunto subido', 'saved');
+            } else {
+              setStatus(resp.error || 'Error al subir adjunto', 'error');
+            }
+          })
+          .catch(function () { setStatus('Error al subir adjunto', 'error'); });
+      });
+    }
+    if (!borradorId) {
+      const data = payload();
+      if (correoOriginalId) data.correo_original_id = correoOriginalId;
+      PM.post('/intranet/borradores/', data).then(function (resp) {
+        if (resp && resp.id) { borradorId = resp.id; doUpload(); }
+      });
+    } else {
+      doUpload();
+    }
+  }
+
+  if (attachBtn) {
+    attachBtn.addEventListener('click', function () { if (fileInput) fileInput.click(); });
+  }
+  if (fileInput) {
+    fileInput.addEventListener('change', function () {
+      uploadFiles(fileInput.files);
+      fileInput.value = '';
+    });
+  }
+  if (attachList) {
+    attachList.addEventListener('click', function (e) {
+      const btn = e.target.closest('.cf-attach-remove');
+      if (btn) removeAttachment(parseInt(btn.dataset.id, 10));
+    });
+  }
+
+  fab.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    fab.classList.add('is-dropping');
+  });
+  fab.addEventListener('dragleave', function (e) {
+    if (!fab.contains(e.relatedTarget)) fab.classList.remove('is-dropping');
+  });
+  fab.addEventListener('drop', function (e) {
+    e.preventDefault();
+    fab.classList.remove('is-dropping');
+    uploadFiles(e.dataTransfer.files);
   });
 
   // ─── Submit (Enviar) ──────────────────────────────────────────────────

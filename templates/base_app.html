@@ -66,8 +66,13 @@
         <input type="text" name="asunto" autocomplete="off" maxlength="500" required>
       </label>
       <textarea name="cuerpo" class="compose-fab-body" placeholder="Escribí tu mensaje…" maxlength="50000" required></textarea>
+      <div class="compose-fab-attach-list" id="cf-attach-list" hidden></div>
       <footer class="compose-fab-foot">
         <button type="submit" class="compose-fab-send">Enviar</button>
+        <button type="button" class="compose-fab-attach-btn" title="Adjuntar archivo (máx 10 MB por archivo, 25 MB total)" aria-label="Adjuntar archivo">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+        </button>
+        <input type="file" class="compose-fab-file-input" multiple style="display:none" aria-hidden="true">
         <button type="button" class="compose-fab-discard" data-cf-action="discard" title="Descartar borrador">🗑</button>
       </footer>
     </form>

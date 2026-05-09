@@ -18,7 +18,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from . import captcha, totp as totp_helpers
 from .models import (
-    Adjunto, BorradorCorreo, Buzon, Correo, CorreoEnviado, CorreoLeido,
+    Adjunto, BorradorAdjunto, BorradorCorreo, Buzon, Correo, CorreoEnviado, CorreoLeido,
     CorreoSnooze, Etiqueta, EventoAuditoria, IntentoLogin, ReenvioCorreo,
     UsuarioPortal, hash_ip,
 )
@@ -2063,6 +2063,48 @@ def borrador_detalle_view(request, borrador_id):
 
 @portal_login_required
 @require_POST
+def borrador_adjunto_upload_view(request, borrador_id):
+    import mimetypes
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return JsonResponse({'error': 'no_session'}, status=403)
+    b = get_object_or_404(BorradorCorreo, id=borrador_id, usuario=usuario)
+    archivo = request.FILES.get('file')
+    if not archivo:
+        return JsonResponse({'error': 'No hay archivo.'}, status=400)
+    MAX_FILE = 10 * 1024 * 1024
+    MAX_TOTAL = 25 * 1024 * 1024
+    if archivo.size > MAX_FILE:
+        return JsonResponse({'error': 'El archivo supera los 10 MB.'}, status=400)
+    total_actual = sum(a.tamanio for a in b.adjuntos_borrador.all())
+    if total_actual + archivo.size > MAX_TOTAL:
+        return JsonResponse({'error': 'Los adjuntos superan 25 MB en total.'}, status=400)
+    mime, _ = mimetypes.guess_type(archivo.name)
+    adj = BorradorAdjunto.objects.create(
+        borrador=b,
+        nombre_original=archivo.name[:500],
+        mime_type=mime or 'application/octet-stream',
+        archivo=archivo,
+        tamanio=archivo.size,
+    )
+    return JsonResponse({'id': adj.id, 'nombre': adj.nombre_original, 'tamanio': adj.tamanio})
+
+
+@portal_login_required
+def borrador_adjunto_delete_view(request, borrador_id, adj_id):
+    if request.method != 'DELETE':
+        return JsonResponse({'error': 'Método no permitido.'}, status=405)
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return JsonResponse({'error': 'no_session'}, status=403)
+    b = get_object_or_404(BorradorCorreo, id=borrador_id, usuario=usuario)
+    adj = get_object_or_404(BorradorAdjunto, id=adj_id, borrador=b)
+    adj.delete()
+    return JsonResponse({'ok': True})
+
+
+@portal_login_required
+@require_POST
 @throttle_user('enviar', per_minute=20)
 def borrador_enviar_view(request, borrador_id):
     """
@@ -2146,6 +2188,16 @@ def borrador_enviar_view(request, borrador_id):
     if template == 'correos/email/respuesta' and b.correo_original:
         contexto['correo_original'] = b.correo_original
 
+    # Load draft attachments
+    adjuntos_draft = []
+    for adj in b.adjuntos_borrador.all():
+        try:
+            with adj.archivo.open('rb') as f:
+                content = f.read()
+            adjuntos_draft.append((adj.nombre_original, content, adj.mime_type))
+        except Exception:
+            pass
+
     resultado = safe_send(
         asunto=asunto,
         para=to_addrs,
@@ -2154,6 +2206,7 @@ def borrador_enviar_view(request, borrador_id):
         contexto=contexto,
         from_alias=_from_alias_buzon(buzon),
         headers=headers,
+        adjuntos=adjuntos_draft or None,
     )
 
     sent_correo = None

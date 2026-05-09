@@ -284,6 +284,27 @@ class BorradorCorreo(models.Model):
         return f'Borrador #{self.id} · {self.usuario.email} · {self.asunto[:60] or "(sin asunto)"}'
 
 
+class BorradorAdjunto(models.Model):
+    borrador = models.ForeignKey(
+        BorradorCorreo, on_delete=models.CASCADE, related_name='adjuntos_borrador'
+    )
+    nombre_original = models.CharField(max_length=500)
+    mime_type = models.CharField(max_length=200, default='application/octet-stream')
+    archivo = models.FileField(upload_to='borradores/%Y/%m/')
+    tamanio = models.PositiveIntegerField(default=0)
+    subido = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['subido']
+        verbose_name = 'Adjunto de borrador'
+        verbose_name_plural = 'Adjuntos de borradores'
+
+    def delete(self, *args, **kwargs):
+        if self.archivo:
+            self.archivo.delete(save=False)
+        super().delete(*args, **kwargs)
+
+
 class CorreoSnooze(models.Model):
     """
     Snooze (posponer) per-usuario: oculta el correo de la bandeja hasta
