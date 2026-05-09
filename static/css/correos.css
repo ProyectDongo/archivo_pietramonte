@@ -1385,6 +1385,26 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+.preview-content-texto {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--gd);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.preview-content-texto blockquote {
+  white-space: pre-wrap;
+  border-left: 3px solid #c8c8c8;
+  margin: 2px 0 2px 0;
+  padding: 0 0 0 10px;
+  color: #777;
+  font-size: 13px;
+}
+[data-theme="dark"] .preview-content-texto blockquote {
+  border-left-color: #444;
+  color: #888;
+}
 
 /* ─── Render de HTML de email (post-bleach) ──────────────────────
    El email original puede traer estilos inline que ya validamos con

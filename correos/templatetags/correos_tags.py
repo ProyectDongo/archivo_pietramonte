@@ -468,6 +468,61 @@ def limpiar_cid_brackets(texto):
     return _strip_cid_brackets_en_texto(texto or '')
 
 
+_RE_IMAGE_PLACEHOLDER = re.compile(r'\[image:[^\]]*\]', re.IGNORECASE)
+_RE_BOLD_MARKDOWN = re.compile(r'\*([^*\n]{1,200})\*')
+_RE_LINKIFY = re.compile(r'(https?://[^\s<>\'"]{4,})')
+_RE_ANGLE_PHONE = re.compile(r'<(\+[\d\s\-().]{4,})>')
+
+
+@register.filter(is_safe=True)
+def render_texto_plano(texto):
+    """
+    Renderiza el cuerpo en texto plano con mejoras visuales similares a Gmail:
+    - Elimina [image: ...] y [cid:...] (placeholders de imágenes inline)
+    - Estila líneas citadas (> ...) como blockquote con borde izquierdo
+    - Convierte *bold* en <strong>
+    - Linkifica URLs
+    - Limpia <+569...> angle brackets de teléfonos
+    """
+    if not texto:
+        return ''
+
+    texto = _strip_cid_brackets_en_texto(texto)
+    texto = _RE_IMAGE_PLACEHOLDER.sub('', texto)
+
+    lines = texto.splitlines()
+    parts = []
+    in_quote = False
+
+    for line in lines:
+        m = re.match(r'^(>+)\s?(.*)', line)
+        if m:
+            content = escape(m.group(2))
+            if not in_quote:
+                parts.append('<blockquote class="pt-quote">')
+                in_quote = True
+            parts.append(content + '\n')
+        else:
+            if in_quote:
+                parts.append('</blockquote>')
+                in_quote = False
+            parts.append(escape(line) + '\n')
+
+    if in_quote:
+        parts.append('</blockquote>')
+
+    html = ''.join(parts)
+
+    html = _RE_ANGLE_PHONE.sub(r'\1', html)
+    html = _RE_BOLD_MARKDOWN.sub(r'<strong>\1</strong>', html)
+    html = _RE_LINKIFY.sub(
+        r'<a href="\1" target="_blank" rel="noopener noreferrer">\1</a>',
+        html,
+    )
+
+    return mark_safe(html)
+
+
 @register.filter(is_safe=True)
 def sanitizar_email_html_outbound(html: str) -> str:
     """
