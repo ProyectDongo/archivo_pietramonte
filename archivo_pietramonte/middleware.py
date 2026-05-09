@@ -45,7 +45,7 @@ _CSP_DEFAULT = (
     "font-src 'self' https://fonts.gstatic.com; "
     "img-src 'self' data: blob:; "
     "connect-src 'self' https://challenges.cloudflare.com https://cloudflareinsights.com; "
-    "frame-src https://challenges.cloudflare.com; "
+    "frame-src 'self' https://challenges.cloudflare.com; "  # 'self' para PDF/audio inline en adj-viewer
     "frame-ancestors 'none'; "
     "form-action 'self'; "
     "base-uri 'self'; "
