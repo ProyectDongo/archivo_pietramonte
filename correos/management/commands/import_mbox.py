@@ -69,20 +69,30 @@ def decodificar_header(valor):
 
 
 def _decodear_payload(parte) -> str:
-    """Decodifica el payload de una parte respetando charset, con fallbacks."""
+    """Decodifica el payload de una parte respetando charset, con fallbacks.
+    Retorna '' si el resultado parece contenido binario (ZIP, PDF, etc.)."""
     payload = parte.get_payload(decode=True)
     if not payload:
         return ''
+    # Guard: si los primeros bytes tienen firma de formato binario conocido, ignorar.
+    if payload[:4] in (b'PK\x03\x04', b'PK\x05\x06', b'%PDF', b'\x89PNG', b'GIF8', b'\xff\xd8\xff'):
+        return ''
     charset = parte.get_content_charset() or 'utf-8'
     try:
-        return payload.decode(charset, errors='replace')
+        text = payload.decode(charset, errors='replace')
     except (LookupError, UnicodeDecodeError):
         detected = chardet.detect(payload)
         enc = detected.get('encoding') or 'utf-8'
         try:
-            return payload.decode(enc, errors='replace')
+            text = payload.decode(enc, errors='replace')
         except Exception:
-            return payload.decode('latin-1', errors='replace')
+            text = payload.decode('latin-1', errors='replace')
+    # Guard: si >25% son caracteres de control no-texto, es binario disfrazado.
+    if len(text) > 100:
+        non_text = sum(1 for c in text[:500] if ord(c) < 32 and c not in '\t\n\r')
+        if non_text / min(len(text), 500) > 0.25:
+            return ''
+    return text
 
 
 def extraer_cuerpos(msg) -> tuple[str, str]:
@@ -118,12 +128,13 @@ def extraer_cuerpos(msg) -> tuple[str, str]:
                     htmls.append(h)
     else:
         content_type = msg.get_content_type()
-        body = _decodear_payload(msg)
-        if body:
-            if content_type == 'text/html':
-                htmls.append(body)
-            else:
-                textos.append(body)
+        if content_type in ('text/plain', 'text/html'):
+            body = _decodear_payload(msg)
+            if body:
+                if content_type == 'text/html':
+                    htmls.append(body)
+                else:
+                    textos.append(body)
 
     texto_final = '\n'.join(textos)[:50000]
     html_final = '\n'.join(htmls)[:200000]
