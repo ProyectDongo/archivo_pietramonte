@@ -35,6 +35,40 @@ PRE_2FA_TTL = 5 * 60
 LOCKOUT_THRESHOLD     = 5      # fallos consecutivos antes de bloquear
 LOCKOUT_DURACION_MIN  = 30     # cuánto dura el bloqueo
 
+# Alerta al admin: thresholds para mandar email de "actividad sospechosa".
+# Se cachea para no spamear (un solo email por dirección por hora).
+ALERTA_LOCKOUT_THROTTLE_SEG    = 60 * 60       # 1h entre alertas del mismo evento
+ALERTA_FAILS_GLOBAL_THRESHOLD  = 20            # fallos totales/IP-distintas en ventana
+ALERTA_FAILS_GLOBAL_VENTANA_S  = 10 * 60       # ventana de 10 min
+
+
+def _enviar_alerta_admin(asunto: str, body: str, key_throttle: str) -> None:
+    """
+    Manda email al admin (settings.PORTAL_ADMIN_EMAIL) si no se mandó otra
+    alerta con la misma key_throttle en ALERTA_LOCKOUT_THROTTLE_SEG.
+
+    Failure-mode: si SMTP está caído o no está configurado, NO bloquea el
+    flujo. La info ya está en el log + EventoAuditoria.
+    """
+    try:
+        if cache.get(f'alerta_admin:{key_throttle}'):
+            return
+        cache.set(f'alerta_admin:{key_throttle}', 1, ALERTA_LOCKOUT_THROTTLE_SEG)
+
+        from django.core.mail import send_mail
+        admin_to = getattr(settings, 'PORTAL_ADMIN_EMAIL', '')
+        if not admin_to:
+            return
+        send_mail(
+            subject=f'[Pietramonte · Seguridad] {asunto}',
+            message=body,
+            from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', None),
+            recipient_list=[admin_to],
+            fail_silently=True,
+        )
+    except Exception:
+        logger.exception('Fallo enviar alerta admin (no bloquea login flow)')
+
 
 # ─── Helpers ───────────────────────────────────────────────────────────────
 def _get_ip(request) -> str:
@@ -290,6 +324,34 @@ def login_view(request):
         _rl_intento(ip_h, exito=False)
         _log_intento(request, ip_h, email, motivo=motivo, exito=False,
                      tiempo_ms=tiempo_ms, honeypot=bool(honeypot))
+
+        # Detección de ataque global: si el contador acumulado de fallos
+        # cruza umbral en la ventana de ALERTA_FAILS_GLOBAL_VENTANA_S, manda
+        # alerta UNA vez (throttle de 1h en _enviar_alerta_admin).
+        try:
+            n_global = cache.get('login_fails_global', 0) + 1
+            cache.set('login_fails_global', n_global, ALERTA_FAILS_GLOBAL_VENTANA_S)
+            if n_global == ALERTA_FAILS_GLOBAL_THRESHOLD:
+                _enviar_alerta_admin(
+                    asunto=f'Posible ataque distribuido — {n_global} fallos de login en {ALERTA_FAILS_GLOBAL_VENTANA_S//60} min',
+                    body=(
+                        f'Detectados {n_global} intentos fallidos de login en '
+                        f'los últimos {ALERTA_FAILS_GLOBAL_VENTANA_S // 60} minutos. '
+                        f'Esto puede indicar un ataque distribuido (botnet rotando '
+                        f'IPs para evitar el rate-limit per-IP).\n\n'
+                        f'Acciones sugeridas:\n'
+                        f'  1. Revisá IntentoLogin recientes en el admin para ver '
+                        f'patrones (mismas IPs? mismos emails? user-agents raros?).\n'
+                        f'  2. Si es un ataque real, considerá habilitar Cloudflare '
+                        f'Under Attack Mode desde el dashboard.\n'
+                        f'  3. Verificá que las cuentas críticas no estén comprometidas.\n\n'
+                        f'Próxima alerta de este tipo: en máx 1 hora (throttle).'
+                    ),
+                    key_throttle='global_attack',
+                )
+        except Exception:
+            logger.exception('Fallo en alerta global (no bloquea login)')
+
         messages.error(request, ERROR_GENERICO)
         return render(request, 'correos/login.html',
                       _ctx({'last_email': email[:254]}), status=400)
@@ -353,6 +415,26 @@ def login_view(request):
                     )
                 except Exception:
                     logger.exception('Fallo audit lockout')
+
+                # Email al admin (throttled 1/h por usuario para no spamear).
+                _enviar_alerta_admin(
+                    asunto=f'Lockout — cuenta {email} bloqueada por brute-force',
+                    body=(
+                        f'La cuenta {email} fue bloqueada automáticamente por '
+                        f'{LOCKOUT_DURACION_MIN} minutos tras {LOCKOUT_THRESHOLD} '
+                        f'intentos fallidos consecutivos.\n\n'
+                        f'IP hash (parcial): {ip_h[:12]}\n'
+                        f'User-Agent: {_ua(request)[:200]}\n'
+                        f'Bloqueado hasta: {usuario.bloqueado_hasta:%Y-%m-%d %H:%M:%S}\n\n'
+                        f'Si fue intencional (alguien probando), ignorá este aviso. '
+                        f'Si NO reconocés actividad, revisá los IntentoLogin '
+                        f'recientes desde el admin Django.\n\n'
+                        f'Para desbloquear manualmente antes del timeout:\n'
+                        f'  Admin Django → UsuarioPortal → editar {email} → '
+                        f'limpiar bloqueado_hasta + resetear intentos_fallidos a 0.'
+                    ),
+                    key_throttle=f'lockout:{email}',
+                )
             return fallo('password_invalida')
     except UsuarioPortal.DoesNotExist:
         # Run check_password on a known hash for timing parity
