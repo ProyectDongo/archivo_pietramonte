@@ -60,6 +60,14 @@ def _es_overquota(error_obj) -> bool:
     return 'OVERQUOTA' in str(error_obj).upper()
 
 
+# Tamaño del batch para imap.uid('fetch', ...). Reduce comandos IMAP ~100x
+# en syncs grandes: en vez de "FETCH 1 (RFC822)", "FETCH 2 (RFC822)", ...
+# hacemos "FETCH 1:100 (RFC822)" en un solo comando.
+# Cada comando es costoso contra la cuota IMAP de Gmail (~2500 comandos/día).
+# Con batch 100 → 2500 comandos = ~250k mensajes/día (vs 2500 mensajes/día).
+BATCH_FETCH_SIZE = 100
+
+
 def _es_conexion_muerta(error_obj) -> bool:
     """
     Detecta si el error indica que la conexión IMAP se cayó (SSL EOF,
@@ -145,6 +153,11 @@ def imap_connection():
 #   (\HasNoChildren) "/" "[Gmail]/All Mail"
 _LIST_RE = re.compile(r'\(([^)]*)\)\s+"([^"]*)"\s+(?:"([^"]+)"|(\S+))')
 
+# Extrae UID del header de cada mensaje en una respuesta IMAP batch FETCH.
+# El header tiene formato: b'42 (UID 12345 RFC822 {1234}'
+# (el "42" es el sequence number — nos importa el UID).
+_RE_UID_IN_HEADER = re.compile(r'\bUID\s+(\d+)', re.IGNORECASE)
+
 
 def listar_labels() -> list[str]:
     """
@@ -223,40 +236,72 @@ def fetch_nuevos(label_name: str, last_uid: int = 0):
 
         uids = sorted(set(int(u) for u in data[0].split() if int(u) > last_uid))
 
-        for uid in uids:
-            uid_b = str(uid).encode('ascii')
+        # BATCH FETCH: en vez de pedir cada mensaje con un comando IMAP
+        # separado, pedimos chunks de BATCH_FETCH_SIZE UIDs en un solo
+        # comando ("FETCH 1:100 (RFC822)"). Reduce comandos IMAP ~100x →
+        # mucho menos presión sobre la cuota de Gmail (~2500 comandos/día).
+        for chunk_start in range(0, len(uids), BATCH_FETCH_SIZE):
+            chunk_uids = uids[chunk_start:chunk_start + BATCH_FETCH_SIZE]
+
+            # Si son contiguos usamos rango "X:Y" (más eficiente para IMAP);
+            # sino, lista "X,Y,Z" (también válida pero string más grande).
+            if chunk_uids[-1] - chunk_uids[0] == len(chunk_uids) - 1:
+                uid_arg = f'{chunk_uids[0]}:{chunk_uids[-1]}'.encode('ascii')
+            else:
+                uid_arg = ','.join(str(u) for u in chunk_uids).encode('ascii')
+
             try:
-                typ, msg_data = imap.uid('fetch', uid_b, '(RFC822)')
+                typ, msg_data = imap.uid('fetch', uid_arg, '(RFC822)')
             except imaplib.IMAP4.abort as e:
-                # IMAP4.abort = la librería ya considera la conexión muerta.
-                # Cualquier fetch posterior va a fallar igual.
-                raise ImapError(f'IMAP abort en fetch uid={uid}: {e}') from e
-            except imaplib.IMAP4.error as e:
-                # OVERQUOTA en medio del fetch → abortar todo el sync para
-                # no extender el bloqueo (cada fetch que falla con
-                # OVERQUOTA cuenta como otro intento contra la cuota).
                 if _es_overquota(e):
-                    raise OverquotaError(f'fetch uid={uid}: {e}') from e
-                # Conexión muerta (SSL EOF, socket roto, broken pipe): hay
-                # que abortar el for loop entero. Seguir intentando sobre
-                # una conexión cerrada genera miles de warnings inútiles y
-                # cero inserts. La próxima corrida del cron reconecta limpio.
+                    raise OverquotaError(
+                        f'fetch batch {chunk_uids[0]}:{chunk_uids[-1]}: {e}'
+                    ) from e
+                raise ImapError(
+                    f'IMAP abort en fetch batch {chunk_uids[0]}:{chunk_uids[-1]}: {e}'
+                ) from e
+            except imaplib.IMAP4.error as e:
+                if _es_overquota(e):
+                    raise OverquotaError(
+                        f'fetch batch {chunk_uids[0]}:{chunk_uids[-1]}: {e}'
+                    ) from e
                 if _es_conexion_muerta(e):
                     raise ImapError(
-                        f'Conexión IMAP perdida en fetch uid={uid}: {e}'
+                        f'Conexión IMAP perdida en fetch batch {chunk_uids[0]}:{chunk_uids[-1]}: {e}'
                     ) from e
-                # Error puntual del mensaje (borrado del label en el medio,
-                # encoding raro, etc.): skip ese mensaje y seguir.
-                logger.warning('Skip uid=%s en %s: %s', uid, label_name, e)
+                # Error del batch completo no es "puntual de un mensaje".
+                # Es raro pero por las dudas: logueamos y seguimos al
+                # siguiente chunk.
+                logger.warning(
+                    'Skip batch %s:%s en %s: %s',
+                    chunk_uids[0], chunk_uids[-1], label_name, e,
+                )
                 continue
             except (OSError, ConnectionError) as e:
-                # Socket-level error: idem, conexión rota.
                 raise ImapError(
-                    f'Socket error en fetch uid={uid}: {e}'
+                    f'Socket error en fetch batch {chunk_uids[0]}:{chunk_uids[-1]}: {e}'
                 ) from e
+
             if typ != 'OK' or not msg_data:
                 continue
+
+            # Parsear la respuesta del batch. IMAP devuelve N×2 elementos:
+            # cada mensaje es una tuple (header_bytes, body_bytes) seguida
+            # de un b')' literal. Iteramos las tuples y extraemos UID del
+            # header (formato: b'42 (UID 12345 RFC822 {1234}').
             for chunk in msg_data:
-                if isinstance(chunk, tuple) and len(chunk) >= 2 and isinstance(chunk[1], (bytes, bytearray)):
-                    yield (uid, bytes(chunk[1]))
-                    break
+                if not (isinstance(chunk, tuple) and len(chunk) >= 2
+                        and isinstance(chunk[1], (bytes, bytearray))):
+                    continue
+                header_bytes = chunk[0]
+                if isinstance(header_bytes, (bytes, bytearray)):
+                    header_str = header_bytes.decode('ascii', errors='ignore')
+                else:
+                    header_str = str(header_bytes)
+                m = _RE_UID_IN_HEADER.search(header_str)
+                if not m:
+                    # Sin UID en el header — no podemos identificar el
+                    # mensaje, lo skipeamos.
+                    continue
+                uid = int(m.group(1))
+                yield (uid, bytes(chunk[1]))
