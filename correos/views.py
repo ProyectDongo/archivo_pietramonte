@@ -9,7 +9,7 @@ from django.contrib import messages
 from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.db.models import Count, Exists, OuterRef, Q
-from django.db.models.functions import TruncDate, TruncMonth
+from django.db.models.functions import ExtractHour, ExtractIsoWeekDay, TruncDate, TruncMonth
 from django.http import FileResponse, Http404, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
@@ -2808,27 +2808,6 @@ def _esc_chart_ingresos(usuario, buzones_visibles, dias=ESCRITORIO_CHART_DIAS):
     return out
 
 
-def _esc_top_perfiles(usuario, buzones_visibles, top=5):
-    """Top N buzones por cantidad de correos, visibles para este usuario."""
-    cache_key = f'esc:perf:{usuario.id}:{top}'
-    cached = cache.get(cache_key)
-    if cached:
-        return cached
-
-    perfiles = list(
-        buzones_visibles
-        .annotate(n_correos=Count('correos'))
-        .order_by('-n_correos')[:top]
-        .values('id', 'email', 'nombre', 'n_correos')
-    )
-    max_n = max((p['n_correos'] for p in perfiles), default=1) or 1
-    for p in perfiles:
-        p['pct'] = round(p['n_correos'] * 100 / max_n, 1)
-        p['iniciales'] = (p['email'][:2] or '??').upper()
-    cache.set(cache_key, perfiles, ESCRITORIO_CACHE_TTL)
-    return perfiles
-
-
 def _esc_top_temas(buzones_visibles, top=5):
     """
     Top N CategoriaTema activas con más correos matcheados por keyword.
@@ -2909,6 +2888,294 @@ def _esc_archivos_recientes(buzones_visibles, n=4):
     )
 
 
+def _esc_kpis_ejecutivos(usuario, buzones_visibles):
+    """
+    KPIs de operación: recibidos, enviados, tasa respuesta, sin leer,
+    pendientes con snooze, hoy.
+    """
+    cache_key = f'esc:kpis:{usuario.id}'
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    base = Correo.objects.filter(buzon__in=buzones_visibles)
+    total      = base.count()
+    recibidos  = base.filter(tipo_carpeta='inbox').count()
+    enviados   = base.filter(tipo_carpeta='enviados').count()
+    otros      = total - recibidos - enviados
+    # Tasa de respuesta = enviados / recibidos (proxy razonable)
+    tasa_resp  = round(enviados * 100 / recibidos, 1) if recibidos else 0.0
+
+    # Sin leer (per-usuario)
+    no_leidos = base.exclude(
+        id__in=CorreoLeido.objects.filter(usuario=usuario).values('correo_id')
+    ).count()
+
+    # Snooze activos
+    snooze_activos = CorreoSnooze.objects.filter(
+        usuario=usuario, until_at__gt=timezone.now()
+    ).count()
+
+    out = {
+        'total':          total,
+        'recibidos':      recibidos,
+        'enviados':       enviados,
+        'otros':          otros,
+        'tasa_respuesta': tasa_resp,
+        'no_leidos':      no_leidos,
+        'snooze_activos': snooze_activos,
+    }
+    cache.set(cache_key, out, ESCRITORIO_CACHE_TTL)
+    return out
+
+
+def _esc_volumen_mensual(usuario, buzones_visibles, meses=12):
+    """
+    Volumen de correos por mes — últimos N meses. Para chart de líneas
+    "tendencia histórica del negocio". Usa `fecha` (timestamp del email)
+    porque acá sí queremos visión histórica real.
+    """
+    cache_key = f'esc:volumen_mensual:{usuario.id}:{meses}'
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    desde = timezone.now() - timedelta(days=meses * 31)
+    raw = list(
+        Correo.objects
+        .filter(buzon__in=buzones_visibles, fecha__gte=desde)
+        .annotate(mes=TruncMonth('fecha'))
+        .values('mes')
+        .annotate(c=Count('id'))
+        .order_by('mes')
+    )
+
+    # Normalizar: rellenar meses sin datos con 0 para línea continua.
+    # Generamos los últimos `meses` meses calendario hacia atrás.
+    hoy = timezone.localdate()
+    serie = []
+    for offset in range(meses - 1, -1, -1):
+        # Calcular el mes target (hoy - offset meses)
+        y = hoy.year
+        m = hoy.month - offset
+        while m <= 0:
+            m += 12
+            y -= 1
+        # Match contra el agrupamiento (datetime al inicio del mes)
+        valor = 0
+        for row in raw:
+            if row['mes'] and row['mes'].year == y and row['mes'].month == m:
+                valor = row['c']
+                break
+        serie.append({'year': y, 'month': m, 'c': valor})
+
+    max_val = max((s['c'] for s in serie), default=1) or 1
+    # SVG viewBox: 720 wide × 160 tall, datos clamp a 0..120 (eje Y invertido)
+    n = max(len(serie) - 1, 1)
+    points = []
+    for i, s in enumerate(serie):
+        s['h'] = round(s['c'] * 100 / max_val, 1)
+        s['label'] = f"{s['year']}-{s['month']:02d}"
+        s['x_svg'] = round(i * 720 / n, 1)
+        # 120 - (% × 1.2) → invertido para SVG (y=0 está arriba)
+        s['y_svg'] = round(120 - s['h'] * 1.2, 1)
+        points.append(f"{s['x_svg']},{s['y_svg']}")
+    out = {
+        'serie':      serie,
+        'max_val':    max_val,
+        'points_str': ' '.join(points),
+    }
+    cache.set(cache_key, out, ESCRITORIO_CACHE_TTL)
+    return out
+
+
+def _esc_pie_carpetas(usuario, buzones_visibles):
+    """
+    Distribución por tipo_carpeta para un donut chart.
+    Reutiliza los counts de KPIs.
+    """
+    kpis = _esc_kpis_ejecutivos(usuario, buzones_visibles)
+    total = max(kpis['total'], 1)
+    slices = [
+        {'nombre': 'Recibidos', 'count': kpis['recibidos'],
+         'color': '#C80C0F'},
+        {'nombre': 'Enviados',  'count': kpis['enviados'],
+         'color': '#2563eb'},
+        {'nombre': 'Otros',     'count': kpis['otros'],
+         'color': '#94a3b8'},
+    ]
+    # Acumular pct + offset para stroke-dasharray
+    acc = 0
+    for s in slices:
+        s['pct'] = round(s['count'] * 100 / total, 1)
+        s['offset_pct'] = acc
+        acc += s['pct']
+    return {'slices': slices, 'total': total}
+
+
+def _esc_top_remitentes_externos(usuario, buzones_visibles, top=10):
+    """
+    Top N remitentes que NO son @pietramonte.cl. Útil para ver quién
+    desde afuera te escribe más (clientes recurrentes, bancos, etc).
+    """
+    cache_key = f'esc:remits:{usuario.id}:{top}'
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    dominio_propio = '@pietramonte.cl'
+    raw = list(
+        Correo.objects
+        .filter(buzon__in=buzones_visibles, tipo_carpeta='inbox')
+        .exclude(remitente__icontains=dominio_propio)
+        .exclude(remitente='')
+        .values('remitente')
+        .annotate(c=Count('id'))
+        .order_by('-c')[:top]
+    )
+    max_c = max((r['c'] for r in raw), default=1) or 1
+    for r in raw:
+        r['pct'] = round(r['c'] * 100 / max_c, 1)
+        # Limpiar formato "Nombre <email>" → mostrar Nombre si lo tiene
+        rem = r['remitente']
+        if '<' in rem:
+            nombre = rem.split('<', 1)[0].strip().strip('"')
+            email  = rem.split('<', 1)[1].rstrip('>').strip()
+            r['display'] = nombre or email
+            r['email']   = email
+        else:
+            r['display'] = rem
+            r['email']   = rem
+
+    cache.set(cache_key, raw, ESCRITORIO_CACHE_TTL)
+    return raw
+
+
+def _esc_heatmap_actividad(usuario, buzones_visibles, dias=90):
+    """
+    Heatmap día-de-semana × hora-del-día. Últimos N días para tener señal
+    sin diluir con histórico antiguo.
+
+    Devuelve una matriz 7×24 (Lun..Dom × 0..23) con counts + max para
+    normalizar la opacidad en el template.
+    """
+    cache_key = f'esc:heatmap:{usuario.id}:{dias}'
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    desde = timezone.now() - timedelta(days=dias)
+    raw = (
+        Correo.objects
+        .filter(buzon__in=buzones_visibles, fecha__gte=desde)
+        .annotate(dow=ExtractIsoWeekDay('fecha'), h=ExtractHour('fecha'))
+        .values('dow', 'h')
+        .annotate(c=Count('id'))
+    )
+
+    # ExtractIsoWeekDay: 1=Lun, 7=Dom (ISO 8601). Justo lo que queremos.
+    matriz = [[0] * 24 for _ in range(7)]
+    max_c = 1
+    for row in raw:
+        dow = row['dow']
+        h = row['h']
+        if dow is None or h is None:
+            continue
+        dow_idx = max(0, min(6, dow - 1))   # 1..7 → 0..6
+        h_idx   = max(0, min(23, h))
+        matriz[dow_idx][h_idx] = row['c']
+        if row['c'] > max_c:
+            max_c = row['c']
+
+    # Pre-calcular opacity por celda (0..1) para el template
+    nombres_dow = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+    filas = []
+    for d in range(7):
+        celdas = []
+        for h in range(24):
+            c = matriz[d][h]
+            opacity = round(c / max_c, 3) if max_c else 0
+            celdas.append({'h': h, 'count': c, 'opacity': opacity})
+        filas.append({'dow_label': nombres_dow[d], 'celdas': celdas})
+
+    out = {'filas': filas, 'max_count': max_c}
+    cache.set(cache_key, out, ESCRITORIO_CACHE_TTL)
+    return out
+
+
+def _esc_top_perfiles_stacked(usuario, buzones_visibles, top=5):
+    """
+    Top N buzones por volumen, con breakdown de recibidos/enviados/otros
+    para mostrar como barra apilada. Reemplaza a `_esc_top_perfiles` con
+    info más rica.
+    """
+    cache_key = f'esc:perf_stacked:{usuario.id}:{top}'
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    visibles_ids = list(buzones_visibles.values_list('id', flat=True))
+    # Total por buzón
+    totales = dict(
+        Correo.objects.filter(buzon_id__in=visibles_ids)
+        .values('buzon_id').annotate(c=Count('id'))
+        .values_list('buzon_id', 'c')
+    )
+    # Recibidos por buzón
+    recibidos = dict(
+        Correo.objects.filter(buzon_id__in=visibles_ids, tipo_carpeta='inbox')
+        .values('buzon_id').annotate(c=Count('id'))
+        .values_list('buzon_id', 'c')
+    )
+    # Enviados por buzón
+    enviados = dict(
+        Correo.objects.filter(buzon_id__in=visibles_ids, tipo_carpeta='enviados')
+        .values('buzon_id').annotate(c=Count('id'))
+        .values_list('buzon_id', 'c')
+    )
+
+    # Top N buzones por total
+    buzones_data = [
+        (bid, t) for bid, t in totales.items() if t > 0
+    ]
+    buzones_data.sort(key=lambda x: -x[1])
+    buzones_data = buzones_data[:top]
+
+    if not buzones_data:
+        cache.set(cache_key, [], ESCRITORIO_CACHE_TTL)
+        return []
+
+    max_total = buzones_data[0][1] or 1
+    # Map de buzones para obtener email/nombre
+    buzones_map = {b.id: b for b in buzones_visibles}
+
+    out = []
+    for bid, total in buzones_data:
+        b = buzones_map.get(bid)
+        if not b:
+            continue
+        r = recibidos.get(bid, 0)
+        e = enviados.get(bid, 0)
+        o = max(0, total - r - e)
+        out.append({
+            'id':      bid,
+            'email':   b.email,
+            'nombre':  b.nombre or b.email,
+            'iniciales': (b.email[:2] or '??').upper(),
+            'total':   total,
+            'recibidos': r,
+            'enviados': e,
+            'otros':   o,
+            'pct':     round(total * 100 / max_total, 1),
+            'pct_r':   round(r * 100 / total, 1) if total else 0,
+            'pct_e':   round(e * 100 / total, 1) if total else 0,
+            'pct_o':   round(o * 100 / total, 1) if total else 0,
+        })
+
+    cache.set(cache_key, out, ESCRITORIO_CACHE_TTL)
+    return out
+
+
 @portal_login_required
 @throttle_user('escritorio', per_minute=60)
 @never_cache
@@ -2931,10 +3198,16 @@ def escritorio_view(request):
         'usuario':           usuario,
         'stats':             _esc_stats_buzones(usuario, visibles_qs),
         'chart':             _esc_chart_ingresos(usuario, visibles_qs),
-        'top_perfiles':      _esc_top_perfiles(usuario, visibles_qs),
+        'top_perfiles':      _esc_top_perfiles_stacked(usuario, visibles_qs),
         'top_temas':         _esc_top_temas(visibles_qs),
         'ultimos_correos':   _esc_ultimos_correos(usuario, visibles_qs),
         'archivos_recientes': _esc_archivos_recientes(visibles_qs),
+        # ─── Dashboard expandido (Fase 1.5) ──────────────────────────────
+        'kpis':              _esc_kpis_ejecutivos(usuario, visibles_qs),
+        'volumen_mensual':   _esc_volumen_mensual(usuario, visibles_qs),
+        'pie_carpetas':      _esc_pie_carpetas(usuario, visibles_qs),
+        'top_remitentes':    _esc_top_remitentes_externos(usuario, visibles_qs),
+        'heatmap':           _esc_heatmap_actividad(usuario, visibles_qs),
         'hoy': timezone.localdate(),
     }
     return render(request, 'correos/escritorio.html', ctx)

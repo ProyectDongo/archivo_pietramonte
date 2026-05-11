@@ -417,6 +417,223 @@
   margin-top: 1px;
 }
 
+/* ─── KPIs ejecutivos (6 cards arriba) ─────────────────────────── */
+.esc-kpis-row {
+  display: grid !important;
+  grid-template-columns: repeat(6, 1fr);
+  padding: 0;
+  background: rgba(255, 255, 255, .82);
+}
+.esc-kpi-card {
+  text-align: center;
+  padding: 16px 10px;
+  border-right: 1px solid var(--esc-border);
+}
+.esc-kpi-card:last-child { border-right: none; }
+.esc-kpi-card .esc-kpi-v {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--esc-text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.esc-kpi-card .esc-kpi-v small {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--esc-text-dim);
+}
+.esc-kpi-card .esc-kpi-l {
+  font-size: 10.5px;
+  color: var(--esc-text-dim);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  margin-top: 4px;
+}
+
+/* ─── Línea mensual ────────────────────────────────────────────── */
+.esc-line-wrap { padding: 14px 16px 10px; }
+.esc-line-svg {
+  width: 100%;
+  height: 140px;
+  display: block;
+  overflow: visible;
+}
+.esc-line-axis {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 6px;
+  font-size: 10px;
+  color: var(--esc-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.esc-line-tick {
+  flex: 1;
+  text-align: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* ─── Donut (carpetas) ─────────────────────────────────────────── */
+.esc-donut-wrap {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 14px;
+  padding: 14px 16px;
+  align-items: center;
+}
+.esc-donut-svg {
+  width: 100%;
+  max-width: 160px;
+  height: 160px;
+}
+.esc-donut-total {
+  font-size: 24px;
+  font-weight: 700;
+  fill: var(--esc-text);
+}
+.esc-donut-label {
+  font-size: 10px;
+  fill: var(--esc-text-muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.esc-donut-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.esc-donut-legend li {
+  display: grid;
+  grid-template-columns: 12px 1fr auto 40px;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 12px;
+}
+.esc-donut-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.esc-donut-name { color: var(--esc-text); }
+.esc-donut-count {
+  color: var(--esc-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.esc-donut-pct {
+  color: var(--esc-text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ─── Top perfiles stacked ─────────────────────────────────────── */
+.esc-perfil-stacked {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--esc-border);
+}
+.esc-perfil-fill-r { background: #C80C0F; height: 100%; }
+.esc-perfil-fill-e { background: #2563eb; height: 100%; }
+.esc-perfil-fill-o { background: #94a3b8; height: 100%; }
+
+/* ─── Top remitentes externos ──────────────────────────────────── */
+.esc-rem {
+  display: grid;
+  grid-template-columns: 24px 1fr 80px 40px;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 14px;
+}
+.esc-rem-num {
+  text-align: center;
+  font-size: 11px;
+  color: var(--esc-text-muted);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.esc-rem-info { min-width: 0; }
+.esc-rem-name {
+  font-size: 12.5px;
+  color: var(--esc-text);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.esc-rem-email {
+  font-size: 10.5px;
+  color: var(--esc-text-muted);
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.esc-rem-bar {
+  height: 6px;
+  background: var(--esc-border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.esc-rem-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #2563eb, #C80C0F);
+  border-radius: 3px;
+}
+.esc-rem-count {
+  font-size: 11.5px;
+  color: var(--esc-text-dim);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ─── Heatmap día × hora ───────────────────────────────────────── */
+.esc-widget-hint {
+  font-size: 10.5px;
+  color: var(--esc-text-muted);
+  font-style: italic;
+}
+.esc-heatmap {
+  padding: 8px 16px 14px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  overflow-x: auto;
+}
+.esc-heatmap-row {
+  display: grid;
+  grid-template-columns: 40px repeat(24, 1fr);
+  gap: 2px;
+  margin-bottom: 2px;
+}
+.esc-heatmap-row-header .esc-heatmap-h {
+  text-align: center;
+  font-size: 9.5px;
+  color: var(--esc-text-muted);
+  padding: 2px 0;
+}
+.esc-heatmap-dow {
+  font-size: 10.5px;
+  color: var(--esc-text-dim);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  padding-right: 4px;
+}
+.esc-heatmap-cell {
+  display: block;
+  height: 16px;
+  border-radius: 2px;
+  background: rgba(200, 12, 15, .05);
+  border: 1px solid rgba(0, 0, 0, .04);
+  transition: transform .12s;
+  cursor: help;
+}
+.esc-heatmap-cell:hover {
+  transform: scale(1.3);
+  z-index: 1;
+  position: relative;
+}
+
 /* ─── Responsive ──────────────────────────────────────────────── */
 @media (max-width: 900px) {
   .esc-desktop {
@@ -443,4 +660,26 @@
   .esc-list-temas .esc-tema { grid-template-columns: 1fr 50px 30px; }
   .esc-perfil { grid-template-columns: 26px 1fr 40px 32px; gap: 8px; }
   .esc-perfil-email { display: none; }
+}
+
+/* ─── Dashboard expandido — ajustes responsive ─────────────────── */
+@media (max-width: 900px) {
+  .esc-kpis-row { grid-template-columns: repeat(3, 1fr); }
+  .esc-kpi-card:nth-child(3) { border-right: none; }
+  .esc-kpi-card:nth-child(n+4) { border-top: 1px solid var(--esc-border); }
+  .esc-donut-wrap { grid-template-columns: 1fr; }
+  .esc-donut-svg { margin: 0 auto; }
+  .esc-rem { grid-template-columns: 20px 1fr 50px 36px; gap: 8px; }
+  .esc-rem-email { display: none; }
+  .esc-heatmap-row { grid-template-columns: 32px repeat(24, 1fr); }
+  .esc-heatmap-cell { height: 12px; }
+}
+@media (max-width: 480px) {
+  .esc-kpis-row { grid-template-columns: repeat(2, 1fr); }
+  .esc-kpi-card:nth-child(2) { border-right: none; }
+  .esc-kpi-card:nth-child(n+3) { border-top: 1px solid var(--esc-border); }
+  .esc-kpi-card .esc-kpi-v { font-size: 18px; }
+  .esc-line-svg { height: 110px; }
+  .esc-heatmap-row-header .esc-heatmap-h:nth-child(odd) { visibility: hidden; }
+  .esc-heatmap-cell { height: 10px; }
 }
