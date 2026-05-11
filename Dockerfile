@@ -10,10 +10,13 @@ WORKDIR /app
 
 # Dependencias del sistema solo lo necesario para compilar wheels nativos
 # (chardet pure-python, pero algunas wheels piden gcc).
+# rclone se usa para el backup nocturno de /app/data/adjuntos a Backblaze B2
+# (ver correos/management/commands/backup_adjuntos_b2.py).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         curl \
         wget \
+        rclone \
     && rm -rf /var/lib/apt/lists/*
 
 # Instala deps en una capa cacheable

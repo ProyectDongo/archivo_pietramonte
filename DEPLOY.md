@@ -238,6 +238,71 @@ Si todo verde: **¡estás en producción!** 🎉
 
 ---
 
+## 7.5 Backup de adjuntos a Backblaze B2 (post-deploy, 10 min)
+
+Coolify ya respalda la DB Postgres a B2 (sección 8). Esto cubre **el otro
+volumen crítico**: `/app/data/adjuntos/` (archivos adjuntos de correos).
+
+El comando vive en el contenedor (`python manage.py backup_adjuntos_b2`)
+porque ahí está `rclone` instalado (Dockerfile) y `MEDIA_ROOT` se resuelve
+con `settings.py`. Lo dispara el cron del host vía `docker exec` para que
+sobreviva al rebuild de imagen.
+
+### 7.5.1. Env vars en Coolify (una vez)
+
+```env
+B2_KEY_ID=REEMPLAZAR
+B2_APPLICATION_KEY=REEMPLAZAR
+B2_BUCKET_NAME=pietramonte-backups
+B2_REGION=us-west-002        # opcional, informativo
+B2_ENDPOINT=https://s3.us-west-002.backblazeb2.com   # opcional, no se usa con backend b2 nativo
+```
+
+Marcar `B2_APPLICATION_KEY` como **Is Secret** en Coolify. Redeploy para
+que las env vars lleguen al contenedor.
+
+### 7.5.2. Verificar credenciales antes del primer sync
+
+```bash
+ssh dongo
+CONT=$(docker ps --format '{{.Names}}' | grep o1rd | head -1)
+docker exec -it $CONT python manage.py backup_adjuntos_b2 --check
+# → debe imprimir el contenido del bucket (vacío al principio) + "OK"
+```
+
+Si falla con "credenciales o bucket inválidos": revisar que las env vars
+estén bien escritas (sin espacios, sin comillas) y que la Application Key
+tenga acceso al bucket (Read+Write).
+
+### 7.5.3. Primera corrida — dry run primero
+
+```bash
+# Simula sin subir nada (ver qué archivos transferiría)
+docker exec -it $CONT python manage.py backup_adjuntos_b2 --dry-run
+
+# Si el output se ve sano, corre el sync real
+docker exec -it $CONT python manage.py backup_adjuntos_b2
+```
+
+La primera vez sube todo (~varios GB según volumen). Las siguientes solo
+los cambios. Tiempo estimado: ~1 min por GB con `--bwlimit 10M`.
+
+### 7.5.4. Activar cron nocturno
+
+Ver §11.5 abajo — agregá la línea `30 3 * * * ...` al crontab del host.
+
+### 7.5.5. Soft-delete + retención
+
+El comando usa `rclone sync --backup-dir`. Archivos borrados localmente
+**no** se borran del bucket — se mueven a `adjuntos-archive/YYYYMMDD/`.
+
+Recomendado en Backblaze: activar **Lifecycle Rules** en el bucket para
+borrar los archive viejos automáticamente:
+- "Keep prior versions for N days" → 30 días, por ejemplo.
+- Y activar **Object Lock** una vez estabilizado (anti-ransomware).
+
+---
+
 ## 8. Backup automático (recomendado, 5 min)
 
 El archivo crítico es `/app/data/db.sqlite3` + `/app/data/adjuntos/`.
@@ -322,10 +387,10 @@ Cada nuevo proyecto repite el flujo:
 
 ---
 
-## 11.5 Cron del taller (Hetzner host)
+## 11.5 Cron del taller + backups (Hetzner host)
 
-El módulo de agendamiento necesita 2 jobs corriendo en el host (NO dentro
-del container, así sobreviven al rebuild). Editá el crontab con `crontab -e`:
+Los jobs corren en el host (NO dentro del container, así sobreviven al
+rebuild). Editá el crontab con `crontab -e`:
 
 ```cron
 # Reminders 24h/1h + cleanup de pendientes vencidas. Cada 5 min.
@@ -333,6 +398,9 @@ del container, así sobreviven al rebuild). Editá el crontab con `crontab -e`:
 
 # Carga feriados oficiales del año actual + siguiente. 1ro de enero, 4 AM.
 0 4 1 1 * docker exec $(docker ps --format '{{.Names}}' | grep o1rd | head -1) python manage.py cargar_feriados >> /var/log/pietramonte-feriados.log 2>&1
+
+# Backup nocturno de adjuntos a Backblaze B2. 3:30 AM (después del pg_dump de Coolify).
+30 3 * * * docker exec $(docker ps --format '{{.Names}}' | grep o1rd | head -1) python manage.py backup_adjuntos_b2 >> /var/log/pietramonte-backup-adjuntos.log 2>&1
 ```
 
 Setup inicial (después del primer deploy con la app `taller` activa):
