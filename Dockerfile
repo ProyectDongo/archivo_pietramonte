@@ -44,6 +44,10 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 
 # Comando: gunicorn con 3 workers (ajusta según RAM del server)
 # --max-requests + jitter para reciclar workers (evita memory leaks)
+# --limit-request-* anti-DoS por requests gigantes:
+#   - line: largo total del request line (URL incluida)
+#   - field-size: tamaño de cada header
+#   - fields: cantidad de headers
 CMD ["python", "-m", "gunicorn", "archivo_pietramonte.wsgi:application", \
      "--bind", "0.0.0.0:8000", \
      "--workers", "3", \
@@ -51,5 +55,8 @@ CMD ["python", "-m", "gunicorn", "archivo_pietramonte.wsgi:application", \
      "--timeout", "60", \
      "--max-requests", "1000", \
      "--max-requests-jitter", "50", \
+     "--limit-request-line", "8190", \
+     "--limit-request-field_size", "8190", \
+     "--limit-request-fields", "100", \
      "--access-logfile", "-", \
      "--error-logfile", "-"]

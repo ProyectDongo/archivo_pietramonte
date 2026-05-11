@@ -337,10 +337,40 @@ else:
 # CSV de IPs / CIDRs de los proxies que pueden setear XFF. Si la conexión
 # llega de un IP que NO está en esta lista, ignoramos XFF y usamos REMOTE_ADDR
 # (sino un atacante podría spoofear su IP burlando rate-limit).
-# En Coolify detrás de Cloudflare Tunnel, el tunnel local termina en el host
-# del container → la IP origin es la del propio docker network. Si dejamos
-# vacío, _get_ip cae a REMOTE_ADDR siempre (más conservador).
-TRUSTED_PROXIES = env_list('TRUSTED_PROXIES', '')
+#
+# Default 2026-05-11: confiamos en redes RFC 1918 privadas. El container vive
+# en la red Docker interna (10.x o 172.16.x según Coolify), recibe tráfico
+# desde el reverse proxy de Coolify y a su vez de Cloudflare Tunnel. Ningún
+# atacante externo puede hablar directo con Gunicorn (UFW solo abre SSH).
+# Por eso confiar en estos rangos es seguro.
+#
+# Antes este default era vacío → _get_ip caía a REMOTE_ADDR siempre. Como
+# REMOTE_ADDR en container es siempre la IP de Coolify, TODO el tráfico se
+# veía como UNA sola IP → rate-limit por IP se aplicaba globalmente. Un
+# atacante podía bloquear a todos los usuarios reales con una sola sesión
+# fallida de brute-force.
+TRUSTED_PROXIES = env_list(
+    'TRUSTED_PROXIES',
+    '10.0.0.0/8,172.16.0.0/12,192.168.0.0/16',
+)
+
+
+# ─── Límites de upload / form data (anti-DoS) ─────────────────────────────
+# Defaults Django 5.x: 2.5 MB body en memoria, 100 archivos, 1000 fields.
+# Endurecemos:
+#  - DATA_UPLOAD_MAX_MEMORY_SIZE: el body del POST que se mantiene en RAM
+#    antes de pasar a disco. Si llega más que esto, Django levanta
+#    RequestDataTooBig (413). 5 MB cubre formularios con adjuntos chicos.
+#  - DATA_UPLOAD_MAX_NUMBER_FILES: tope de adjuntos en un POST. Anti-DoS
+#    por flood de uploads en un solo request.
+#  - DATA_UPLOAD_MAX_NUMBER_FIELDS: cantidad de fields del form. Anti-DoS
+#    por explotación de hash collisions en el parsing.
+#  - FILE_UPLOAD_MAX_MEMORY_SIZE: tope per-file que se mantiene en memoria
+#    antes de spillover a disco. 5 MB.
+DATA_UPLOAD_MAX_MEMORY_SIZE   = 5 * 1024 * 1024
+DATA_UPLOAD_MAX_NUMBER_FILES  = 25
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 500
+FILE_UPLOAD_MAX_MEMORY_SIZE   = 5 * 1024 * 1024
 
 
 # ─── Logging ────────────────────────────────────────────────────────────────
