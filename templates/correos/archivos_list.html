@@ -14,6 +14,18 @@
   <header class="arc-header">
     <a href="{% url 'escritorio' %}" class="arc-back">← Escritorio</a>
     <h1 class="arc-title">{{ app_label }}</h1>
+    <form method="get" class="arc-search">
+      <svg class="arc-search-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+      </svg>
+      <input type="search" name="q" value="{{ busqueda }}"
+             placeholder="Buscar por nombre, descripción, tema..."
+             autocomplete="off">
+      {% if filtro_perfil %}<input type="hidden" name="perfil" value="{{ filtro_perfil }}">{% endif %}
+      {% if filtro_tema %}<input type="hidden" name="tema" value="{{ filtro_tema }}">{% endif %}
+      {% if filtro_tipo %}<input type="hidden" name="tipo" value="{{ filtro_tipo }}">{% endif %}
+      {% if filtro_visib %}<input type="hidden" name="visibilidad" value="{{ filtro_visib }}">{% endif %}
+    </form>
     <span class="arc-count">{{ total }} {{ is_contratos|yesno:"contratos,archivos" }}</span>
     <button type="button" class="arc-btn-primary" id="btn-subir-archivo"
             style="background:{{ app_color }}">
@@ -52,13 +64,14 @@
         {% endfor %}
       </div>
 
-      {% if temas %}
+      {% if carpetas %}
       <div class="arc-section">
-        <div class="arc-section-title">Por tema</div>
-        {% for t in temas %}
-        <a href="?tema={{ t.tema|urlencode }}" class="arc-filter {% if filtro_tema == t.tema %}active{% endif %}">
-          {{ t.tema|truncatechars:24 }}
-          <span class="arc-count-pill">{{ t.n }}</span>
+        <div class="arc-section-title">Carpetas</div>
+        {% for c in carpetas %}
+        <a href="?tema={{ c.path|urlencode }}" class="arc-filter arc-folder arc-folder-d{{ c.depth }} {% if filtro_tema == c.path %}active{% endif %}">
+          <span class="arc-folder-icon" aria-hidden="true">📁</span>
+          <span class="arc-folder-name">{{ c.nombre|truncatechars:22 }}</span>
+          <span class="arc-count-pill">{{ c.count }}</span>
         </a>
         {% endfor %}
       </div>
@@ -75,6 +88,19 @@
       </div>
       {% endif %}
 
+      <div class="arc-section">
+        <div class="arc-section-title">Visibilidad</div>
+        <a href="?visibilidad=privado" class="arc-filter {% if filtro_visib == 'privado' %}active{% endif %}">
+          🔒 Privados (míos)
+        </a>
+        <a href="?visibilidad=perfil" class="arc-filter {% if filtro_visib == 'perfil' %}active{% endif %}">
+          👥 Por perfil
+        </a>
+        <a href="?visibilidad=publico" class="arc-filter {% if filtro_visib == 'publico' %}active{% endif %}">
+          🌐 Públicos
+        </a>
+      </div>
+
       <div class="arc-section arc-section-bottom">
         <a href="{% url 'papelera' %}" class="arc-link-papelera">🗑 Papelera</a>
       </div>
@@ -90,10 +116,15 @@
               {% if a.tipo == 'imagen' %}🖼{% elif a.tipo == 'contrato' %}📋{% elif a.tipo == 'factura' %}🧾{% else %}📄{% endif %}
             </span>
             <span class="arc-item-text">
-              <span class="arc-item-title">{{ a.nombre|truncatechars:60 }}</span>
+              <span class="arc-item-title">
+                <span class="arc-visib arc-visib-{{ a.visibilidad }}" title="{{ a.get_visibilidad_display }}">
+                  {% if a.visibilidad == 'privado' %}🔒{% elif a.visibilidad == 'publico' %}🌐{% else %}👥{% endif %}
+                </span>
+                {{ a.nombre|truncatechars:60 }}
+              </span>
               <span class="arc-item-meta">
                 {% if a.perfil %}<span class="arc-meta-tag">{{ a.perfil.email|truncatechars:20 }}</span>{% endif %}
-                {% if a.tema %}<span class="arc-meta-tag arc-meta-tema">{{ a.tema|truncatechars:20 }}</span>{% endif %}
+                {% if a.tema %}<span class="arc-meta-tag arc-meta-tema">📁 {{ a.tema|truncatechars:32 }}</span>{% endif %}
                 {% if a.fecha %}<span class="arc-meta-date">{{ a.fecha|date:"d/m/Y" }}</span>{% endif %}
                 <span class="arc-meta-size">{{ a.tamano_legible }}</span>
                 {% if a.contrato_vencimiento %}
@@ -177,11 +208,22 @@
         </label>
 
         <label class="arc-field">
-          <span class="arc-field-label">Tema</span>
+          <span class="arc-field-label">Carpeta / Tema</span>
           <input type="text" name="tema" maxlength="80"
-                 placeholder="ej. Facturación, Proveedores">
+                 placeholder="ej. Facturación/2026/Enero">
+          <small class="arc-field-hint">Usá «/» para subcarpetas anidadas</small>
         </label>
       </div>
+
+      <label class="arc-field">
+        <span class="arc-field-label">¿Quién puede verlo?</span>
+        <select name="visibilidad">
+          <option value="privado">🔒 Privado — solo yo y admins</option>
+          <option value="perfil" selected>👥 Por perfil — users con acceso al buzón asignado</option>
+          <option value="publico">🌐 Público — todos los users del portal</option>
+        </select>
+        <small class="arc-field-hint">Si elegís «Por perfil» y dejás el perfil vacío, queda como Privado.</small>
+      </label>
 
       <div class="arc-field-row">
         {% if not forzar_tipo %}
@@ -228,22 +270,8 @@
   </div>
 </div>
 
-<script>
-  // Solo 1 modal toggle — sin libraries.
-  (function(){
-    var modal = document.getElementById('upload-modal');
-    if (!modal) return;
-    function open(){ modal.hidden = false; document.body.style.overflow = 'hidden'; }
-    function close(){ modal.hidden = true; document.body.style.overflow = ''; }
-    document.querySelectorAll('#btn-subir-archivo, #btn-subir-archivo-empty').forEach(function(b){
-      b.addEventListener('click', open);
-    });
-    modal.querySelectorAll('[data-close-modal]').forEach(function(b){
-      b.addEventListener('click', close);
-    });
-    document.addEventListener('keydown', function(e){
-      if (e.key === 'Escape' && !modal.hidden) close();
-    });
-  })();
-</script>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/archivos_upload.js' %}" defer></script>
 {% endblock %}

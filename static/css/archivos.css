@@ -53,6 +53,73 @@
   color: var(--arc-text-dim);
   font-variant-numeric: tabular-nums;
 }
+
+/* ─── Search bar en el header ──────────────────────────────────── */
+.arc-search {
+  flex: 1;
+  max-width: 360px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--arc-surface);
+  border: 1px solid var(--arc-border);
+  border-radius: 999px;
+  padding: 6px 14px;
+  box-shadow: var(--arc-shadow-sm);
+  transition: border-color .12s, box-shadow .12s;
+}
+.arc-search:focus-within {
+  border-color: var(--arc-brand);
+  box-shadow: 0 0 0 3px rgba(200, 12, 15, .12);
+}
+.arc-search-icon {
+  color: var(--arc-text-muted);
+  flex-shrink: 0;
+}
+.arc-search input {
+  border: none;
+  outline: none;
+  background: transparent;
+  flex: 1;
+  font-size: 13px;
+  color: var(--arc-text);
+  font-family: inherit;
+  min-width: 0;
+}
+.arc-search input::placeholder { color: var(--arc-text-muted); }
+
+/* ─── Árbol de carpetas (sidebar) ─────────────────────────────── */
+.arc-folder {
+  /* hereda de .arc-filter */
+}
+.arc-folder-d0 { padding-left: 10px; }
+.arc-folder-d1 { padding-left: 22px; font-size: 12px; }
+.arc-folder-d2 { padding-left: 34px; font-size: 11.5px; color: var(--arc-text-muted); }
+.arc-folder-d3,
+.arc-folder-d4 { padding-left: 46px; font-size: 11px; color: var(--arc-text-muted); }
+.arc-folder-icon {
+  font-size: 12px;
+  margin-right: 4px;
+  opacity: .8;
+}
+.arc-folder-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── Ícono de visibilidad inline en el archivo ──────────────── */
+.arc-visib {
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 11.5px;
+  cursor: help;
+}
+.arc-visib-privado { opacity: .9; }
+.arc-visib-perfil  { opacity: .7; }
+.arc-visib-publico { opacity: .8; }
 .arc-btn-primary {
   background: var(--arc-brand);
   color: white;

@@ -3322,12 +3322,29 @@ def escritorio_view(request):
 ARCHIVO_MAX_BYTES = 50 * 1024 * 1024   # 50 MB por archivo
 
 
+def _archivos_visibles_qs(usuario):
+    """
+    Queryset base de archivos que ESTE usuario puede ver, según
+    `visibilidad`:
+      - admin → todos
+      - resto → propios + públicos + por perfil (si user accede al buzón)
+
+    Devuelve queryset YA filtrado. Se compone con .filter() adicional.
+    """
+    if usuario.es_admin:
+        return Archivo.objects.all()
+
+    visibles_ids = list(usuario.buzones_visibles().values_list('id', flat=True))
+    return Archivo.objects.filter(
+        Q(creado_por=usuario)
+        | Q(visibilidad=Archivo.Visibilidad.PUBLICO)
+        | (Q(visibilidad=Archivo.Visibilidad.PERFIL) & Q(perfil_id__in=visibles_ids))
+    ).distinct()
+
+
 def _archivo_puede_ver(usuario, archivo) -> bool:
-    """Auth check: si el archivo tiene perfil (FK Buzon), el usuario debe poder
-    ver ese buzón. Si no tiene perfil → compartido, todos pueden."""
-    if not archivo.perfil:
-        return True
-    return usuario.puede_ver(archivo.perfil)
+    """Delegamos al método del modelo (mantiene compatibilidad con callers viejos)."""
+    return archivo.puede_ver(usuario)
 
 
 @portal_login_required
@@ -3336,16 +3353,15 @@ def _archivo_puede_ver(usuario, archivo) -> bool:
 def archivos_list_view(request):
     """
     App Archivos: lista de archivos NO eliminados, NO contratos.
-    Filtros: ?perfil=N, ?tema=texto, ?tipo=doc/factura/imagen/otro.
+    Filtros: ?perfil=N, ?tema=texto, ?tipo=…, ?visibilidad=…, ?q=búsqueda.
     """
     usuario = _usuario_actual(request)
     if not usuario:
         return redirect('login')
 
     visibles_qs = usuario.buzones_visibles()
-    visibles_ids = set(visibles_qs.values_list('id', flat=True))
 
-    qs = (Archivo.objects
+    qs = (_archivos_visibles_qs(usuario)
           .filter(eliminado_en__isnull=True)
           .exclude(tipo=Archivo.Tipo.CONTRATO)
           .select_related('perfil', 'creado_por')
@@ -3356,21 +3372,42 @@ def archivos_list_view(request):
         qs = qs.filter(perfil_id=int(filtro_perfil))
     filtro_tema = (request.GET.get('tema') or '').strip()
     if filtro_tema:
-        qs = qs.filter(tema__iexact=filtro_tema)
+        # Match exact "Facturación" Y todas sus subcarpetas "Facturación/..."
+        qs = qs.filter(Q(tema__iexact=filtro_tema) |
+                       Q(tema__istartswith=filtro_tema + '/'))
     filtro_tipo = (request.GET.get('tipo') or '').strip()
     if filtro_tipo and filtro_tipo in {t.value for t in Archivo.Tipo}:
         qs = qs.filter(tipo=filtro_tipo)
+    filtro_visib = (request.GET.get('visibilidad') or '').strip()
+    if filtro_visib in {v.value for v in Archivo.Visibilidad}:
+        qs = qs.filter(visibilidad=filtro_visib)
+    busqueda = (request.GET.get('q') or '').strip()
+    if busqueda:
+        qs = qs.filter(Q(nombre__icontains=busqueda) |
+                       Q(descripcion__icontains=busqueda) |
+                       Q(tema__icontains=busqueda))
 
-    # Filtrar por acceso a perfil (compartidos sí, propios solo si visible)
-    qs = qs.filter(Q(perfil__isnull=True) | Q(perfil_id__in=visibles_ids))
+    # ─── Árbol de carpetas virtuales (vía tema con '/') ────────────────
+    # Agrupamos por primer segmento del tema. Solo construimos el árbol
+    # sobre el queryset ya filtrado por permisos (no leakea privados).
+    carpetas_count: dict = {}
+    for t in (_archivos_visibles_qs(usuario)
+              .filter(eliminado_en__isnull=True)
+              .exclude(tipo=Archivo.Tipo.CONTRATO)
+              .exclude(tema='')
+              .values_list('tema', flat=True)):
+        # Cada nivel suma 1: "A/B/C" → cuenta para A, A/B, A/B/C
+        partes = [p.strip() for p in t.split('/') if p.strip()]
+        for i in range(len(partes)):
+            path = '/'.join(partes[:i + 1])
+            carpetas_count[path] = carpetas_count.get(path, 0) + 1
 
-    # Stats sidebar
-    temas = list(Archivo.objects
-                 .filter(eliminado_en__isnull=True)
-                 .exclude(tipo=Archivo.Tipo.CONTRATO)
-                 .exclude(tema='')
-                 .values('tema').annotate(n=Count('id'))
-                 .order_by('-n')[:15])
+    # Lista ordenada por path para display jerárquico
+    carpetas = sorted([
+        {'path': p, 'nombre': p.rsplit('/', 1)[-1],
+         'depth': p.count('/'), 'count': c}
+        for p, c in carpetas_count.items()
+    ], key=lambda x: x['path'].lower())
 
     total = qs.count()
     paginator = Paginator(qs, 50)
@@ -3382,12 +3419,15 @@ def archivos_list_view(request):
         'page':           page,
         'paginator':      paginator,
         'total':          total,
-        'temas':          temas,
+        'carpetas':       carpetas,
         'buzones_visibles': visibles_qs,
         'filtro_perfil':  filtro_perfil,
         'filtro_tema':    filtro_tema,
         'filtro_tipo':    filtro_tipo,
+        'filtro_visib':   filtro_visib,
+        'busqueda':       busqueda,
         'tipos_choices':  Archivo.Tipo.choices,
+        'visibilidades':  Archivo.Visibilidad.choices,
         'app_label':      'Archivos',
         'app_color':      '#2563eb',
     })
@@ -3425,6 +3465,19 @@ def archivos_upload_view(request):
         except Buzon.DoesNotExist:
             perfil = None
 
+    # Visibilidad: privado/perfil/publico (default: si tiene perfil → perfil,
+    # sino → privado).
+    visib_raw = (request.POST.get('visibilidad') or '').strip()
+    if visib_raw in {v.value for v in Archivo.Visibilidad}:
+        visibilidad = visib_raw
+    else:
+        visibilidad = (Archivo.Visibilidad.PERFIL if perfil
+                       else Archivo.Visibilidad.PRIVADO)
+
+    # Coherencia: si pidió PERFIL pero no asignó perfil → cae a PRIVADO
+    if visibilidad == Archivo.Visibilidad.PERFIL and not perfil:
+        visibilidad = Archivo.Visibilidad.PRIVADO
+
     archivo = Archivo(
         nombre=nombre,
         archivo=f,
@@ -3433,6 +3486,7 @@ def archivos_upload_view(request):
         tipo=tipo,
         perfil=perfil,
         tema=(request.POST.get('tema') or '').strip()[:80],
+        visibilidad=visibilidad,
         descripcion=(request.POST.get('descripcion') or '').strip(),
         creado_por=usuario,
     )
@@ -3544,17 +3598,20 @@ def contratos_list_view(request):
         return redirect('login')
 
     visibles_qs = usuario.buzones_visibles()
-    visibles_ids = set(visibles_qs.values_list('id', flat=True))
 
-    qs = (Archivo.objects
+    qs = (_archivos_visibles_qs(usuario)
           .filter(eliminado_en__isnull=True, tipo=Archivo.Tipo.CONTRATO)
-          .filter(Q(perfil__isnull=True) | Q(perfil_id__in=visibles_ids))
           .select_related('perfil', 'creado_por')
           .order_by('-creado'))
 
     filtro_perfil = (request.GET.get('perfil') or '').strip()
     if filtro_perfil.isdigit():
         qs = qs.filter(perfil_id=int(filtro_perfil))
+    busqueda = (request.GET.get('q') or '').strip()
+    if busqueda:
+        qs = qs.filter(Q(nombre__icontains=busqueda) |
+                       Q(descripcion__icontains=busqueda) |
+                       Q(contrato_partes__icontains=busqueda))
 
     # Próximos a vencer (siguientes 30 días)
     en_30d = timezone.localdate() + timedelta(days=30)
@@ -3576,8 +3633,10 @@ def contratos_list_view(request):
         'prox_vencer':    prox_vencer,
         'buzones_visibles': visibles_qs,
         'filtro_perfil':  filtro_perfil,
+        'busqueda':       busqueda,
         'tipos_choices':  [(Archivo.Tipo.CONTRATO, 'Contrato')],
         'forzar_tipo':    Archivo.Tipo.CONTRATO,
+        'visibilidades':  Archivo.Visibilidad.choices,
         'app_label':      'Contratos',
         'app_color':      '#d97706',
         'is_contratos':   True,
@@ -3593,12 +3652,8 @@ def papelera_list_view(request):
     if not usuario:
         return redirect('login')
 
-    visibles_qs = usuario.buzones_visibles()
-    visibles_ids = set(visibles_qs.values_list('id', flat=True))
-
-    qs = (Archivo.objects
+    qs = (_archivos_visibles_qs(usuario)
           .filter(eliminado_en__isnull=False)
-          .filter(Q(perfil__isnull=True) | Q(perfil_id__in=visibles_ids))
           .select_related('perfil', 'creado_por', 'eliminado_por')
           .order_by('-eliminado_en'))
 

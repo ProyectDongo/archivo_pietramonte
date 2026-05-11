@@ -831,6 +831,11 @@ class Archivo(models.Model):
         IMAGEN    = 'imagen',    'Imagen'
         OTRO      = 'otro',      'Otro'
 
+    class Visibilidad(models.TextChoices):
+        PRIVADO = 'privado',   'Privado · solo yo y admins'
+        PERFIL  = 'perfil',    'Por perfil · users con acceso al buzón'
+        PUBLICO = 'publico',   'Público · todos los users del portal'
+
     nombre        = models.CharField(max_length=200,
                                      help_text='Nombre descriptivo (no el filename).')
     archivo       = models.FileField(upload_to='archivos/%Y/%m/')
@@ -854,6 +859,14 @@ class Archivo(models.Model):
     fecha         = models.DateField(
         null=True, blank=True, db_index=True,
         help_text='Fecha del documento (no la de upload).',
+    )
+
+    # Visibilidad explícita (anti-ambigüedad del modelo viejo "perfil=None=todos")
+    visibilidad   = models.CharField(
+        max_length=10, choices=Visibilidad.choices, default=Visibilidad.PERFIL,
+        db_index=True,
+        help_text='Privado: solo yo + admins. Perfil: users con acceso al buzón. '
+                  'Público: todos los users del portal.',
     )
 
     descripcion   = models.TextField(blank=True, default='')
@@ -924,6 +937,34 @@ class Archivo(models.Model):
         self.eliminado_en = None
         self.eliminado_por = None
         self.save(update_fields=['eliminado_en', 'eliminado_por'])
+
+    def puede_ver(self, usuario) -> bool:
+        """
+        ¿Este usuario puede ver este archivo?
+          - Admins: TODO.
+          - Uploader: siempre el suyo.
+          - Público: todos los users del portal.
+          - Por perfil: si el usuario puede ver el buzón asignado.
+          - Privado: solo uploader + admins.
+        """
+        if not usuario:
+            return False
+        if usuario.es_admin:
+            return True
+        if self.creado_por_id and self.creado_por_id == usuario.id:
+            return True
+        if self.visibilidad == self.Visibilidad.PUBLICO:
+            return True
+        if self.visibilidad == self.Visibilidad.PERFIL and self.perfil:
+            return usuario.puede_ver(self.perfil)
+        # PRIVADO o PERFIL sin perfil asignado: solo uploader + admins
+        return False
+
+    @property
+    def carpeta_segments(self) -> list[str]:
+        """Devuelve los segmentos de la 'carpeta virtual' del tema.
+        Ej: tema='Facturación/2026/Enero' → ['Facturación', '2026', 'Enero']."""
+        return [s.strip() for s in (self.tema or '').split('/') if s.strip()]
 
 
 class UserDesktopPrefs(models.Model):
