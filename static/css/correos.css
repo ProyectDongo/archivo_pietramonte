@@ -1227,59 +1227,9 @@
   border-color: var(--r);
 }
 
-.preview-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 3rem 2rem;
-  color: var(--gl);
-  flex: 1;
-  gap: 14px;
-}
-.preview-empty-icon {
-  font-size: 64px;
-  opacity: .35;
-  line-height: 1;
-  filter: grayscale(.4);
-}
-.preview-empty p {
-  font-size: 14px;
-  font-weight: 500;
-  margin: 0;
-  max-width: 360px;
-}
-.preview-empty-hint {
-  font-size: 11px;
-  color: var(--gl);
-  letter-spacing: .3px;
-  margin-top: 6px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
-}
-.preview-empty-hint kbd {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 7px;
-  background: var(--w);
-  border: 1px solid var(--bdr);
-  border-bottom-width: 2px;
-  border-radius: 5px;
-  font-family: 'SFMono-Regular', Consolas, 'Courier New', monospace;
-  font-size: 11px;
-  font-weight: 600;
-  margin: 0 2px;
-  color: var(--gd);
-  box-shadow: 0 1px 0 rgba(0,0,0,.04);
-}
-[data-theme="dark"] .preview-empty-hint kbd {
-  background: #2c3338;
-  border-color: #4a5158;
-  color: #e8eaed;
-}
+/* (Reglas .preview-empty / .preview-empty-icon / .preview-empty-hint
+   retiradas 2026-05-11 junto con el modo preview-pane viejo.
+   Solo .preview-empty-body sigue en uso — definido más abajo.) */
 
 .preview-card {
   display: flex;
@@ -1831,13 +1781,11 @@
 /* Tablet: split a 1 columna pero conservando el layout */
 @media (max-width: 900px) {
   .split { grid-template-columns: 1fr; }
-  .split-list, .split-preview {
+  .split-list {
     position: static;
     max-height: none;
   }
   .correos-list { max-height: none; }
-  .split-preview { display: none; }
-  .split-preview.show { display: flex; }
   .stat-card-wide { grid-column: span 1; }
 }
 
@@ -2880,7 +2828,7 @@
 .inbox-main > .inbox-toolbar { grid-area: toolbar; }
 .inbox-main > .toolbar-adv,
 .inbox-main > .active-filters { grid-area: filters; }
-.inbox-main > .inbox-split   { grid-area: split; }
+.inbox-main > .split-list    { grid-area: split; }
 
 /* Header del main (título + toggle stats) */
 .inbox-header {
@@ -3185,15 +3133,7 @@
   border-top: none;
 }
 
-/* ─── 5. Split lista + preview ─────────────────────────────────────────── */
-.inbox-split {
-  display: grid;
-  grid-template-columns: minmax(360px, 38%) 1fr;
-  gap: 0;
-  overflow: hidden;
-  min-height: 0;
-  background: var(--w);
-}
+/* ─── 5. Lista de correos del inbox ───────────────────────────────────── */
 .page-inbox .split-list {
   background: var(--w);
   border: none;
@@ -3207,19 +3147,6 @@
   /* overflow:hidden — el child .correos-list maneja su propio scroll. Sin esto,
      habría dos scrollbars (uno por nivel) y pagination flotaría raro. */
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-.page-inbox .split-preview {
-  background: var(--w);
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
-  position: static;
-  top: auto;
-  max-height: none;
-  height: 100%;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
@@ -3248,29 +3175,6 @@
   padding: 40px 20px;
 }
 
-/* Preview empty con mejor padding ahora que ocupa todo el alto */
-.page-inbox .preview-empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: 10px;
-  padding: 40px 20px;
-  color: var(--gl);
-}
-.page-inbox .preview-empty-icon { font-size: 40px; opacity: .35; }
-.page-inbox .preview-empty kbd {
-  background: var(--off);
-  border: 1px solid var(--bdr);
-  border-radius: 4px;
-  padding: 1px 6px;
-  font-family: monospace;
-  font-size: 11px;
-  margin: 0 1px;
-}
-
 /* ─── 6. Long-content fix: URL larga / línea infinita en cuerpo ───────── */
 .preview-content,
 .preview-content-html,
@@ -3290,7 +3194,6 @@
 /* TABLET 1024-1279px: sidebar más angosto */
 @media (max-width: 1279px) {
   .inbox-shell { grid-template-columns: 220px 1fr; }
-  .inbox-split { grid-template-columns: minmax(320px, 40%) 1fr; }
 }
 
 /* TABLET 768-1023px: sidebar ya no fija — drawer + hamburger */
@@ -3314,9 +3217,6 @@
 
   /* Stats bottom: 1 columna en tablet */
   .stats-bottom { grid-template-columns: 1fr; }
-
-  /* Inbox split sigue siendo 2-col pero más comprimido */
-  .inbox-split { grid-template-columns: minmax(280px, 40%) 1fr; }
 }
 
 /* MOBILE <768px: lista full + detalle full-screen al hacer click */
@@ -3349,40 +3249,11 @@
   .toolbar-adv-toggle .toolbar-adv-toggle-text { display: none; }   /* placeholder */
   .toolbar-adv { padding: 10px 12px; }
 
-  /* Lista full-width — preview se vuelve overlay full-screen al seleccionar */
-  .inbox-split { grid-template-columns: 1fr; }
   .page-inbox .split-list { border-right: none; }
-  .page-inbox .split-preview {
-    display: none;
-    position: fixed;
-    top: 64px;
-    left: 0; right: 0; bottom: 0;
-    z-index: 80;
-    background: var(--w);
-    overflow-y: auto;
-    padding-top: 0;
-  }
-  .page-inbox .split-preview.show { display: flex; }
-  .page-inbox .split-preview .preview-empty { display: none; }
 
   /* Active filters más compactos */
   .inbox-main > .active-filters { padding: 6px 12px; font-size: 11px; }
   .active-filters-label { display: none; }
-}
-
-/* Botón "Volver" del overlay mobile.
-   Sibling del .split-preview dentro de .inbox-split — sobrevive innerHTML
-   replace porque NO es hijo del preview pane.
-   Default: oculto en todos lados.
-   Mobile + preview en overlay (.show): visible top-left, encima del pane. */.preview-back-mobile-btn:hover { background: var(--off); border-color: var(--gm); }
-@media (max-width: 767px) {
-  .page-inbox .split-preview.show ~ .preview-back-mobile-btn {
-    display: inline-flex;
-    position: fixed;
-    top: 76px;       /* nav 64 + 12 separación */
-    left: 12px;
-    z-index: 81;     /* pane es z-index 80 */
-  }
 }
 
 /* MOBILE muy chico <420px: stats panel más comprimido */
@@ -3508,7 +3379,6 @@
 [data-theme="dark"] .inbox-shell { background: #15191c; }
 [data-theme="dark"] .inbox-sidebar,
 [data-theme="dark"] .split-list,
-[data-theme="dark"] .split-preview,
 [data-theme="dark"] .stats-panel { background: #1d2226; border-color: #383f45; color: #e8eaed; }
 
 /* Toolbar / inputs */
@@ -3567,11 +3437,7 @@
 [data-theme="dark"] .active-filters-label { color: #9aa0a6; }
 [data-theme="dark"] .active-filters-count { color: #9aa0a6; }
 
-/* Preview pane */
-[data-theme="dark"] .preview-empty { color: #9aa0a6; }
-[data-theme="dark"] .preview-empty-hint kbd {
-  background: #2c3338; color: #c0c4c8; border-color: #383f45;
-}
+/* Preview pane (dark mode) */
 [data-theme="dark"] .preview-header,
 [data-theme="dark"] .preview-meta { color: #c0c4c8; border-color: #383f45; }
 [data-theme="dark"] .preview-asunto { color: #fff; }
@@ -4706,168 +4572,9 @@
 [data-theme="dark"] .sidebar-draft-more { color: #9aa0a6; }
 [data-theme="dark"] .sidebar-draft-more { border-top-color: #383f45; }
 
-/* ==========================================================================
-   Modo lectura: cuando hay un correo abierto, sidebar colapsa a 56px (rail
-   con iconos), lista se reduce a 320px con filas densas, preview toma el
-   resto. Transiciones suaves para evitar saltos.
-   ========================================================================== */
-
-.inbox-shell { transition: grid-template-columns .25s ease; }
-.inbox-split { transition: grid-template-columns .25s ease; }
-
-@media (min-width: 901px) {
-  .inbox-shell.is-reading { grid-template-columns: 56px 1fr; }
-  .inbox-shell.is-reading .inbox-split { grid-template-columns: 320px 1fr; }
-
-  /* Sidebar como rail de iconos */
-  .inbox-shell.is-reading .inbox-sidebar { padding: 14px 6px 24px; gap: 10px; }
-  .inbox-shell.is-reading .sidebar-section { gap: 4px; }
-  .inbox-shell.is-reading .sidebar-label,
-  .inbox-shell.is-reading .sidebar-link-text,
-  .inbox-shell.is-reading .sidebar-buzon-name,
-  .inbox-shell.is-reading .sidebar-link-count,
-  .inbox-shell.is-reading .sidebar-badge,
-  .inbox-shell.is-reading .sidebar-buzones-toggle,
-  .inbox-shell.is-reading .sidebar-tag-new .sidebar-link-text,
-  .inbox-shell.is-reading .sidebar-empty,
-  .inbox-shell.is-reading .new-tag-dialog,
-  .inbox-shell.is-reading .sidebar-drafts-pop,
-  .inbox-shell.is-reading .sidebar-compose-text,
-  .inbox-shell.is-reading .appearance-row-label,
-  .inbox-shell.is-reading .sidebar-appearance .seg-toggle { display: none; }
-  .inbox-shell.is-reading .sidebar-link,
-  .inbox-shell.is-reading .sidebar-buzon {
-    justify-content: center;
-    padding: 8px 4px;
-  }
-  .inbox-shell.is-reading .sidebar-compose {
-    margin: 0 4px 8px;
-    padding: 10px;
-    justify-content: center;
-  }
-  .inbox-shell.is-reading .sidebar-drafts-wrap { padding: 0 4px; }
-
-  /* Ocultar toolbar avanzado y stats en modo lectura */
-  .inbox-shell.is-reading .stats-panel,
-  .inbox-shell.is-reading .toolbar-adv,
-  .inbox-shell.is-reading .active-filters { display: none; }
-
-  /* Filas densas en modo lectura: 2 líneas, sin snippet largo */
-  .inbox-shell.is-reading .correo-row {
-    grid-template-columns: 22px 32px 1fr auto;
-    grid-template-areas:
-      "check avatar from   date"
-      "check avatar subject subject";
-    column-gap: 10px;
-    row-gap: 2px;
-    padding: 8px 12px;
-    align-items: center;
-    min-height: 52px;
-  }
-  .inbox-shell.is-reading .correo-row .row-check { grid-area: check; }
-  .inbox-shell.is-reading .correo-row .row-star { display: none; }
-  .inbox-shell.is-reading .correo-row .avatar { grid-area: avatar; }
-  .inbox-shell.is-reading .correo-row .correo-from {
-    grid-area: from;
-    font-size: 12px;
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .inbox-shell.is-reading .correo-row .correo-date {
-    grid-area: date;
-    font-size: 11px;
-    color: var(--gl);
-    white-space: nowrap;
-  }
-  .inbox-shell.is-reading .correo-row .correo-content {
-    grid-area: subject;
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 12px;
-    color: var(--gm);
-  }
-  .inbox-shell.is-reading .correo-row .correo-subject {
-    font-weight: 500;
-    color: var(--gd);
-  }
-  .inbox-shell.is-reading .correo-row .correo-snippet,
-  .inbox-shell.is-reading .correo-row .correo-sep,
-  .inbox-shell.is-reading .correo-row .tag-chip-mini,
-  .inbox-shell.is-reading .correo-row .adj-pill { display: none; }
-  .inbox-shell.is-reading .correo-row:not(.is-read) .correo-from,
-  .inbox-shell.is-reading .correo-row:not(.is-read) .correo-subject {
-    color: var(--gd);
-    font-weight: 700;
-  }
-
-  /* Preview header con un poco más de aire */
-  .inbox-shell.is-reading .preview-card { animation: slide-in .22s ease-out; }
-}
-
-@keyframes slide-in {
-  from { opacity: 0; transform: translateX(8px); }
-  to { opacity: 1; transform: none; }
-}
-
-/* En modo lectura, refinar el preview header con más aire y mejor jerarquía */
-@media (min-width: 901px) {
-  .inbox-shell.is-reading .preview-head {
-    padding: 24px 36px 18px;
-    border-bottom: 1px solid var(--bdr);
-  }
-  .inbox-shell.is-reading .preview-subject {
-    font-size: 22px;
-    line-height: 1.3;
-    font-weight: 700;
-    margin: 14px 0 12px;
-    color: var(--gd);
-    letter-spacing: -0.3px;
-  }
-  .inbox-shell.is-reading .preview-meta-main { gap: 2px; }
-  .inbox-shell.is-reading .preview-from { font-size: 14px; font-weight: 600; }
-  .inbox-shell.is-reading .preview-from-mail { font-size: 12px; color: var(--gl); }
-  .inbox-shell.is-reading .preview-date { font-size: 11px; color: var(--gl); }
-  .inbox-shell.is-reading .preview-actions { gap: 6px; flex-wrap: wrap; }
-  .inbox-shell.is-reading .preview-body {
-    padding: 28px 36px 36px;
-    overflow-y: auto;
-  }
-  .inbox-shell.is-reading .preview-tags-wrap { padding: 10px 0 0; border-top: none; }
-  .inbox-shell.is-reading .preview-foot { padding: 18px 36px 24px; }
-  .inbox-shell.is-reading .preview-notas { padding: 16px 36px; }
-  .inbox-shell.is-reading .preview-thread { margin: 16px 36px 0; }
-
-  /* Cuando es modo lectura y el preview está vacío, oculto el ícono porque queda raro tan grande */
-  .inbox-shell.is-reading .split-preview .preview-empty {
-    padding: 4rem 2rem;
-  }
-}
-
-/* Para el modo split (no reading), también un poco más de aire en el header */
-@media (min-width: 901px) {
-  .inbox-shell:not(.is-reading) .preview-head { padding: 14px 18px; }
-  .inbox-shell:not(.is-reading) .preview-subject { font-size: 16px; line-height: 1.35; margin: 10px 0 8px; }
-  .inbox-shell:not(.is-reading) .preview-foot,
-  .inbox-shell:not(.is-reading) .preview-notas { padding: 14px 18px; }
-}
-
-/* Hover refinado de filas en modo lectura */
-@media (min-width: 901px) {
-  .inbox-shell.is-reading .correo-row:hover { background: var(--off); }
-  .inbox-shell.is-reading .correo-row.active { background: rgba(200,12,15,.08); }
-  .inbox-shell.is-reading .correo-row.active::before { background: var(--r); width: 3px; }
-}
-
-.preview-back-list:hover { background: var(--off2); border-color: var(--gl); }
-@media (min-width: 901px) {
-  .inbox-shell.is-reading .preview-back-list { display: inline-flex; }
-}
-
-[data-theme="dark"] .preview-back-list:hover { background: #2c3338; color: #fff; }
+/* (Bloque "Modo lectura" / .inbox-shell.is-reading retirado 2026-05-11:
+   el modo preview-pane fue eliminado en commits anteriores. Ver
+   CLAUDE.md §Gotchas y mockup de inbox para el reemplazo Gmail-style.) */
 
 /* ==========================================================================
    Tipografía mejorada del cuerpo del correo (preview + detalle)
@@ -4935,26 +4642,17 @@
   overflow-x: auto;
 }
 
+/* Preview a pantalla completa (.page-detalle): contenido con jerarquía premium */
 @media (min-width: 901px) {
-  .inbox-shell.is-reading .preview-body { padding: 24px 40px 32px; }
-  .inbox-shell.is-reading .preview-content,
-  .inbox-shell.is-reading .preview-content-html { font-size: 15px; }
-  .inbox-shell.is-reading .preview-head { padding: 18px 28px 14px; }
-  .inbox-shell.is-reading .preview-subject {
+  .page-detalle .preview-body { padding: 24px 40px 32px; }
+  .page-detalle .preview-content,
+  .page-detalle .preview-content-html { font-size: 15px; }
+  .page-detalle .preview-head { padding: 18px 28px 14px; }
+  .page-detalle .preview-subject {
     font-size: 22px;
     line-height: 1.35;
     font-weight: 700;
   }
-}
-
-/* Preview en modo NO-lectura (split): contenido un poco más chico para que entre en el panel angosto */
-@media (min-width: 901px) {
-  .inbox-shell:not(.is-reading) .preview-content,
-  .inbox-shell:not(.is-reading) .preview-content-html {
-    font-size: 14px;
-    line-height: 1.6;
-  }
-  .inbox-shell:not(.is-reading) .preview-body { padding: 14px 18px; }
 }
 
 /* Detalle (página completa) — misma tipografía premium */
