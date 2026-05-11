@@ -4051,6 +4051,47 @@
   text-align: right;
 }
 
+/* Pre-attach desde Archivos (chips read-only) */
+.compose-prefilled-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.compose-prefilled-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(5, 150, 105, .06);
+  border: 1px solid rgba(5, 150, 105, .25);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.compose-prefilled-ico { flex-shrink: 0; }
+.compose-prefilled-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: #047857;
+}
+.compose-prefilled-src {
+  font-size: 11px;
+  color: #047857;
+  background: rgba(5, 150, 105, .12);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+[data-theme="dark"] .compose-prefilled-item { background: rgba(5, 150, 105, .12); border-color: rgba(5, 150, 105, .35); }
+[data-theme="dark"] .compose-prefilled-name { color: #34d399; }
+[data-theme="dark"] .compose-prefilled-src { color: #34d399; background: rgba(5, 150, 105, .18); }
+
 [data-theme="dark"] .compose-dropzone { background: #252b30; border-color: #383f45; }
 [data-theme="dark"] .compose-dropzone:hover,
 [data-theme="dark"] .compose-dropzone:focus,

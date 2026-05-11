@@ -75,6 +75,18 @@
 
       <div class="adv-field" style="display:block;margin-bottom:1rem">
         <span class="adv-label">Adjuntos</span>
+        {% if prefilled_archivos %}
+        <ul class="compose-prefilled-list" role="list">
+          {% for a in prefilled_archivos %}
+          <li class="compose-prefilled-item">
+            <span class="compose-prefilled-ico" aria-hidden="true">📎</span>
+            <span class="compose-prefilled-name">{{ a.nombre }}</span>
+            <span class="compose-prefilled-src">desde Archivos</span>
+            <input type="hidden" name="archivo_ids" value="{{ a.id }}">
+          </li>
+          {% endfor %}
+        </ul>
+        {% endif %}
         <label class="compose-dropzone" id="compose-dropzone" tabindex="0">
           <input type="file" name="adjuntos" id="compose-files" multiple hidden>
           <span class="compose-dropzone-ico" aria-hidden="true">📎</span>

@@ -2416,8 +2416,27 @@ def compose_view(request):
     usados = _enviados_recientes(usuario)
     restantes = max(0, limite - usados)
 
+    # Pre-attach desde Archivos: ?archivo=N (repetible). Validamos visibilidad
+    # con _archivos_visibles_qs; ids inválidos o sin permiso se ignoran silentes.
+    def _prefilled_archivos_from_request(req):
+        ids_raw = req.GET.getlist('archivo') if req.method == 'GET' else req.POST.getlist('archivo_ids')
+        ids = []
+        for s in ids_raw[:10]:
+            try:
+                ids.append(int(s))
+            except (TypeError, ValueError):
+                continue
+        if not ids:
+            return []
+        return list(
+            _archivos_visibles_qs(usuario)
+            .filter(id__in=ids, eliminado_en__isnull=True)
+            .only('id', 'nombre', 'mime_type', 'tamano_bytes')
+        )
+
     # Pre-fill desde GET (?to=... &asunto=...) — útil para "Escribir a este remitente".
     if request.method == 'GET':
+        prefilled = _prefilled_archivos_from_request(request)
         return render(request, 'correos/compose.html', {
             'buzon': buzon,
             'to':     (request.GET.get('to') or '').strip()[:500],
@@ -2425,9 +2444,12 @@ def compose_view(request):
             'asunto': (request.GET.get('asunto') or '').strip()[:500],
             'cuerpo': '',
             'limite': limite, 'usados': usados, 'restantes': restantes,
+            'prefilled_archivos': prefilled,
         })
 
     # ─── POST ───────────────────────────────────────────────────────────
+    prefilled_archivos = _prefilled_archivos_from_request(request)
+
     if usados >= limite:
         messages.error(request, f'Llegaste al límite de {limite} envíos en {RESP_RL_HORAS}h. Esperá unas horas o pedile a un admin.')
         return render(request, 'correos/compose.html', {
@@ -2435,6 +2457,7 @@ def compose_view(request):
             'to': request.POST.get('to') or '', 'cc': request.POST.get('cc') or '',
             'asunto': request.POST.get('asunto') or '', 'cuerpo': request.POST.get('cuerpo') or '',
             'limite': limite, 'usados': usados, 'restantes': 0,
+            'prefilled_archivos': prefilled_archivos,
         }, status=429)
 
     raw_to = request.POST.get('to') or ''
@@ -2446,6 +2469,7 @@ def compose_view(request):
         'buzon': buzon,
         'to': raw_to, 'cc': raw_cc, 'asunto': asunto, 'cuerpo': cuerpo,
         'limite': limite, 'usados': usados, 'restantes': restantes,
+        'prefilled_archivos': prefilled_archivos,
     }
 
     try:
@@ -2484,10 +2508,11 @@ def compose_view(request):
         'ps1', 'sh', 'app', 'dmg',
     }
     files = request.FILES.getlist('adjuntos')
-    if len(files) > MAX_FILES:
-        messages.error(request, f'Máximo {MAX_FILES} archivos por correo.')
+    total_prefilled = sum((a.tamano_bytes or 0) for a in prefilled_archivos)
+    if len(files) + len(prefilled_archivos) > MAX_FILES:
+        messages.error(request, f'Máximo {MAX_FILES} archivos por correo (incluyendo los pre-adjuntados desde Archivos).')
         return render(request, 'correos/compose.html', ctx_form, status=400)
-    total = sum(f.size for f in files)
+    total = sum(f.size for f in files) + total_prefilled
     if total > MAX_TOTAL_BYTES:
         messages.error(request, f'Los adjuntos suman {total // (1024*1024)} MB; máximo 25 MB total.')
         return render(request, 'correos/compose.html', ctx_form, status=400)
@@ -2503,6 +2528,22 @@ def compose_view(request):
         mime = f.content_type or 'application/octet-stream'
         adjuntos_payload.append((f.name, content, mime))
         archivos_para_persistir.append((f.name, content, mime))
+
+    # Pre-loaded desde Archivos: leemos el FileField del modelo. Si el storage
+    # falla (archivo borrado del disco, B2 inalcanzable), abortamos en vez de
+    # enviar un correo parcial.
+    for arc in prefilled_archivos:
+        try:
+            arc_full = Archivo.objects.only('archivo', 'nombre', 'mime_type').get(id=arc.id)
+            with arc_full.archivo.open('rb') as fh:
+                content = fh.read()
+        except Exception:
+            logger.warning('Compose: no se pudo leer Archivo id=%s para pre-adjuntar', arc.id, exc_info=True)
+            messages.error(request, f'No se pudo leer el archivo «{arc.nombre}» del almacenamiento.')
+            return render(request, 'correos/compose.html', ctx_form, status=500)
+        mime = (arc_full.mime_type or 'application/octet-stream')
+        adjuntos_payload.append((arc_full.nombre, content, mime))
+        archivos_para_persistir.append((arc_full.nombre, content, mime))
 
     new_msg_id = make_msgid(domain='pietramonte.cl')
     headers = {'Message-ID': new_msg_id}
@@ -3533,7 +3574,14 @@ def archivos_upload_view(request):
 @portal_login_required
 @throttle_user('archivo_descargar', per_minute=120)
 def archivo_descargar_view(request, archivo_id):
-    """Sirve el archivo al usuario. Auth check por perfil."""
+    """
+    Sirve el archivo al usuario. Auth check por visibilidad.
+    Query params:
+      - ?inline=1 → fuerza Content-Disposition: inline (preview en viewer)
+        Solo para tipos seguros (PDF, imagen, audio/video). Para el resto
+        se ignora y descarga normal.
+      - default → as_attachment según `Archivo.tamano_bytes` y mime.
+    """
     usuario = _usuario_actual(request)
     if not usuario:
         return redirect('login')
@@ -3547,13 +3595,31 @@ def archivo_descargar_view(request, archivo_id):
     except FileNotFoundError:
         raise Http404('Archivo no encontrado en disco')
 
+    mime = (archivo.mime_type or '').lower()
+    tipos_inline = (
+        mime.startswith('image/')
+        or mime == 'application/pdf'
+        or mime.startswith('audio/')
+        or mime.startswith('video/')
+        or mime.startswith('text/')
+    )
+    quiere_inline = request.GET.get('inline') == '1'
+    inline = quiere_inline and tipos_inline
+
     response = FileResponse(
         f,
         content_type=archivo.mime_type or 'application/octet-stream',
-        as_attachment=False,
+        as_attachment=not inline,
         filename=archivo.nombre,
     )
     response['X-Content-Type-Options'] = 'nosniff'
+    if inline:
+        # CSP estricto al servir inline — anti XSS en el archivo
+        response['X-Frame-Options'] = 'SAMEORIGIN'
+        response['Content-Security-Policy'] = (
+            "default-src 'self'; script-src 'none'; "
+            "object-src 'self'; frame-ancestors 'self'"
+        )
     return response
 
 

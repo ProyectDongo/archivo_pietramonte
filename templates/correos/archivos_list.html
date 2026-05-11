@@ -135,8 +135,16 @@
           </a>
           <div class="arc-item-actions">
             <span class="arc-item-uploader">{{ a.creado|date:"d/m/Y H:i" }}</span>
+            <button type="button" class="arc-btn-preview"
+                    data-preview-url="{% url 'archivo_descargar' a.id %}?inline=1"
+                    data-preview-name="{{ a.nombre|escapejs }}"
+                    data-preview-mime="{{ a.mime_type|default:'' }}"
+                    data-preview-size="{{ a.tamano_legible }}"
+                    title="Vista previa">👁</button>
+            <a href="{% url 'compose' %}?archivo={{ a.id }}" class="arc-btn-send"
+               title="Enviar por correo">📧</a>
             <form method="post" action="{% url 'archivo_borrar' a.id %}"
-                  onsubmit="return confirm('¿Mover «{{ a.nombre|escapejs }}» a la papelera?');">
+                  data-confirm="¿Mover «{{ a.nombre|escapejs }}» a la papelera?">
               {% csrf_token %}
               <button type="submit" class="arc-btn-delete" title="Mover a papelera">🗑</button>
             </form>
@@ -184,11 +192,19 @@
       <input type="hidden" name="next" value="{{ request.path }}">
       {% if forzar_tipo %}<input type="hidden" name="tipo" value="{{ forzar_tipo }}">{% endif %}
 
-      <label class="arc-field">
+      <div class="arc-field">
         <span class="arc-field-label">Archivo</span>
-        <input type="file" name="archivo" required>
+        <div class="arc-dropzone">
+          <svg class="arc-dropzone-icon" viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <span class="arc-dropzone-label">Arrastrá un archivo o hacé click para elegir</span>
+          <input type="file" name="archivo" required>
+        </div>
         <small class="arc-field-hint">Máx 50 MB</small>
-      </label>
+      </div>
 
       <label class="arc-field">
         <span class="arc-field-label">Nombre descriptivo</span>
