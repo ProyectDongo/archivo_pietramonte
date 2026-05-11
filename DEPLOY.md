@@ -399,6 +399,33 @@ Cada nuevo proyecto repite el flujo:
 
 ---
 
+## 11.4 Sync Gmail — cron cada 2 minutos (post hardening dedup)
+
+A partir del commit `8bfcc2e` + migración 0022, el sync tiene 4 capas de
+dedup:
+1. Cursor `last_uid` por label.
+2. Set en memoria por buzón dentro de cada run.
+3. **UniqueConstraint partial en DB** sobre `(buzon, mensaje_id)` —
+   garantía Postgres-level contra inserts duplicados de cualquier proceso.
+4. **Lock de cache** anti-solapamiento: si un sync demora más que el
+   intervalo del cron, el siguiente se sale limpio con WARNING.
+
+Eso permite **bajar el cron a cada 2 minutos sin riesgo de corromper**.
+
+Línea de crontab (host):
+
+```cron
+# Sync Gmail cada 2 min — dedup garantizado por DB + lock concurrente.
+*/2 * * * * docker exec $(docker ps --format '{{.Names}}' | grep o1rd | head -1) python manage.py sincronizar_gmail --quiet >> /var/log/pietramonte-gmail-sync.log 2>&1
+```
+
+Para diagnóstico forzado (skip del lock — usar con cuidado):
+```bash
+docker exec -it $CONT python manage.py sincronizar_gmail --ignore-lock
+```
+
+---
+
 ## 11.5 Cron del taller + backups (Hetzner host)
 
 Los jobs corren en el host (NO dentro del container, así sobreviven al

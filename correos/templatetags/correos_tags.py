@@ -229,21 +229,36 @@ def _img_attr_filter_safe(tag, name, value):
     """
     Filtro de atributos para <img> en modo INBOUND_SAFE_IMGS.
 
-    src permitido SOLO si:
+    src permitido si:
       - empieza con '/'  (URL interna nuestra, ej. /intranet/correo/X/cid/Y)
       - empieza con 'data:image/'  (imagen base64 inline, signatures)
+      - empieza con 'http://' o 'https://' Y settings.EMAIL_ALLOW_EXTERNAL_IMAGES=True
+        (default True — fix 2026-05-11 para que logos/marca se vean tipo Gmail).
 
-    Cualquier otro src (http, https, cid: no resuelto, javascript:, etc.) se
-    bloquea y bleach quita el tag completo (porque sin src válido no sirve).
+    Imágenes externas pueden ser tracking pixels. Mitigaciones:
+      - `referrerpolicy="no-referrer"` (oculta dominio/path del portal al sender)
+      - `loading="lazy"` (no descarga hasta que el user scrollea al correo)
+      - Ambos atributos se inyectan automáticamente en `render_correo_html`
+        después del cleaner (ver _inject_img_safety_attrs).
+
+    Para volver al comportamiento estricto (bloquear todas las img externas),
+    setear EMAIL_ALLOW_EXTERNAL_IMAGES=False en .env.
+
+    javascript:, file:, ftp:, etc. siempre se bloquean.
     """
-    if name in {'alt', 'width', 'height', 'border', 'title', 'style', 'class'}:
+    if name in {'alt', 'width', 'height', 'border', 'title', 'style', 'class',
+                'referrerpolicy', 'loading'}:
         return True
     if name == 'src':
         v = (value or '').strip()
         if v.startswith('/'):
             return True
-        if v.lower().startswith('data:image/'):
+        vl = v.lower()
+        if vl.startswith('data:image/'):
             return True
+        if vl.startswith('http://') or vl.startswith('https://'):
+            from django.conf import settings
+            return bool(getattr(settings, 'EMAIL_ALLOW_EXTERNAL_IMAGES', True))
         return False
     return False
 
@@ -426,7 +441,8 @@ def sanitizar_email_html(html: str) -> str:
 def render_correo_html(correo):
     """
     Renderiza el HTML de un correo con cid: resueltos a URLs internas y
-    sanitización con `<img>` permitido SOLO con src interna o data:image.
+    sanitización con `<img>` permitido con src interna, data:image, o
+    http(s) externa (si EMAIL_ALLOW_EXTERNAL_IMAGES=True, default).
 
     Uso en template:
         {% render_correo_html correo %}
@@ -435,9 +451,12 @@ def render_correo_html(correo):
       1. Pre-pass: `cid:xxx` se mapea a /intranet/correo/<id>/cid/<xxx>
          (URL autenticada que valida acceso al buzón antes de servir).
       2. Bleach con cleaner inbound_safe_imgs: strippa <script>, eventos on*,
-         javascript: URLs, src http/https externos (anti tracking-pixel),
-         CSS arbitrario, etc.
+         javascript: URLs, CSS arbitrario, etc.
       3. Tags <img> con src no permitido se eliminan por completo.
+      4. Postprocess: inyecta `referrerpolicy="no-referrer"` + `loading="lazy"`
+         en cada <img> sobreviviente. Mitiga tracking pixels:
+         - referrerpolicy oculta dominio/path del portal al server del sender
+         - loading=lazy retrasa la descarga hasta que el user scrollee al correo
 
     Devuelve `mark_safe(html_limpio)` — listo para emitir directo en plantilla.
     """
@@ -449,10 +468,45 @@ def render_correo_html(correo):
     try:
         html = _resolver_cid_en_html(html, correo)
         html = _pre_strip_html_para_bleach(html)
-        return mark_safe(_email_cleaner_inbound_safe_imgs().clean(html))
+        cleaned = _email_cleaner_inbound_safe_imgs().clean(html)
+        cleaned = _inject_img_safety_attrs(cleaned)
+        return mark_safe(cleaned)
     except Exception:
         from django.utils.html import strip_tags
         return mark_safe(strip_tags(html))
+
+
+# Regex para detectar <img …> sin referrerpolicy o sin loading y agregarlos.
+# Captura: 1=tag completo hasta el espacio antes de cerrar, sin "/>" o ">"
+_RE_IMG_TAG = re.compile(r'<img\b([^>]*?)\s*(/?)>', re.IGNORECASE)
+
+
+def _inject_img_safety_attrs(html: str) -> str:
+    """
+    Inyecta `referrerpolicy="no-referrer"` y `loading="lazy"` en cada <img>
+    que no los tenga ya. Mitiga tracking pixels permitidos por el cleaner
+    sin tener que correr otra pasada de bleach.
+    """
+    if '<img' not in html.lower():
+        return html
+
+    def repl(m):
+        attrs = m.group(1) or ''
+        attrs_lower = attrs.lower()
+        extras = []
+        if 'referrerpolicy' not in attrs_lower:
+            extras.append('referrerpolicy="no-referrer"')
+        if 'loading' not in attrs_lower:
+            extras.append('loading="lazy"')
+        if not extras:
+            return m.group(0)
+        # Conserva el self-close `/` si existía (XHTML).
+        closing = m.group(2) or ''
+        sep = ' ' if attrs.strip() else ''
+        return f'<img{attrs}{sep}{" ".join(extras)}{closing}>' if closing \
+               else f'<img{attrs} {" ".join(extras)}>'
+
+    return _RE_IMG_TAG.sub(repl, html)
 
 
 @register.filter(is_safe=True)

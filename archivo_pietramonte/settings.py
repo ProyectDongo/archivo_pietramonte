@@ -287,6 +287,17 @@ TURNSTILE_SECRET_KEY = os.getenv('TURNSTILE_SECRET_KEY', '')
 DISPOSABLE_DOMAINS_EXTRA = env_list('DISPOSABLE_DOMAINS_EXTRA', '')
 
 
+# ─── Render de correos HTML inbound ───────────────────────────────────────
+# Permitir <img src="https://..."> externas en el cuerpo de correos
+# recibidos (para que logos / branding / tablas con imágenes se vean tipo
+# Gmail).
+# Mitigaciones aplicadas en `render_correo_html`:
+#   - referrerpolicy="no-referrer" en cada <img> (oculta nuestro dominio al sender)
+#   - loading="lazy" (no descarga hasta que el user scrollea al correo)
+# Setear False para volver al modo estricto (solo CID internos + data:image).
+EMAIL_ALLOW_EXTERNAL_IMAGES = env_bool('EMAIL_ALLOW_EXTERNAL_IMAGES', True)
+
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
