@@ -11,10 +11,8 @@
 {% block content %}
 <div class="escritorio">
 
-  {# ─── Desktop: app icons (izquierda) + widgets (derecha) ─────────── #}
   <main class="esc-desktop">
 
-    {# ─── Apps ──────────────────────────────────────────────────── #}
     <section class="esc-apps" aria-label="Aplicaciones">
 
       <a class="esc-app" href="{% url 'inbox' %}" title="Correos">
@@ -82,10 +80,8 @@
       </a>
     </section>
 
-    {# ─── Widgets ──────────────────────────────────────────────── #}
     <section class="esc-widgets" aria-label="Widgets">
 
-      {# Dashboard: chart + KPIs #}
       <article class="esc-widget esc-widget-wide">
         <header class="esc-widget-head">
           <h3 class="esc-widget-title">
@@ -117,7 +113,6 @@
         </div>
       </article>
 
-      {# Últimos correos #}
       <article class="esc-widget">
         <header class="esc-widget-head">
           <h3 class="esc-widget-title">
@@ -145,7 +140,6 @@
         </ul>
       </article>
 
-      {# Top temas (editable) #}
       <article class="esc-widget">
         <header class="esc-widget-head">
           <h3 class="esc-widget-title">
@@ -171,7 +165,6 @@
         </ul>
       </article>
 
-      {# Top perfiles activos #}
       <article class="esc-widget">
         <header class="esc-widget-head">
           <h3 class="esc-widget-title">
@@ -201,7 +194,6 @@
         </ul>
       </article>
 
-      {# Archivos recientes — wide #}
       <article class="esc-widget esc-widget-wide">
         <header class="esc-widget-head">
           <h3 class="esc-widget-title">
