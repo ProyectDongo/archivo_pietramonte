@@ -494,6 +494,14 @@ miramos cuando hay que responder "¿qué tenemos contra X?".
 | **IP spoofing** | XFF solo respetado si conexión viene de `TRUSTED_PROXIES` | `views._get_ip`, `views._ip_in_trusted` |
 | **Backup Postgres** | Automático nightly Coolify → Backblaze B2 (SSE-B2 encryption at rest) | Coolify Backups tab |
 | **Backup adjuntos** | rclone nightly → Backblaze B2, soft-delete con `--backup-dir` versionado | `management/commands/backup_adjuntos_b2.py` |
+| **TRUSTED_PROXIES** | Default RFC 1918 (10/8, 172.16/12, 192.168/16). Rate-limit funciona per-cliente real, no per-proxy. | `settings.TRUSTED_PROXIES`, `views._get_ip` |
+| **Upload limits** | 5 MB body en RAM, 25 archivos/request, 500 fields/form. Anti-DoS por uploads gigantes y hash-collisions. | `settings.DATA_UPLOAD_*`, `settings.FILE_UPLOAD_*` |
+| **Gunicorn caps** | `--limit-request-line 8190`, `--limit-request-field_size 8190`, `--limit-request-fields 100`. Anti-DoS por headers/URLs abusivas. | `Dockerfile` CMD |
+| **Account lockout** | 5 fallos consecutivos / cuenta → bloqueo 30 min. Defensa anti botnet (IPs rotan, cuenta sigue bloqueada). | `models.UsuarioPortal.registrar_intento_fallido`, `views.login_view` |
+| **Constraint dedup correos** | `UNIQUE(buzon, mensaje_id) WHERE mensaje_id != ''` a nivel Postgres. Race condition entre syncs → IntegrityError → dedup, no insert. | `models.Correo.Meta.constraints`, migración 0022 |
+| **Lock sync concurrente** | Cache lock anti-solapamiento de `sincronizar_gmail`. 2 cron tick que se cruzan no compiten. | `management/commands/sincronizar_gmail.py` SYNC_LOCK_KEY |
+| **Alertas admin** | Email a `PORTAL_ADMIN_EMAIL` cuando: (1) cuenta entra en lockout; (2) >20 fallos globales/10min (ataque distribuido). Throttle 1h. | `views._enviar_alerta_admin` |
+| **External images en correos** | `<img src=https://...>` permitido con `referrerpolicy="no-referrer"` + `loading="lazy"` (mitiga tracking pixels). Toggle vía `EMAIL_ALLOW_EXTERNAL_IMAGES` env. | `correos_tags._img_attr_filter_safe`, `_inject_img_safety_attrs` |
 
 ### Lecciones de breaches en la competencia (anti-patrones a evitar)
 
