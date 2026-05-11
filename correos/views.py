@@ -3103,6 +3103,107 @@ def _esc_heatmap_actividad(usuario, buzones_visibles, dias=90):
     return out
 
 
+def _esc_tiempo_respuesta_y_pendientes(usuario, buzones_visibles, ventana_dias=90):
+    """
+    Calcula 2 métricas de valor real para el dueño del negocio:
+      1. tiempo_respuesta_horas: promedio horas entre que llega un correo
+         externo y la primera respuesta del mismo buzón al mismo remitente.
+         Es proxy de "qué tan rápido atendemos a los clientes".
+      2. sin_responder_7d: cantidad de correos recibidos hace >7 días que
+         NUNCA se respondieron. Alerta de "esto se está acumulando".
+
+    Implementación: cargar recibidos + enviados en RAM (sample N=2000),
+    indexar enviados por (buzon, email destino), buscar primera respuesta
+    para cada recibido. Cacheado 30min porque es O(N) sobre los últimos
+    90 días — costoso para hacer en cada request.
+    """
+    import re
+    cache_key = f'esc:tiempo_resp:{usuario.id}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    ahora = timezone.now()
+    desde = ahora - timedelta(days=ventana_dias)
+    hace_7d = ahora - timedelta(days=7)
+    visibles_ids = list(buzones_visibles.values_list('id', flat=True))
+    if not visibles_ids:
+        return {'tiempo_respuesta_horas': None, 'sin_responder_7d': 0}
+
+    # Sample limitado para que la query no estalle (1500 inbox + 1500 sent)
+    recibidos = list(
+        Correo.objects
+        .filter(buzon_id__in=visibles_ids, tipo_carpeta='inbox',
+                fecha__gte=desde, fecha__lte=ahora)
+        .order_by('fecha')
+        .values('buzon_id', 'remitente', 'fecha')[:1500]
+    )
+    enviados = list(
+        Correo.objects
+        .filter(buzon_id__in=visibles_ids, tipo_carpeta='enviados',
+                fecha__gte=desde, fecha__lte=ahora)
+        .order_by('fecha')
+        .values('buzon_id', 'destinatario', 'fecha')[:1500]
+    )
+
+    _email_re = re.compile(r'[\w.+-]+@[\w-]+\.[\w.-]+')
+
+    def email_de(s: str) -> str | None:
+        if not s:
+            return None
+        m = _email_re.search(s)
+        return m.group(0).lower() if m else None
+
+    # Index de enviados: (buzon_id, email_destino) → lista de fechas ordenadas
+    sent_idx: dict = {}
+    for e in enviados:
+        em = email_de(e['destinatario'])
+        if not em:
+            continue
+        sent_idx.setdefault((e['buzon_id'], em), []).append(e['fecha'])
+
+    diffs_horas = []
+    sin_responder = 0
+    for r in recibidos:
+        em_from = email_de(r['remitente'])
+        if not em_from:
+            continue
+        candidates = sent_idx.get((r['buzon_id'], em_from), [])
+        respuesta = next((d for d in candidates if d > r['fecha']), None)
+        if respuesta:
+            delta = respuesta - r['fecha']
+            horas = delta.total_seconds() / 3600
+            # Excluir outliers extremos (más de 30 días probablemente no
+            # son respuestas a ESE correo sino correo nuevo).
+            if 0 < horas < 24 * 30:
+                diffs_horas.append(horas)
+        else:
+            # Sin respuesta detectada. Si es viejo, cuenta como pendiente.
+            if r['fecha'] < hace_7d:
+                sin_responder += 1
+
+    if diffs_horas:
+        promedio = sum(diffs_horas) / len(diffs_horas)
+        # Decisión de unidad: si <24h mostrar horas, sino días
+        if promedio < 24:
+            tiempo_str = f'{promedio:.1f}h'
+        else:
+            tiempo_str = f'{promedio / 24:.1f}d'
+    else:
+        tiempo_str = '—'
+
+    out = {
+        'tiempo_respuesta_horas': round(sum(diffs_horas) / len(diffs_horas), 1)
+                                  if diffs_horas else None,
+        'tiempo_respuesta_str':   tiempo_str,
+        'sin_responder_7d':       sin_responder,
+        'sample_n':               len(recibidos),
+        'respondidos_n':          len(diffs_horas),
+    }
+    cache.set(cache_key, out, ESCRITORIO_CACHE_TTL)
+    return out
+
+
 def _esc_top_perfiles_stacked(usuario, buzones_visibles, top=5):
     """
     Top N buzones por volumen, con breakdown de recibidos/enviados/otros
@@ -3204,6 +3305,7 @@ def escritorio_view(request):
         'archivos_recientes': _esc_archivos_recientes(visibles_qs),
         # ─── Dashboard expandido (Fase 1.5) ──────────────────────────────
         'kpis':              _esc_kpis_ejecutivos(usuario, visibles_qs),
+        'tiempo_resp':       _esc_tiempo_respuesta_y_pendientes(usuario, visibles_qs),
         'volumen_mensual':   _esc_volumen_mensual(usuario, visibles_qs),
         'pie_carpetas':      _esc_pie_carpetas(usuario, visibles_qs),
         'top_remitentes':    _esc_top_remitentes_externos(usuario, visibles_qs),

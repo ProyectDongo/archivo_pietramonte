@@ -417,37 +417,58 @@
   margin-top: 1px;
 }
 
-/* ─── KPIs ejecutivos (6 cards arriba) ─────────────────────────── */
+/* ─── KPIs ejecutivos (8 cards arriba) ─────────────────────────── */
 .esc-kpis-row {
   display: grid !important;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(8, 1fr);
   padding: 0;
   background: rgba(255, 255, 255, .82);
 }
 .esc-kpi-card {
   text-align: center;
-  padding: 16px 10px;
+  padding: 14px 8px;
   border-right: 1px solid var(--esc-border);
+  position: relative;
+  cursor: help;
 }
 .esc-kpi-card:last-child { border-right: none; }
 .esc-kpi-card .esc-kpi-v {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--esc-text);
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
 }
 .esc-kpi-card .esc-kpi-v small {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--esc-text-dim);
 }
 .esc-kpi-card .esc-kpi-l {
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--esc-text-dim);
   text-transform: uppercase;
-  letter-spacing: .04em;
+  letter-spacing: .03em;
   margin-top: 4px;
+}
+
+/* KPI highlight (T. respuesta) — verde sutil = métrica de valor */
+.esc-kpi-highlight {
+  background: linear-gradient(180deg, rgba(5, 150, 105, .04), transparent);
+}
+.esc-kpi-highlight .esc-kpi-v { color: #059669; }
+
+/* KPI alert (Sin responder >7d con valor > 0) — rojo = atención */
+.esc-kpi-alert {
+  background: linear-gradient(180deg, rgba(200, 12, 15, .06), transparent);
+}
+.esc-kpi-alert .esc-kpi-v { color: var(--esc-brand); }
+.esc-kpi-alert::before {
+  content: '⚠';
+  position: absolute;
+  top: 6px; right: 6px;
+  font-size: 10px;
+  color: var(--esc-brand);
 }
 
 /* ─── Línea mensual ────────────────────────────────────────────── */
@@ -663,10 +684,14 @@
 }
 
 /* ─── Dashboard expandido — ajustes responsive ─────────────────── */
+@media (max-width: 1200px) {
+  /* En tablets/laptops chicos: 4 columnas (2 filas de 4) */
+  .esc-kpis-row { grid-template-columns: repeat(4, 1fr); }
+  .esc-kpi-card { border-right: 1px solid var(--esc-border); }
+  .esc-kpi-card:nth-child(4n) { border-right: none; }
+  .esc-kpi-card:nth-child(n+5) { border-top: 1px solid var(--esc-border); }
+}
 @media (max-width: 900px) {
-  .esc-kpis-row { grid-template-columns: repeat(3, 1fr); }
-  .esc-kpi-card:nth-child(3) { border-right: none; }
-  .esc-kpi-card:nth-child(n+4) { border-top: 1px solid var(--esc-border); }
   .esc-donut-wrap { grid-template-columns: 1fr; }
   .esc-donut-svg { margin: 0 auto; }
   .esc-rem { grid-template-columns: 20px 1fr 50px 36px; gap: 8px; }
@@ -674,11 +699,15 @@
   .esc-heatmap-row { grid-template-columns: 32px repeat(24, 1fr); }
   .esc-heatmap-cell { height: 12px; }
 }
-@media (max-width: 480px) {
+@media (max-width: 600px) {
+  /* Mobile: 2 columnas (4 filas de 2) */
   .esc-kpis-row { grid-template-columns: repeat(2, 1fr); }
-  .esc-kpi-card:nth-child(2) { border-right: none; }
+  .esc-kpi-card { border-right: 1px solid var(--esc-border); }
+  .esc-kpi-card:nth-child(2n) { border-right: none; }
   .esc-kpi-card:nth-child(n+3) { border-top: 1px solid var(--esc-border); }
   .esc-kpi-card .esc-kpi-v { font-size: 18px; }
+}
+@media (max-width: 480px) {
   .esc-line-svg { height: 110px; }
   .esc-heatmap-row-header .esc-heatmap-h:nth-child(odd) { visibility: hidden; }
   .esc-heatmap-cell { height: 10px; }

@@ -99,6 +99,14 @@
           <div class="esc-kpi-v">{{ kpis.tasa_respuesta }}<small>%</small></div>
           <div class="esc-kpi-l">Tasa respuesta</div>
         </div>
+        <div class="esc-kpi-card esc-kpi-highlight" title="Tiempo promedio entre que llega un correo externo y la primera respuesta del mismo buzón al mismo remitente. Sample: últimos 90 días.">
+          <div class="esc-kpi-v">{{ tiempo_resp.tiempo_respuesta_str }}</div>
+          <div class="esc-kpi-l">T. respuesta</div>
+        </div>
+        <div class="esc-kpi-card {% if tiempo_resp.sin_responder_7d %}esc-kpi-alert{% endif %}" title="Correos recibidos hace más de 7 días sin respuesta detectada. Algo se te está acumulando.">
+          <div class="esc-kpi-v">{{ tiempo_resp.sin_responder_7d }}</div>
+          <div class="esc-kpi-l">Sin responder &gt;7d</div>
+        </div>
         <div class="esc-kpi-card">
           <div class="esc-kpi-v">{{ kpis.no_leidos }}</div>
           <div class="esc-kpi-l">Sin leer</div>
