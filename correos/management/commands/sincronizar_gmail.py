@@ -26,14 +26,26 @@ from __future__ import annotations
 import email as email_lib
 import email.utils
 import logging
+import time
 
+from django.core.cache import cache
 from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from correos.gmail_sync import ImapError, fetch_nuevos, listar_labels
 from correos.models import Adjunto, BuzonGmailLabel, Correo
+
+
+# Lock anti-solapamiento: si una corrida de sync se demora más que el
+# intervalo del cron, la siguiente debe salir limpia sin hacer nada en vez
+# de competir con la anterior (que podría provocar duplicación de inserts
+# entre el chequeo en memoria y el INSERT).
+SYNC_LOCK_KEY = 'sync_gmail:running'
+SYNC_LOCK_TTL = 30 * 60       # 30 min — si por algún motivo el lock no se
+                              # libera (crash), se cae solo y la siguiente
+                              # corrida vuelve a tomar el control.
 from correos.management.commands.import_mbox import (
     decodificar_header,
     extraer_adjuntos,
@@ -57,6 +69,9 @@ class Command(BaseCommand):
                                  'Combinar con --label para no resetear todo.')
         parser.add_argument('--quiet', action='store_true',
                             help='Silencia el output rutinario (útil para cron sin spam).')
+        parser.add_argument('--ignore-lock', action='store_true',
+                            help='Forzar ejecución aunque haya otro sync corriendo. '
+                                 'Solo para diagnóstico — peligroso en cron.')
 
     def handle(self, *args, **options):
         if options['listar_labels']:
@@ -80,21 +95,45 @@ class Command(BaseCommand):
                 self.stdout.write('No hay BuzonGmailLabel activos para sincronizar.')
             return
 
-        total_nuevos_global = 0
-        total_dedup_global  = 0
-        total_errores_global = 0
+        # ─── Lock anti-solapamiento ────────────────────────────────────────
+        # Si REDIS_URL está, este lock es compartido entre todos los gunicorn
+        # workers Y entre comandos manage.py disparados desde el host. Sin
+        # Redis (LocMemCache), el lock solo cubre dentro del mismo proceso,
+        # pero como `manage.py sincronizar_gmail` corre como su propio proceso
+        # cada vez, el lock LocMemCache no sirve — la defensa fuerte queda
+        # en la UniqueConstraint de la DB (migración 0022) + IntegrityError
+        # más abajo.
+        if not options['ignore_lock']:
+            if cache.get(SYNC_LOCK_KEY):
+                if not options['quiet']:
+                    self.stdout.write(self.style.WARNING(
+                        'Otro sincronizar_gmail ya está corriendo. Salgo limpio. '
+                        '(Pasá --ignore-lock para forzar si sabés que es residual.)'
+                    ))
+                return
+            # set + TTL — si el sync se cuelga, el lock expira solo en 30 min.
+            cache.set(SYNC_LOCK_KEY, time.time(), SYNC_LOCK_TTL)
 
-        for sync in qs:
-            n_nuevos, n_dedup, n_err = self._sync_one(sync, quiet=options['quiet'])
-            total_nuevos_global += n_nuevos
-            total_dedup_global  += n_dedup
-            total_errores_global += n_err
+        try:
+            total_nuevos_global = 0
+            total_dedup_global  = 0
+            total_errores_global = 0
 
-        if not options['quiet'] or total_nuevos_global > 0:
-            self.stdout.write(self.style.SUCCESS(
-                f'\nResumen sync · nuevos={total_nuevos_global} · '
-                f'dedup={total_dedup_global} · errores={total_errores_global}'
-            ))
+            for sync in qs:
+                n_nuevos, n_dedup, n_err = self._sync_one(sync, quiet=options['quiet'])
+                total_nuevos_global += n_nuevos
+                total_dedup_global  += n_dedup
+                total_errores_global += n_err
+
+            if not options['quiet'] or total_nuevos_global > 0:
+                self.stdout.write(self.style.SUCCESS(
+                    f'\nResumen sync · nuevos={total_nuevos_global} · '
+                    f'dedup={total_dedup_global} · errores={total_errores_global}'
+                ))
+        finally:
+            # Liberar el lock siempre, incluso si hubo excepciones.
+            if not options['ignore_lock']:
+                cache.delete(SYNC_LOCK_KEY)
 
     def _sync_one(self, sync: BuzonGmailLabel, quiet: bool = False) -> tuple[int, int, int]:
         if not quiet:
@@ -172,29 +211,40 @@ class Command(BaseCommand):
                 html  = html.replace('\x00', '')
                 adjuntos_data = extraer_adjuntos(msg)
 
-                with transaction.atomic():
-                    correo = Correo.objects.create(
-                        buzon=sync.buzon,
-                        tipo_carpeta=sync.tipo_carpeta,
-                        mensaje_id=msg_id,
-                        remitente=remitente[:500],
-                        destinatario=dest[:1000],
-                        asunto=asunto[:1000],
-                        fecha=fecha,
-                        cuerpo_texto=texto,
-                        cuerpo_html=html,
-                        tiene_adjunto=bool(adjuntos_data),
-                    )
-                    for nombre, mime, payload, content_id in adjuntos_data:
-                        adj = Adjunto(
-                            correo=correo,
-                            nombre_original=nombre,
-                            mime_type=mime[:200],
-                            tamano_bytes=len(payload),
-                            content_id=content_id,
+                try:
+                    with transaction.atomic():
+                        correo = Correo.objects.create(
+                            buzon=sync.buzon,
+                            tipo_carpeta=sync.tipo_carpeta,
+                            mensaje_id=msg_id,
+                            remitente=remitente[:500],
+                            destinatario=dest[:1000],
+                            asunto=asunto[:1000],
+                            fecha=fecha,
+                            cuerpo_texto=texto,
+                            cuerpo_html=html,
+                            tiene_adjunto=bool(adjuntos_data),
                         )
-                        adj.archivo.save(nombre, ContentFile(payload), save=False)
-                        adj.save()
+                        for nombre, mime, payload, content_id in adjuntos_data:
+                            adj = Adjunto(
+                                correo=correo,
+                                nombre_original=nombre,
+                                mime_type=mime[:200],
+                                tamano_bytes=len(payload),
+                                content_id=content_id,
+                            )
+                            adj.archivo.save(nombre, ContentFile(payload), save=False)
+                            adj.save()
+                except IntegrityError:
+                    # La UniqueConstraint partial (migración 0022) sobre
+                    # (buzon, mensaje_id) lo detectó: otro proceso o un sync
+                    # paralelo ya insertó este correo. Es el caso que el set
+                    # en memoria no puede ver. Lo contamos como dedup, no
+                    # error, y seguimos.
+                    dedup += 1
+                    if msg_id:
+                        existing_msgids.add(msg_id)
+                    continue
 
                 if msg_id:
                     existing_msgids.add(msg_id)

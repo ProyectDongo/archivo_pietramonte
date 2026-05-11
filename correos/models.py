@@ -122,6 +122,18 @@ class Correo(models.Model):
             models.Index(fields=['buzon', 'tiene_adjunto'],
                          name='correos_cor_buzon_a_d2f8e1_idx'),
         ]
+        constraints = [
+            # Anti-duplicación del sync (migración 0022). Postgres rechaza
+            # un segundo Correo con el mismo Message-ID en el mismo buzón.
+            # Excluye mensaje_id vacío porque correos viejos importados
+            # de mbox pueden carecer del header — esos quedan dedupeados
+            # solo por el cursor last_uid del sync.
+            models.UniqueConstraint(
+                fields=['buzon', 'mensaje_id'],
+                condition=~models.Q(mensaje_id=''),
+                name='unique_correo_buzon_msgid',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.asunto[:60]} ({self.fecha})'
