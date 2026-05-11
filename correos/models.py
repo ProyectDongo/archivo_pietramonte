@@ -190,6 +190,24 @@ class UsuarioPortal(models.Model):
     recovery_codes_hash   = models.JSONField(default=list, blank=True)
     totp_ultimo_codigo    = models.CharField(max_length=10, blank=True, default='')
 
+    # ─── Anti brute-force per-usuario (Fase de seguridad 2026-05-11) ───────
+    # El rate-limit por IP no es suficiente: un atacante con botnet rotando
+    # IPs puede iterar contraseñas del mismo email sin que ninguna IP
+    # supere el threshold. Por eso bloqueamos también por usuario.
+    intentos_fallidos = models.PositiveSmallIntegerField(
+        default=0,
+        help_text='Contador de logins fallidos consecutivos. Se resetea en login OK.',
+    )
+    bloqueado_hasta = models.DateTimeField(
+        null=True, blank=True, db_index=True,
+        help_text='Si está en el futuro, el usuario no puede loguear hasta esa fecha. '
+                  'Se setea automáticamente tras LOCKOUT_THRESHOLD fallos consecutivos.',
+    )
+    ultimo_intento_fallido = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Timestamp del último intento fallido — útil para auditoría.',
+    )
+
     class Meta:
         verbose_name = 'Usuario del portal'
         verbose_name_plural = 'Usuarios del portal'
@@ -218,6 +236,39 @@ class UsuarioPortal(models.Model):
         if self.es_admin:
             return True
         return self.buzones.filter(id=buzon.id).exists()
+
+    def esta_bloqueado(self) -> bool:
+        """¿Está actualmente bloqueado por brute-force lockout?"""
+        from django.utils import timezone
+        if not self.bloqueado_hasta:
+            return False
+        return self.bloqueado_hasta > timezone.now()
+
+    def registrar_intento_fallido(self, threshold: int = 5, duracion_min: int = 30) -> bool:
+        """
+        Incrementa el contador de fallos. Si llega a `threshold`, bloquea por
+        `duracion_min` minutos. Devuelve True si esta llamada disparó el bloqueo.
+        """
+        from datetime import timedelta
+        from django.utils import timezone
+
+        self.intentos_fallidos = (self.intentos_fallidos or 0) + 1
+        self.ultimo_intento_fallido = timezone.now()
+        recien_bloqueado = False
+        if self.intentos_fallidos >= threshold:
+            self.bloqueado_hasta = timezone.now() + timedelta(minutes=duracion_min)
+            recien_bloqueado = True
+        self.save(update_fields=[
+            'intentos_fallidos', 'ultimo_intento_fallido', 'bloqueado_hasta',
+        ])
+        return recien_bloqueado
+
+    def resetear_intentos(self) -> None:
+        """Reset del contador tras login exitoso."""
+        if self.intentos_fallidos or self.bloqueado_hasta:
+            self.intentos_fallidos = 0
+            self.bloqueado_hasta = None
+            self.save(update_fields=['intentos_fallidos', 'bloqueado_hasta'])
 
 
 class CorreoLeido(models.Model):
@@ -411,6 +462,7 @@ class IntentoLogin(models.Model):
         ('email_invalido',    'Formato de email inválido'),
         ('password_invalida', 'Contraseña incorrecta'),
         ('usuario_inactivo',  'Usuario marcado inactivo'),
+        ('usuario_bloqueado', 'Cuenta bloqueada por brute-force lockout'),
         ('buzon_inexist',     'Buzón no importado'),
         ('throttled',         'Bloqueado por rate-limit'),
         ('csrf',              'CSRF inválido'),

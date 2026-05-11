@@ -31,6 +31,10 @@ logger = logging.getLogger('correos.views')
 # Tiempo máximo entre password OK y completar 2FA (segundos).
 PRE_2FA_TTL = 5 * 60
 
+# Account lockout (anti brute-force per-usuario)
+LOCKOUT_THRESHOLD     = 5      # fallos consecutivos antes de bloquear
+LOCKOUT_DURACION_MIN  = 30     # cuánto dura el bloqueo
+
 
 # ─── Helpers ───────────────────────────────────────────────────────────────
 def _get_ip(request) -> str:
@@ -308,11 +312,47 @@ def login_view(request):
     #    para que el tiempo de respuesta sea similar (anti-timing-enumeration).
     try:
         usuario = UsuarioPortal.objects.get(email=email)
+
+        # 4.a Lockout per-usuario (anti brute-force con botnet rotando IPs).
+        #     Igual hace check_password (timing-safe) antes de devolver el
+        #     error genérico — no filtramos "esta cuenta está bloqueada".
+        if usuario.esta_bloqueado():
+            usuario.check_password(password)
+            return fallo('usuario_bloqueado')
+
         if not usuario.activo:
-            # Igual hace check_password (timing-safe), pero falla con motivo correcto
             usuario.check_password(password)
             return fallo('usuario_inactivo')
+
         if not usuario.check_password(password):
+            # Incrementar contador + bloquear si llegó al threshold.
+            recien_bloqueado = usuario.registrar_intento_fallido(
+                threshold=LOCKOUT_THRESHOLD,
+                duracion_min=LOCKOUT_DURACION_MIN,
+            )
+            if recien_bloqueado:
+                logger.warning(
+                    'Account lockout activado: email=%s intentos=%d duración=%dmin',
+                    email, usuario.intentos_fallidos, LOCKOUT_DURACION_MIN,
+                )
+                # Audit trail
+                try:
+                    EventoAuditoria.objects.create(
+                        usuario=usuario,
+                        accion='login_ok',  # reusamos accion existente; meta diferencia
+                        target_tipo='usuarioportal',
+                        target_id=usuario.id,
+                        meta={
+                            'evento': 'lockout_disparado',
+                            'intentos': usuario.intentos_fallidos,
+                            'duracion_min': LOCKOUT_DURACION_MIN,
+                            'bloqueado_hasta': usuario.bloqueado_hasta.isoformat()
+                                               if usuario.bloqueado_hasta else None,
+                        },
+                        ip_hash=ip_h,
+                    )
+                except Exception:
+                    logger.exception('Fallo audit lockout')
             return fallo('password_invalida')
     except UsuarioPortal.DoesNotExist:
         # Run check_password on a known hash for timing parity
@@ -497,6 +537,8 @@ def verify_2fa_view(request):
             _log_intento(request, ip_h, user.email, motivo='totp_ok', exito=True)
 
         _rl_intento(ip_h, exito=True)
+        # Reset del contador de lockout per-usuario tras login + 2FA OK
+        user.resetear_intentos()
         _promover_sesion(request, user)
         return redirect('escritorio')
 
