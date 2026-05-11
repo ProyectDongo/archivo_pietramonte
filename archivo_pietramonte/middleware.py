@@ -43,7 +43,14 @@ _CSP_DEFAULT = (
     "script-src 'self' https://challenges.cloudflare.com https://static.cloudflareinsights.com; "
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "font-src 'self' https://fonts.gstatic.com; "
-    "img-src 'self' data: blob:; "
+    # img-src incluye https: y http: para que los logos / branding de correos
+    # entrantes se rendericen (Banco, Mercado Libre, Registro Civil, etc.).
+    # Mitigaciones contra tracking aplicadas en `render_correo_html`:
+    # cada <img> recibe referrerpolicy="no-referrer" + loading="lazy"
+    # (ver correos_tags._inject_img_safety_attrs).
+    # Para volver al modo estricto: setear EMAIL_ALLOW_EXTERNAL_IMAGES=False
+    # (el cleaner strippea los <img https://>) y/o restringir img-src acá.
+    "img-src 'self' data: blob: https: http:; "
     "connect-src 'self' https://challenges.cloudflare.com https://cloudflareinsights.com; "
     "frame-src 'self' https://challenges.cloudflare.com; "  # 'self' para PDF/audio inline en adj-viewer
     "frame-ancestors 'none'; "
