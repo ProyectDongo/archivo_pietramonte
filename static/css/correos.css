@@ -5165,3 +5165,61 @@ a.correo-row {
   background: #1d2226;
   border-color: #383f45;
 }
+
+/* ─── Sidebar: back to escritorio + sección "Conectado con" ────────── */
+.sidebar-back-escritorio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  margin: 0 0 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  color: #C80C0F;
+  text-decoration: none;
+  font-weight: 500;
+  transition: background .12s ease;
+  align-self: flex-start;
+}
+.sidebar-back-escritorio:hover {
+  background: rgba(200, 12, 15, .10);
+}
+.sidebar-back-escritorio svg {
+  flex-shrink: 0;
+}
+
+[data-theme="dark"] .sidebar-back-escritorio {
+  color: #ff8a8c;
+}
+[data-theme="dark"] .sidebar-back-escritorio:hover {
+  background: rgba(255, 138, 140, .12);
+}
+
+.sidebar-connected .sidebar-label::after {
+  content: '↗';
+  margin-left: 6px;
+  opacity: .5;
+  font-size: 9px;
+}
+
+.sidebar-link-soon {
+  pointer-events: none;
+  opacity: .55;
+  cursor: default;
+}
+.sidebar-link-soon .sidebar-link-soon {
+  margin-left: auto;
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  background: rgba(0, 0, 0, .05);
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--text-muted, #94a3b8);
+  font-weight: 600;
+  pointer-events: none;
+}
+[data-theme="dark"] .sidebar-link-soon .sidebar-link-soon {
+  background: rgba(255, 255, 255, .06);
+  color: #8a929b;
+}
