@@ -7,18 +7,6 @@
   'use strict';
 
   /* ────────────────────────────────────────────────────────────────
-     Confirm dialogs para forms con data-confirm (reemplaza onsubmit inline)
-     ──────────────────────────────────────────────────────────────── */
-  document.querySelectorAll('form[data-confirm]').forEach(function (form) {
-    form.addEventListener('submit', function (e) {
-      var msg = form.getAttribute('data-confirm');
-      if (msg && !window.confirm(msg)) {
-        e.preventDefault();
-      }
-    });
-  });
-
-  /* ────────────────────────────────────────────────────────────────
      Preview inline — modal con iframe/img según mime
      ──────────────────────────────────────────────────────────────── */
   var previewOverlay = null;

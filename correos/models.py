@@ -899,6 +899,25 @@ class Archivo(models.Model):
         related_name='archivos_eliminados',
     )
 
+    # ─── Versiones ───────────────────────────────────────────────────────
+    # Cada versión es un row independiente. La "v1" tiene version_padre=NULL;
+    # las siguientes apuntan al archivo raíz (NO encadenado v2→v3, todos→v1).
+    # version_num arranca en 1 y se autoincrementa al subir versión nueva.
+    version_padre = models.ForeignKey(
+        'self', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='versiones', db_index=True,
+        help_text='Archivo raíz si esto es una versión posterior. '
+                  'NULL = es la raíz (puede tener versiones hijas).',
+    )
+    version_num   = models.PositiveSmallIntegerField(
+        default=1,
+        help_text='Número de versión (1 = original).',
+    )
+    version_nota  = models.CharField(
+        max_length=300, blank=True, default='',
+        help_text='Qué cambió en esta versión (opcional).',
+    )
+
     class Meta:
         verbose_name = 'Archivo'
         verbose_name_plural = 'Archivos'
@@ -907,6 +926,7 @@ class Archivo(models.Model):
             models.Index(fields=['tipo', '-creado'],  name='correos_arc_tipo_idx'),
             models.Index(fields=['perfil', '-creado'], name='correos_arc_perfil_idx'),
             models.Index(fields=['eliminado_en'],     name='correos_arc_elim_idx'),
+            models.Index(fields=['version_padre', '-version_num'], name='correos_arc_ver_idx'),
         ]
 
     def __str__(self):
@@ -943,15 +963,19 @@ class Archivo(models.Model):
         ¿Este usuario puede ver este archivo?
           - Admins: TODO.
           - Uploader: siempre el suyo.
+          - Compartido explícito: si hay ArchivoComparticion para este user.
           - Público: todos los users del portal.
           - Por perfil: si el usuario puede ver el buzón asignado.
-          - Privado: solo uploader + admins.
+          - Privado: solo uploader + admins (+ compartidos).
         """
         if not usuario:
             return False
         if usuario.es_admin:
             return True
         if self.creado_por_id and self.creado_por_id == usuario.id:
+            return True
+        # Compartido explícito (privado o perfil) — siempre habilita.
+        if ArchivoComparticion.objects.filter(archivo=self, usuario=usuario).exists():
             return True
         if self.visibilidad == self.Visibilidad.PUBLICO:
             return True
@@ -965,6 +989,91 @@ class Archivo(models.Model):
         """Devuelve los segmentos de la 'carpeta virtual' del tema.
         Ej: tema='Facturación/2026/Enero' → ['Facturación', '2026', 'Enero']."""
         return [s.strip() for s in (self.tema or '').split('/') if s.strip()]
+
+    @property
+    def raiz_id(self) -> int:
+        """ID del archivo raíz del árbol de versiones (self si es raíz)."""
+        return self.version_padre_id or self.id
+
+    @property
+    def es_raiz(self) -> bool:
+        return self.version_padre_id is None
+
+
+class ArchivoComparticion(models.Model):
+    """
+    Compartición explícita de un Archivo con un UsuarioPortal específico.
+    Se suma a la visibilidad base (privado/perfil/publico) sin reemplazarla:
+    si el archivo es PRIVADO, esta tabla lo expone solo a quienes están
+    listados acá.
+
+    Por ahora todo el acceso es "puede ver/descargar" (no hay nivel de
+    edición). Si más adelante hace falta, agregar un campo `nivel`.
+    """
+    archivo = models.ForeignKey(
+        Archivo, on_delete=models.CASCADE, related_name='comparticiones',
+    )
+    usuario = models.ForeignKey(
+        'UsuarioPortal', on_delete=models.CASCADE, related_name='archivos_compartidos_con_mi',
+    )
+    compartido_por = models.ForeignKey(
+        'UsuarioPortal', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='archivos_que_compartio',
+    )
+    creado = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Compartición de archivo'
+        verbose_name_plural = 'Comparticiones de archivo'
+        ordering = ['-creado']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['archivo', 'usuario'],
+                name='correos_arc_share_unique',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.archivo_id} → {self.usuario_id}'
+
+
+class ArchivoVinculo(models.Model):
+    """
+    Vincula un Archivo a un Correo existente (no es un adjunto SMTP — es
+    una asociación lógica). Útil para "este contrato pertenece al hilo del
+    cliente X" sin re-subir el archivo.
+
+    El correo no se modifica. La UI del detalle del correo lista los
+    archivos vinculados y permite quitarlos.
+    """
+    archivo = models.ForeignKey(
+        Archivo, on_delete=models.CASCADE, related_name='vinculos',
+    )
+    correo  = models.ForeignKey(
+        Correo, on_delete=models.CASCADE, related_name='archivos_vinculados',
+    )
+    vinculado_por = models.ForeignKey(
+        'UsuarioPortal', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='archivos_que_vinculo',
+    )
+    creado = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Vínculo archivo↔correo'
+        verbose_name_plural = 'Vínculos archivo↔correo'
+        ordering = ['-creado']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['archivo', 'correo'],
+                name='correos_arc_corr_unique',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['correo', '-creado'], name='correos_arc_corr_idx'),
+        ]
+
+    def __str__(self):
+        return f'arc={self.archivo_id} ↔ correo={self.correo_id}'
 
 
 class UserDesktopPrefs(models.Model):

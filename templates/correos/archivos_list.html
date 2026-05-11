@@ -121,6 +121,7 @@
                   {% if a.visibilidad == 'privado' %}🔒{% elif a.visibilidad == 'publico' %}🌐{% else %}👥{% endif %}
                 </span>
                 {{ a.nombre|truncatechars:60 }}
+                {% if a.version_num > 1 %}<span class="arc-meta-tag arc-meta-ver" title="Versión {{ a.version_num }}">v{{ a.version_num }}</span>{% endif %}
               </span>
               <span class="arc-item-meta">
                 {% if a.perfil %}<span class="arc-meta-tag">{{ a.perfil.email|truncatechars:20 }}</span>{% endif %}
@@ -143,6 +144,44 @@
                     title="Vista previa">👁</button>
             <a href="{% url 'compose' %}?archivo={{ a.id }}" class="arc-btn-send"
                title="Enviar por correo">📧</a>
+            <details class="arc-more">
+              <summary class="arc-btn-more" title="Más acciones">⋯</summary>
+              <div class="arc-more-panel">
+                <form method="post" action="{% url 'archivo_subir_version' a.id %}"
+                      enctype="multipart/form-data" class="arc-more-form">
+                  {% csrf_token %}
+                  <strong>📋 Subir nueva versión</strong>
+                  <input type="file" name="archivo" required>
+                  <input type="text" name="nota" maxlength="300" placeholder="Qué cambió (opcional)">
+                  <button type="submit" class="arc-btn-primary" style="background:{{ app_color }}">Subir v{{ a.version_num|add:1 }}</button>
+                </form>
+                <form method="post" action="{% url 'archivo_compartir' a.id %}"
+                      class="arc-more-form">
+                  {% csrf_token %}
+                  <strong>👥 Compartir con un usuario</strong>
+                  <input type="email" name="email" required placeholder="email@dominio.cl"
+                         maxlength="200" autocomplete="off">
+                  <button type="submit" class="arc-btn-primary" style="background:{{ app_color }}">Compartir</button>
+                </form>
+                {% if a.comparticiones.all %}
+                <div class="arc-more-shares">
+                  <strong>Compartido con:</strong>
+                  <ul class="arc-share-list">
+                    {% for c in a.comparticiones.all %}
+                    <li>
+                      <span>{{ c.usuario.email }}</span>
+                      <form method="post" action="{% url 'archivo_descompartir' a.id c.id %}"
+                            data-confirm="¿Quitar compartición con {{ c.usuario.email|escapejs }}?">
+                        {% csrf_token %}
+                        <button type="submit" class="arc-btn-delete" title="Quitar">✕</button>
+                      </form>
+                    </li>
+                    {% endfor %}
+                  </ul>
+                </div>
+                {% endif %}
+              </div>
+            </details>
             <form method="post" action="{% url 'archivo_borrar' a.id %}"
                   data-confirm="¿Mover «{{ a.nombre|escapejs }}» a la papelera?">
               {% csrf_token %}

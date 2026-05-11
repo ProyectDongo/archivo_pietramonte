@@ -174,4 +174,45 @@
   </footer>
   {% endif %}
   {% endwith %}
+
+  {# ─── Archivos del Archivo digital vinculados a este correo ─── #}
+  <footer class="preview-foot preview-vinculos">
+    <div class="adj-list-label">
+      🔗 Archivos del Archivo
+      {% if archivo_vinculos %}<span class="vinc-count">({{ archivo_vinculos|length }})</span>{% endif %}
+    </div>
+    {% if archivo_vinculos %}
+    <ul class="vinc-list">
+      {% for v in archivo_vinculos %}
+      <li class="vinc-row">
+        <a href="{% url 'archivo_descargar' v.archivo.id %}" target="_blank" class="vinc-name">
+          📄 {{ v.archivo.nombre|truncatechars:60 }}
+          {% if v.archivo.version_num > 1 %}<span class="vinc-ver">v{{ v.archivo.version_num }}</span>{% endif %}
+        </a>
+        <span class="vinc-meta">{{ v.archivo.tamano_legible }} · {{ v.creado|date:"d/m/Y" }}</span>
+        <form method="post" action="{% url 'correo_desvincular_archivo' correo.id v.id %}"
+              data-confirm="¿Quitar vínculo con «{{ v.archivo.nombre|escapejs }}»?">
+          {% csrf_token %}
+          <button type="submit" class="vinc-rm" title="Quitar vínculo">✕</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if archivos_para_vincular %}
+    <details class="vinc-add">
+      <summary class="vinc-add-toggle">+ Vincular archivo del Archivo</summary>
+      <form method="post" action="{% url 'correo_vincular_archivo' correo.id %}" class="vinc-add-form">
+        {% csrf_token %}
+        <select name="archivo_id" required>
+          <option value="" disabled selected>— Elegí un archivo —</option>
+          {% for a in archivos_para_vincular %}
+          <option value="{{ a.id }}">{{ a.nombre|truncatechars:80 }}{% if a.version_num > 1 %} (v{{ a.version_num }}){% endif %}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="vinc-add-btn">Vincular</button>
+      </form>
+    </details>
+    {% endif %}
+  </footer>
 </article>

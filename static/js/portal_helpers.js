@@ -39,4 +39,13 @@ window.PM = window.PM || {};
       t = setTimeout(function () { fn.apply(ctx, args); }, ms);
     };
   };
+
+  // Confirm dialog para forms con data-confirm (reemplaza onsubmit inline).
+  // Se delega en document para cubrir forms inyectados dinámicamente.
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (!form || form.tagName !== 'FORM') return;
+    var msg = form.getAttribute('data-confirm');
+    if (msg && !window.confirm(msg)) e.preventDefault();
+  }, true);
 })();

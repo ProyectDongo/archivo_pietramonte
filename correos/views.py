@@ -18,9 +18,10 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from . import captcha, totp as totp_helpers
 from .models import (
-    Adjunto, Archivo, BorradorAdjunto, BorradorCorreo, Buzon, CategoriaTema,
-    Correo, CorreoEnviado, CorreoLeido, CorreoSnooze, Etiqueta, EventoAuditoria,
-    IntentoLogin, ReenvioCorreo, UserDesktopPrefs, UsuarioPortal, hash_ip,
+    Adjunto, Archivo, ArchivoComparticion, ArchivoVinculo, BorradorAdjunto,
+    BorradorCorreo, Buzon, CategoriaTema, Correo, CorreoEnviado, CorreoLeido,
+    CorreoSnooze, Etiqueta, EventoAuditoria, IntentoLogin, ReenvioCorreo,
+    UserDesktopPrefs, UsuarioPortal, hash_ip,
 )
 from .throttle import throttle_user
 from taller.anti_bot import verify_turnstile
@@ -1066,12 +1067,25 @@ def detalle_view(request, correo_id):
     # Hilo de conversación (otros correos del mismo asunto en el mismo buzón)
     thread = _hilo_de(correo)[:20]
 
+    # Archivos del Archivo digital vinculados a este correo
+    vinculos = (ArchivoVinculo.objects
+                .filter(correo=correo)
+                .select_related('archivo', 'vinculado_por')
+                .order_by('-creado'))
+    # Archivos disponibles para vincular (50 más recientes visibles para el user)
+    archivos_para_vincular = (_archivos_visibles_qs(usuario)
+                              .filter(eliminado_en__isnull=True)
+                              .exclude(id__in=vinculos.values_list('archivo_id', flat=True))
+                              .order_by('-creado')[:50])
+
     return render(request, 'correos/detalle.html', {
         'buzon': correo.buzon,
         'correo': correo,
         'buzones_visibles': usuario.buzones_visibles(),
         'thread': thread,
         'etiquetas_disponibles': correo.buzon.etiquetas.all().order_by('nombre'),
+        'archivo_vinculos': vinculos,
+        'archivos_para_vincular': archivos_para_vincular,
     })
 
 
@@ -3365,10 +3379,9 @@ ARCHIVO_MAX_BYTES = 50 * 1024 * 1024   # 50 MB por archivo
 
 def _archivos_visibles_qs(usuario):
     """
-    Queryset base de archivos que ESTE usuario puede ver, según
-    `visibilidad`:
+    Queryset base de archivos que ESTE usuario puede ver:
       - admin → todos
-      - resto → propios + públicos + por perfil (si user accede al buzón)
+      - resto → propios + públicos + por perfil + compartidos explícitamente
 
     Devuelve queryset YA filtrado. Se compone con .filter() adicional.
     """
@@ -3380,6 +3393,7 @@ def _archivos_visibles_qs(usuario):
         Q(creado_por=usuario)
         | Q(visibilidad=Archivo.Visibilidad.PUBLICO)
         | (Q(visibilidad=Archivo.Visibilidad.PERFIL) & Q(perfil_id__in=visibles_ids))
+        | Q(comparticiones__usuario=usuario)
     ).distinct()
 
 
@@ -3406,6 +3420,7 @@ def archivos_list_view(request):
           .filter(eliminado_en__isnull=True)
           .exclude(tipo=Archivo.Tipo.CONTRATO)
           .select_related('perfil', 'creado_por')
+          .prefetch_related('comparticiones__usuario')
           .order_by('-creado'))
 
     filtro_perfil = (request.GET.get('perfil') or '').strip()
@@ -3668,6 +3683,7 @@ def contratos_list_view(request):
     qs = (_archivos_visibles_qs(usuario)
           .filter(eliminado_en__isnull=True, tipo=Archivo.Tipo.CONTRATO)
           .select_related('perfil', 'creado_por')
+          .prefetch_related('comparticiones__usuario')
           .order_by('-creado'))
 
     filtro_perfil = (request.GET.get('perfil') or '').strip()
@@ -3796,3 +3812,236 @@ def archivo_borrar_permanente_view(request, archivo_id):
 
     messages.success(request, f'Borrado permanente: {nombre}')
     return redirect('papelera')
+
+
+# ─── Versiones de un archivo ──────────────────────────────────────────────
+@portal_login_required
+@throttle_user('archivos_upload', per_minute=20)
+@require_POST
+def archivo_subir_version_view(request, archivo_id):
+    """
+    Sube una nueva versión de un archivo existente. La nueva versión es un
+    Archivo nuevo con `version_padre = raiz` y `version_num = max + 1`.
+    Hereda tipo/perfil/visibilidad del padre (NO se pueden cambiar acá).
+    """
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+
+    base = get_object_or_404(Archivo, id=archivo_id, eliminado_en__isnull=True)
+    if not _archivo_puede_ver(usuario, base):
+        raise Http404
+    # Solo el uploader original o admins pueden versionar
+    if not usuario.es_admin and base.creado_por_id != usuario.id:
+        messages.error(request, 'Solo el propietario o un admin puede versionar.')
+        return redirect('archivos' if base.tipo != Archivo.Tipo.CONTRATO else 'contratos')
+
+    f = request.FILES.get('archivo')
+    if not f:
+        messages.error(request, 'Seleccioná un archivo para la nueva versión.')
+        return redirect('archivos' if base.tipo != Archivo.Tipo.CONTRATO else 'contratos')
+
+    if f.size > ARCHIVO_MAX_BYTES:
+        messages.error(request, f'Archivo demasiado grande. Máximo {ARCHIVO_MAX_BYTES // 1024 // 1024} MB.')
+        return redirect('archivos' if base.tipo != Archivo.Tipo.CONTRATO else 'contratos')
+
+    from django.db.models import Max as _DbMax
+    raiz_id = base.version_padre_id or base.id
+    ultimo_num = (Archivo.objects
+                  .filter(Q(id=raiz_id) | Q(version_padre_id=raiz_id))
+                  .aggregate(maxv=_DbMax('version_num'))['maxv'] or 1)
+
+    nueva = Archivo(
+        nombre=base.nombre,
+        archivo=f,
+        mime_type=(f.content_type or '')[:200],
+        tamano_bytes=f.size,
+        tipo=base.tipo,
+        perfil=base.perfil,
+        tema=base.tema,
+        visibilidad=base.visibilidad,
+        descripcion=base.descripcion,
+        creado_por=usuario,
+        version_padre_id=raiz_id,
+        version_num=ultimo_num + 1,
+        version_nota=(request.POST.get('nota') or '').strip()[:300],
+    )
+    nueva.save()
+
+    try:
+        EventoAuditoria.objects.create(
+            usuario=usuario, accion='archivo_versionar',
+            target_tipo='archivo', target_id=nueva.id,
+            meta={'raiz': raiz_id, 'version': nueva.version_num, 'nombre': base.nombre},
+            ip_hash=hash_ip(_get_ip(request)),
+        )
+    except Exception:
+        logger.exception('audit archivo_versionar falló')
+
+    messages.success(request, f'Versión {nueva.version_num} de «{base.nombre}» subida.')
+    if base.tipo == Archivo.Tipo.CONTRATO:
+        return redirect('contratos')
+    return redirect('archivos')
+
+
+# ─── Compartir archivo con un usuario específico ──────────────────────────
+@portal_login_required
+@require_POST
+def archivo_compartir_view(request, archivo_id):
+    """
+    Comparte un archivo con un UsuarioPortal por email.
+    Solo el uploader o admin puede compartir.
+    """
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+
+    archivo = get_object_or_404(Archivo, id=archivo_id, eliminado_en__isnull=True)
+    if not usuario.es_admin and archivo.creado_por_id != usuario.id:
+        messages.error(request, 'Solo el propietario o un admin puede compartir.')
+        return redirect('archivos')
+
+    email_raw = (request.POST.get('email') or '').strip().lower()[:200]
+    if not email_raw:
+        messages.error(request, 'Indicá un email del portal.')
+        return redirect('archivos')
+
+    try:
+        destinatario = UsuarioPortal.objects.get(email__iexact=email_raw)
+    except UsuarioPortal.DoesNotExist:
+        messages.error(request, f'No hay usuario del portal con email «{email_raw}».')
+        return redirect('archivos')
+
+    if destinatario.id == usuario.id:
+        messages.info(request, 'No tiene sentido compartir contigo mismo.')
+        return redirect('archivos')
+
+    _, creado = ArchivoComparticion.objects.get_or_create(
+        archivo=archivo, usuario=destinatario,
+        defaults={'compartido_por': usuario},
+    )
+    if creado:
+        try:
+            EventoAuditoria.objects.create(
+                usuario=usuario, accion='archivo_compartir',
+                target_tipo='archivo', target_id=archivo.id,
+                meta={'con_usuario': destinatario.email, 'nombre': archivo.nombre},
+                ip_hash=hash_ip(_get_ip(request)),
+            )
+        except Exception:
+            logger.exception('audit archivo_compartir falló')
+        messages.success(request, f'Compartido «{archivo.nombre}» con {destinatario.email}.')
+    else:
+        messages.info(request, f'Ya estaba compartido con {destinatario.email}.')
+
+    if archivo.tipo == Archivo.Tipo.CONTRATO:
+        return redirect('contratos')
+    return redirect('archivos')
+
+
+@portal_login_required
+@require_POST
+def archivo_descompartir_view(request, archivo_id, comparticion_id):
+    """Quita una compartición. Solo uploader o admin."""
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+
+    archivo = get_object_or_404(Archivo, id=archivo_id)
+    if not usuario.es_admin and archivo.creado_por_id != usuario.id:
+        raise Http404
+
+    comp = get_object_or_404(ArchivoComparticion, id=comparticion_id, archivo=archivo)
+    email_log = comp.usuario.email if comp.usuario else '(sin user)'
+    comp.delete()
+
+    try:
+        EventoAuditoria.objects.create(
+            usuario=usuario, accion='archivo_descompartir',
+            target_tipo='archivo', target_id=archivo.id,
+            meta={'con_usuario': email_log, 'nombre': archivo.nombre},
+            ip_hash=hash_ip(_get_ip(request)),
+        )
+    except Exception:
+        logger.exception('audit archivo_descompartir falló')
+
+    messages.success(request, f'Quitada compartición con {email_log}.')
+    if archivo.tipo == Archivo.Tipo.CONTRATO:
+        return redirect('contratos')
+    return redirect('archivos')
+
+
+# ─── Vincular archivo a un correo existente ───────────────────────────────
+@portal_login_required
+@require_POST
+def correo_vincular_archivo_view(request, correo_id):
+    """
+    Asocia un Archivo a un Correo (no es adjunto SMTP — solo metadata).
+    El user debe poder ver AMBOS para crear el vínculo.
+    """
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+
+    correo = get_object_or_404(Correo, id=correo_id)
+    if not usuario.puede_ver(correo.buzon):
+        raise Http404
+
+    arc_id = (request.POST.get('archivo_id') or '').strip()
+    if not arc_id.isdigit():
+        messages.error(request, 'Falta indicar el archivo.')
+        return redirect('detalle', correo_id=correo_id)
+
+    archivo = get_object_or_404(Archivo, id=int(arc_id), eliminado_en__isnull=True)
+    if not _archivo_puede_ver(usuario, archivo):
+        raise Http404
+
+    _, creado = ArchivoVinculo.objects.get_or_create(
+        archivo=archivo, correo=correo,
+        defaults={'vinculado_por': usuario},
+    )
+    if creado:
+        try:
+            EventoAuditoria.objects.create(
+                usuario=usuario, accion='archivo_vincular',
+                target_tipo='correo', target_id=correo.id,
+                meta={'archivo_id': archivo.id, 'archivo_nombre': archivo.nombre},
+                ip_hash=hash_ip(_get_ip(request)),
+            )
+        except Exception:
+            logger.exception('audit archivo_vincular falló')
+        messages.success(request, f'Archivo «{archivo.nombre}» vinculado al correo.')
+    else:
+        messages.info(request, 'El archivo ya estaba vinculado.')
+
+    return redirect('detalle', correo_id=correo_id)
+
+
+@portal_login_required
+@require_POST
+def correo_desvincular_archivo_view(request, correo_id, vinculo_id):
+    """Quita un vínculo archivo↔correo. El user debe ver el correo."""
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+
+    correo = get_object_or_404(Correo, id=correo_id)
+    if not usuario.puede_ver(correo.buzon):
+        raise Http404
+
+    vinc = get_object_or_404(ArchivoVinculo, id=vinculo_id, correo=correo)
+    arc_nombre = vinc.archivo.nombre if vinc.archivo else '(borrado)'
+    vinc.delete()
+
+    try:
+        EventoAuditoria.objects.create(
+            usuario=usuario, accion='archivo_desvincular',
+            target_tipo='correo', target_id=correo.id,
+            meta={'archivo_nombre': arc_nombre},
+            ip_hash=hash_ip(_get_ip(request)),
+        )
+    except Exception:
+        logger.exception('audit archivo_desvincular falló')
+
+    messages.success(request, f'Vínculo con «{arc_nombre}» quitado.')
+    return redirect('detalle', correo_id=correo_id)

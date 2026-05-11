@@ -1476,6 +1476,125 @@
   background: var(--off);
 }
 
+/* ─── Vinculos al Archivo digital ─────────────────────────── */
+.preview-vinculos { background: transparent; }
+.vinc-count { color: var(--gl); font-weight: 500; margin-left: 4px; }
+.vinc-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.vinc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: rgba(124, 58, 237, .06);
+  border: 1px solid rgba(124, 58, 237, .18);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.vinc-name {
+  flex: 1;
+  text-decoration: none;
+  color: var(--gd);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vinc-name:hover { color: #6d28d9; }
+.vinc-ver {
+  background: rgba(124, 58, 237, .15);
+  color: #6d28d9;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  margin-left: 6px;
+}
+.vinc-meta {
+  font-size: 11px;
+  color: var(--gl);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.vinc-rm {
+  background: transparent;
+  border: 0;
+  color: var(--gl);
+  cursor: pointer;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  transition: background .12s, color .12s;
+}
+.vinc-rm:hover { background: rgba(200, 12, 15, .1); color: var(--r); }
+.vinc-add {
+  margin-top: 6px;
+  font-size: 12px;
+}
+.vinc-add-toggle {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  color: var(--gl);
+  padding: 4px 8px;
+  border-radius: 6px;
+  display: inline-block;
+  transition: background .12s, color .12s;
+}
+.vinc-add-toggle::-webkit-details-marker { display: none; }
+.vinc-add-toggle:hover { background: rgba(124, 58, 237, .08); color: #6d28d9; }
+.vinc-add[open] .vinc-add-toggle { color: #6d28d9; }
+.vinc-add-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: rgba(124, 58, 237, .04);
+  border: 1px solid rgba(124, 58, 237, .15);
+  border-radius: 6px;
+}
+.vinc-add-form select {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--bdr);
+  border-radius: 6px;
+  background: var(--w);
+  color: var(--gd);
+  font-family: inherit;
+  font-size: 13px;
+  min-width: 0;
+}
+.vinc-add-btn {
+  background: #7c3aed;
+  color: white;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter .12s;
+  flex-shrink: 0;
+}
+.vinc-add-btn:hover { filter: brightness(1.05); }
+
+[data-theme="dark"] .vinc-row { background: rgba(124, 58, 237, .12); border-color: rgba(124, 58, 237, .25); }
+[data-theme="dark"] .vinc-name { color: #e8eaed; }
+[data-theme="dark"] .vinc-name:hover { color: #a78bfa; }
+[data-theme="dark"] .vinc-add-form { background: rgba(124, 58, 237, .08); border-color: rgba(124, 58, 237, .2); }
+[data-theme="dark"] .vinc-add-form select { background: #1d2226; border-color: #383f45; color: #e8eaed; }
+
 /* ─── Lista de adjuntos (preview + detalle) ───────────────── */
 .adj-list-label {
   font-size: 10px;
