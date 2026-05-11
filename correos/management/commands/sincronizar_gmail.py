@@ -32,6 +32,7 @@ from django.core.cache import cache
 from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand
 from django.db import IntegrityError, transaction
+from django.db.models import F
 from django.utils import timezone
 
 from correos.gmail_sync import ImapError, fetch_nuevos, listar_labels
@@ -72,6 +73,11 @@ class Command(BaseCommand):
         parser.add_argument('--ignore-lock', action='store_true',
                             help='Forzar ejecución aunque haya otro sync corriendo. '
                                  'Solo para diagnóstico — peligroso en cron.')
+        parser.add_argument('--max-labels', type=int, default=5,
+                            help='Máximo de labels a sincronizar por corrida (default 5). '
+                                 'Ordena por last_sync_at ASC NULLS FIRST → los nunca-corridos '
+                                 'y los más viejos van primero. Garantiza fairness: con cron */2 '
+                                 'y 20 labels, una vuelta completa toma ~8 min.')
 
     def handle(self, *args, **options):
         if options['listar_labels']:
@@ -89,6 +95,14 @@ class Command(BaseCommand):
         if options.get('reset_uid'):
             n = qs.update(last_uid=0)
             self.stdout.write(self.style.WARNING(f'Reset last_uid=0 en {n} sync(s)'))
+
+        # Orden: last_sync_at ASC NULLS FIRST → nunca-corridos primero, después
+        # los más viejos. Garantiza fairness ante crashes/timeouts: ningún label
+        # queda olvidado siempre, todos rotan eventualmente.
+        # Sin --label, además limitamos por --max-labels para chunks predecibles.
+        qs = qs.order_by(F('last_sync_at').asc(nulls_first=True), 'buzon__email')
+        if not options.get('label'):
+            qs = qs[:options['max_labels']]
 
         if not qs.exists():
             if not options['quiet']:
