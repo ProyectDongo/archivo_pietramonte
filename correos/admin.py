@@ -20,7 +20,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.utils.html import format_html
 
-from .models import AdminTOTP, Adjunto, Buzon, BuzonGmailLabel, Correo, Etiqueta, EventoAuditoria, IntentoLogin, ReenvioCorreo, UsuarioPortal
+from .models import AdminTOTP, Adjunto, Buzon, BuzonGmailLabel, CategoriaTema, Correo, Etiqueta, EventoAuditoria, IntentoLogin, ReenvioCorreo, UserDesktopPrefs, UsuarioPortal
 
 logger = logging.getLogger('correos.admin')
 
@@ -478,3 +478,45 @@ class EventoAuditoriaAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         # Permitir borrado en bloque solo a superusers (limpiar bitácora vieja)
         return request.user.is_superuser
+
+
+# ─── Escritorio (Fase 1) ───────────────────────────────────────────────────
+@admin.register(CategoriaTema)
+class CategoriaTemaAdmin(admin.ModelAdmin):
+    list_display  = ('nombre', 'orden', 'color_swatch', 'activa', 'cant_keywords', 'modificado')
+    list_editable = ('orden', 'activa')
+    list_filter   = ('activa',)
+    search_fields = ('nombre', 'keywords')
+    ordering      = ('orden', 'nombre')
+
+    fieldsets = (
+        (None, {
+            'fields': ('nombre', 'keywords', 'orden', 'color', 'activa'),
+            'description': (
+                'Estas categorías alimentan el widget "Top temas" del escritorio. '
+                'Las keywords se matchean case-insensitive en el asunto + cuerpo de '
+                'cada correo. Separá por coma o saltos de línea. Sin regex compleja.'
+            ),
+        }),
+    )
+
+    def color_swatch(self, obj):
+        return format_html(
+            '<span style="display:inline-block;width:14px;height:14px;'
+            'border-radius:3px;background:{};vertical-align:middle;'
+            'border:1px solid rgba(0,0,0,.15)"></span> <code>{}</code>',
+            obj.color, obj.color,
+        )
+    color_swatch.short_description = 'Color'
+
+    def cant_keywords(self, obj):
+        return len(obj.keywords_lista())
+    cant_keywords.short_description = '# keywords'
+
+
+@admin.register(UserDesktopPrefs)
+class UserDesktopPrefsAdmin(admin.ModelAdmin):
+    list_display = ('usuario', 'modificado')
+    search_fields = ('usuario__email',)
+    readonly_fields = ('modificado',)
+    raw_id_fields = ('usuario',)

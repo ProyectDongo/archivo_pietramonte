@@ -688,3 +688,93 @@ class AdminTOTP(models.Model):
     def __str__(self):
         estado = 'activo' if self.totp_activo else 'sin configurar'
         return f'{self.user} · {estado}'
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Escritorio / Home (Fase 1 del rediseño "almacén digital")
+# ─────────────────────────────────────────────────────────────────────────────
+
+class CategoriaTema(models.Model):
+    """
+    Categoría para clasificar correos por "tema mencionado" (cotización,
+    factura, repuesto, etc.). El widget "Top temas" del escritorio cuenta
+    cuántos correos matchean cada categoría.
+
+    Reglas keyword/regex en `keywords` (lista de strings o patrones simples
+    separados por coma — sin regex compleja en MVP). El matcher busca en
+    asunto + cuerpo_texto.
+
+    Editable desde Ajustes (Fase 1.5) o admin (Fase 1).
+    """
+    nombre = models.CharField(max_length=80, unique=True)
+    keywords = models.TextField(
+        help_text='Palabras clave separadas por coma o saltos de línea. '
+                  'Match case-insensitive contra asunto + cuerpo del correo.',
+    )
+    color = models.CharField(
+        max_length=7,
+        default='#C80C0F',
+        help_text='Color hex del chip en el widget (ej. #C80C0F).',
+    )
+    orden = models.PositiveSmallIntegerField(
+        default=100,
+        help_text='Menor = aparece más arriba en el widget Top temas.',
+    )
+    activa = models.BooleanField(
+        default=True,
+        help_text='Si está desactivada, no aparece en el widget ni se cuenta.',
+    )
+    creado = models.DateTimeField(auto_now_add=True)
+    modificado = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Categoría de tema'
+        verbose_name_plural = 'Categorías de tema'
+        ordering = ['orden', 'nombre']
+        indexes = [
+            models.Index(fields=['activa', 'orden'], name='correos_cat_act_ord_idx'),
+        ]
+
+    def __str__(self):
+        return self.nombre
+
+    def keywords_lista(self) -> list[str]:
+        """Devuelve las keywords ya parseadas (split por coma o newline, sin vacíos)."""
+        raw = (self.keywords or '').replace('\n', ',')
+        return [k.strip().lower() for k in raw.split(',') if k.strip()]
+
+
+class UserDesktopPrefs(models.Model):
+    """
+    Layout personalizado del escritorio por usuario. JSON con orden + visibilidad
+    de íconos de apps y widgets.
+
+    Estructura esperada del `layout_json`:
+        {
+          "icons":   ["correos", "archivos", "contratos", "taller", "papelera", "ajustes"],
+          "widgets": [
+            {"id": "stats",          "visible": true},
+            {"id": "ultimos_correos","visible": true},
+            {"id": "top_temas",      "visible": true},
+            {"id": "top_perfiles",   "visible": true},
+            {"id": "proximas_citas", "visible": true},
+            {"id": "archivos_recientes","visible": false}
+          ]
+        }
+
+    Si el JSON está vacío o no tiene una clave, se usa el default del template.
+    """
+    usuario = models.OneToOneField(
+        'UsuarioPortal',
+        on_delete=models.CASCADE,
+        related_name='desktop_prefs',
+    )
+    layout_json = models.JSONField(default=dict, blank=True)
+    modificado = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Preferencias de escritorio'
+        verbose_name_plural = 'Preferencias de escritorio'
+
+    def __str__(self):
+        return f'Prefs de {self.usuario.email}'
