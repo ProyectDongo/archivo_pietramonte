@@ -438,6 +438,55 @@ def sanitizar_email_html(html: str) -> str:
 
 
 @register.simple_tag
+def render_correo_body(correo):
+    """
+    Renderiza el cuerpo del correo eligiendo automáticamente HTML o texto.
+
+    Casos:
+      1. cuerpo_html no vacío → render HTML (cid resolution + sanitize + img safety).
+      2. cuerpo_html vacío PERO cuerpo_texto parece HTML (empieza con
+         <!DOCTYPE, <html, <head, <body, <table, etc.) → tratar el "texto"
+         como HTML y renderizarlo. Cubre el bug del importer/sync que en
+         algunos correos puso el HTML literal en cuerpo_texto.
+      3. cuerpo_texto es texto plano normal → render con render_texto_plano.
+      4. Ambos vacíos → string vacío (el template muestra "no tiene cuerpo").
+
+    Uso en template:
+        {% render_correo_body correo %}
+    """
+    from django.utils.safestring import mark_safe
+
+    if correo.cuerpo_html:
+        return render_correo_html(correo)
+
+    texto = (correo.cuerpo_texto or '').strip()
+    if not texto:
+        return ''
+
+    primeros_chars = texto[:500].lower().lstrip()
+    es_html_disfrazado = (
+        primeros_chars.startswith('<!doctype html')
+        or primeros_chars.startswith('<html')
+        or primeros_chars.startswith('<?xml')
+        or primeros_chars.startswith('<head')
+        or primeros_chars.startswith('<body')
+        or (primeros_chars.startswith('<table') and '</table>' in texto.lower())
+    )
+
+    if es_html_disfrazado:
+        try:
+            html = _pre_strip_html_para_bleach(texto)
+            cleaned = _email_cleaner_inbound_safe_imgs().clean(html)
+            cleaned = _inject_img_safety_attrs(cleaned)
+            return mark_safe(cleaned)
+        except Exception:
+            from django.utils.html import strip_tags
+            return mark_safe(strip_tags(texto))
+
+    return render_texto_plano(texto)
+
+
+@register.simple_tag
 def render_correo_html(correo):
     """
     Renderiza el HTML de un correo con cid: resueltos a URLs internas y

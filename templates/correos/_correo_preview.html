@@ -119,10 +119,8 @@
   </header>
 
   <div class="preview-body">
-    {% if correo.cuerpo_html %}
-<div class="preview-content preview-content-html">{% render_correo_html correo %}</div>
-    {% elif correo.cuerpo_texto %}
-    <div class="preview-content preview-content-texto">{{ correo.cuerpo_texto|render_texto_plano }}</div>
+    {% if correo.cuerpo_html or correo.cuerpo_texto %}
+    <div class="preview-content preview-content-html">{% render_correo_body correo %}</div>
     {% else %}
     <div class="preview-empty-body">Este correo no tiene cuerpo en texto plano o es solo adjunto.</div>
     {% endif %}
