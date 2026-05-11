@@ -2601,8 +2601,13 @@ def bulk_acciones_view(request):
 # Escritorio — home tipo Windows con dashboard + widgets (Fase 1)
 # ═════════════════════════════════════════════════════════════════════════════
 
-ESCRITORIO_CACHE_TTL = 5 * 60      # 5 min — dashboard se recalcula cada tanto
+ESCRITORIO_CACHE_TTL = 30 * 60     # 30 min — dashboard cachea para evitar
+                                   # full-table scans en cada hit. Si cambian
+                                   # categorías o llegan correos, el usuario
+                                   # ve los cambios en la próxima rotación.
 ESCRITORIO_CHART_DIAS = 14         # días del bar chart de ingresos
+ESCRITORIO_TEMAS_VENTANA_DIAS = 180  # top temas solo mira últimos 6 meses
+                                     # (archivo histórico = scan inviable).
 
 
 def _esc_stats_buzones(usuario, buzones_visibles):
@@ -2703,26 +2708,42 @@ def _esc_top_perfiles(usuario, buzones_visibles, top=5):
 def _esc_top_temas(buzones_visibles, top=5):
     """
     Top N CategoriaTema activas con más correos matcheados por keyword.
-    Match case-insensitive en asunto + cuerpo_texto.
+    Match case-insensitive SOLO en `asunto` (no cuerpo_texto).
+
+    Optimización 2026-05-11: el query original buscaba en cuerpo_texto
+    (campo TextField sin índice) → full-table scan por keyword × 7
+    categorías × ~5-20 keywords = ~700 substring searches en 8000+
+    correos = ~20s. Solo asunto (campo corto) baja a <1s.
+
+    Trade-off: pierde matches donde la keyword aparece solo en cuerpo.
+    Para precisión total a futuro, materializar M2M Correo↔CategoriaTema
+    con clasificador nightly (TODO Fase 2).
+
+    Limita además a últimos ESCRITORIO_TEMAS_VENTANA_DIAS (180 días) —
+    el archivo histórico no aporta señal al dashboard "qué se está
+    hablando ahora" y multiplica el costo.
 
     Cacheado global (no por usuario) porque el conteo es por buzones
-    visibles — para multi-tenant futuro habría que keyear por tenant.
+    visibles. Para multi-tenant futuro habría que keyear por tenant.
     """
     buzon_ids = sorted(buzones_visibles.values_list('id', flat=True))
-    cache_key = f'esc:temas:{",".join(map(str, buzon_ids))}'
+    desde = timezone.now() - timedelta(days=ESCRITORIO_TEMAS_VENTANA_DIAS)
+    # v3 = nueva semántica (solo asunto + ventana 180d). El bump invalida
+    # caches viejas con conteos sobre cuerpo_texto del comando anterior.
+    cache_key = f'esc:temas:v3:{",".join(map(str, buzon_ids))}'
     cached = cache.get(cache_key)
     if cached:
         return cached
 
     resultado = []
-    base_qs = Correo.objects.filter(buzon_id__in=buzon_ids)
+    base_qs = Correo.objects.filter(buzon_id__in=buzon_ids, fecha__gte=desde)
     for cat in CategoriaTema.objects.filter(activa=True).order_by('orden'):
         kws = cat.keywords_lista()
         if not kws:
             continue
         q = Q()
         for kw in kws[:20]:    # cap por sanidad
-            q |= Q(asunto__icontains=kw) | Q(cuerpo_texto__icontains=kw)
+            q |= Q(asunto__icontains=kw)
         count = base_qs.filter(q).count()
         resultado.append({
             'id':     cat.id,
