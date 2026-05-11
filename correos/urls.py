@@ -48,4 +48,14 @@ urlpatterns = [
     path('intranet/borradores/<int:borrador_id>/enviar/', views.borrador_enviar_view,     name='borrador_enviar'),
     path('intranet/borradores/<int:borrador_id>/adjuntos/',              views.borrador_adjunto_upload_view, name='borrador_adjunto_upload'),
     path('intranet/borradores/<int:borrador_id>/adjuntos/<int:adj_id>/', views.borrador_adjunto_delete_view, name='borrador_adjunto_delete'),
+
+    # ─── Apps Archivos / Contratos / Papelera (Fase 2) ────────────────────
+    path('intranet/archivos/',                                  views.archivos_list_view,             name='archivos'),
+    path('intranet/archivos/subir/',                            views.archivos_upload_view,           name='archivos_upload'),
+    path('intranet/archivos/<int:archivo_id>/descargar/',       views.archivo_descargar_view,         name='archivo_descargar'),
+    path('intranet/archivos/<int:archivo_id>/borrar/',          views.archivo_borrar_view,            name='archivo_borrar'),
+    path('intranet/contratos/',                                 views.contratos_list_view,            name='contratos'),
+    path('intranet/papelera/',                                  views.papelera_list_view,             name='papelera'),
+    path('intranet/papelera/<int:archivo_id>/restaurar/',       views.archivo_restaurar_view,         name='archivo_restaurar'),
+    path('intranet/papelera/<int:archivo_id>/borrar-permanente/', views.archivo_borrar_permanente_view, name='archivo_borrar_permanente'),
 ]

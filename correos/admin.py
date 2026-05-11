@@ -20,7 +20,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.utils.html import format_html
 
-from .models import AdminTOTP, Adjunto, Buzon, BuzonGmailLabel, CategoriaTema, Correo, Etiqueta, EventoAuditoria, IntentoLogin, ReenvioCorreo, UserDesktopPrefs, UsuarioPortal
+from .models import AdminTOTP, Adjunto, Archivo, Buzon, BuzonGmailLabel, CategoriaTema, Correo, Etiqueta, EventoAuditoria, IntentoLogin, ReenvioCorreo, UserDesktopPrefs, UsuarioPortal
 
 logger = logging.getLogger('correos.admin')
 
@@ -520,3 +520,40 @@ class UserDesktopPrefsAdmin(admin.ModelAdmin):
     search_fields = ('usuario__email',)
     readonly_fields = ('modificado',)
     raw_id_fields = ('usuario',)
+
+
+@admin.register(Archivo)
+class ArchivoAdmin(admin.ModelAdmin):
+    list_display  = ('nombre', 'tipo', 'perfil', 'tema', 'tamano_legible',
+                     'creado', 'eliminado_en')
+    list_filter   = ('tipo', 'eliminado_en', 'tema')
+    search_fields = ('nombre', 'descripcion', 'tema', 'perfil__email')
+    date_hierarchy = 'creado'
+    raw_id_fields = ('perfil', 'creado_por', 'eliminado_por')
+    readonly_fields = ('creado', 'modificado', 'tamano_bytes', 'mime_type',
+                       'creado_por', 'eliminado_por')
+
+    fieldsets = (
+        ('Archivo', {
+            'fields': ('archivo', 'nombre', 'tipo', 'mime_type', 'tamano_bytes'),
+        }),
+        ('Organización', {
+            'fields': ('perfil', 'tema', 'fecha', 'descripcion'),
+        }),
+        ('Contrato (solo si tipo=contrato)', {
+            'fields': ('contrato_partes', 'contrato_vencimiento'),
+            'classes': ('collapse',),
+        }),
+        ('Papelera', {
+            'fields': ('eliminado_en', 'eliminado_por'),
+            'classes': ('collapse',),
+        }),
+        ('Audit', {
+            'fields': ('creado_por', 'creado', 'modificado'),
+            'classes': ('collapse',),
+        }),
+    )
+
+    def tamano_legible(self, obj):
+        return obj.tamano_legible
+    tamano_legible.short_description = 'Tamaño'

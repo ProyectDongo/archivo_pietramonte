@@ -18,8 +18,8 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from . import captcha, totp as totp_helpers
 from .models import (
-    Adjunto, BorradorAdjunto, BorradorCorreo, Buzon, CategoriaTema, Correo,
-    CorreoEnviado, CorreoLeido, CorreoSnooze, Etiqueta, EventoAuditoria,
+    Adjunto, Archivo, BorradorAdjunto, BorradorCorreo, Buzon, CategoriaTema,
+    Correo, CorreoEnviado, CorreoLeido, CorreoSnooze, Etiqueta, EventoAuditoria,
     IntentoLogin, ReenvioCorreo, UserDesktopPrefs, UsuarioPortal, hash_ip,
 )
 from .throttle import throttle_user
@@ -3313,3 +3313,365 @@ def escritorio_view(request):
         'hoy': timezone.localdate(),
     }
     return render(request, 'correos/escritorio.html', ctx)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Apps Archivos / Contratos / Papelera (Fase 2 del rediseño)
+# ═════════════════════════════════════════════════════════════════════════════
+
+ARCHIVO_MAX_BYTES = 50 * 1024 * 1024   # 50 MB por archivo
+
+
+def _archivo_puede_ver(usuario, archivo) -> bool:
+    """Auth check: si el archivo tiene perfil (FK Buzon), el usuario debe poder
+    ver ese buzón. Si no tiene perfil → compartido, todos pueden."""
+    if not archivo.perfil:
+        return True
+    return usuario.puede_ver(archivo.perfil)
+
+
+@portal_login_required
+@throttle_user('archivos', per_minute=60)
+@never_cache
+def archivos_list_view(request):
+    """
+    App Archivos: lista de archivos NO eliminados, NO contratos.
+    Filtros: ?perfil=N, ?tema=texto, ?tipo=doc/factura/imagen/otro.
+    """
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+
+    visibles_qs = usuario.buzones_visibles()
+    visibles_ids = set(visibles_qs.values_list('id', flat=True))
+
+    qs = (Archivo.objects
+          .filter(eliminado_en__isnull=True)
+          .exclude(tipo=Archivo.Tipo.CONTRATO)
+          .select_related('perfil', 'creado_por')
+          .order_by('-creado'))
+
+    filtro_perfil = (request.GET.get('perfil') or '').strip()
+    if filtro_perfil.isdigit():
+        qs = qs.filter(perfil_id=int(filtro_perfil))
+    filtro_tema = (request.GET.get('tema') or '').strip()
+    if filtro_tema:
+        qs = qs.filter(tema__iexact=filtro_tema)
+    filtro_tipo = (request.GET.get('tipo') or '').strip()
+    if filtro_tipo and filtro_tipo in {t.value for t in Archivo.Tipo}:
+        qs = qs.filter(tipo=filtro_tipo)
+
+    # Filtrar por acceso a perfil (compartidos sí, propios solo si visible)
+    qs = qs.filter(Q(perfil__isnull=True) | Q(perfil_id__in=visibles_ids))
+
+    # Stats sidebar
+    temas = list(Archivo.objects
+                 .filter(eliminado_en__isnull=True)
+                 .exclude(tipo=Archivo.Tipo.CONTRATO)
+                 .exclude(tema='')
+                 .values('tema').annotate(n=Count('id'))
+                 .order_by('-n')[:15])
+
+    total = qs.count()
+    paginator = Paginator(qs, 50)
+    page_num = request.GET.get('p') or 1
+    page = paginator.get_page(page_num)
+
+    return render(request, 'correos/archivos_list.html', {
+        'archivos':       page.object_list,
+        'page':           page,
+        'paginator':      paginator,
+        'total':          total,
+        'temas':          temas,
+        'buzones_visibles': visibles_qs,
+        'filtro_perfil':  filtro_perfil,
+        'filtro_tema':    filtro_tema,
+        'filtro_tipo':    filtro_tipo,
+        'tipos_choices':  Archivo.Tipo.choices,
+        'app_label':      'Archivos',
+        'app_color':      '#2563eb',
+    })
+
+
+@portal_login_required
+@throttle_user('archivos_upload', per_minute=20)
+@require_POST
+def archivos_upload_view(request):
+    """Sube un archivo nuevo. Form POST simple, sin Django Forms."""
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+
+    f = request.FILES.get('archivo')
+    if not f:
+        messages.error(request, 'Seleccioná un archivo.')
+        return redirect(request.POST.get('next') or 'archivos')
+
+    if f.size > ARCHIVO_MAX_BYTES:
+        messages.error(request,
+                       f'Archivo demasiado grande. Máximo {ARCHIVO_MAX_BYTES // 1024 // 1024} MB.')
+        return redirect(request.POST.get('next') or 'archivos')
+
+    nombre = (request.POST.get('nombre') or f.name).strip()[:200] or f.name[:200]
+    tipo_raw = (request.POST.get('tipo') or Archivo.Tipo.DOCUMENTO).strip()
+    tipo = tipo_raw if tipo_raw in {t.value for t in Archivo.Tipo} else Archivo.Tipo.DOCUMENTO
+
+    perfil_id = (request.POST.get('perfil') or '').strip()
+    perfil = None
+    if perfil_id.isdigit():
+        # Auth: solo permitir asignar a un buzón visible para el usuario
+        try:
+            perfil = usuario.buzones_visibles().get(id=int(perfil_id))
+        except Buzon.DoesNotExist:
+            perfil = None
+
+    archivo = Archivo(
+        nombre=nombre,
+        archivo=f,
+        mime_type=(f.content_type or '')[:200],
+        tamano_bytes=f.size,
+        tipo=tipo,
+        perfil=perfil,
+        tema=(request.POST.get('tema') or '').strip()[:80],
+        descripcion=(request.POST.get('descripcion') or '').strip(),
+        creado_por=usuario,
+    )
+
+    # Fecha del documento (no de upload)
+    fecha_str = (request.POST.get('fecha') or '').strip()
+    if fecha_str:
+        try:
+            from datetime import datetime as _dt
+            archivo.fecha = _dt.strptime(fecha_str, '%Y-%m-%d').date()
+        except ValueError:
+            pass
+
+    # Campos contrato-only
+    if tipo == Archivo.Tipo.CONTRATO:
+        archivo.contrato_partes = (request.POST.get('partes') or '').strip()[:300]
+        venc_str = (request.POST.get('vencimiento') or '').strip()
+        if venc_str:
+            try:
+                from datetime import datetime as _dt
+                archivo.contrato_vencimiento = _dt.strptime(venc_str, '%Y-%m-%d').date()
+            except ValueError:
+                pass
+
+    archivo.save()
+
+    try:
+        EventoAuditoria.objects.create(
+            usuario=usuario, accion='archivo_subir',
+            target_tipo='archivo', target_id=archivo.id,
+            meta={'nombre': nombre, 'tipo': tipo, 'size': f.size},
+            ip_hash=hash_ip(_get_ip(request)),
+        )
+    except Exception:
+        logger.exception('audit archivo_subir falló')
+
+    messages.success(request, f'Subido: {nombre}')
+    # Redirige a la app correcta según tipo
+    if tipo == Archivo.Tipo.CONTRATO:
+        return redirect('contratos')
+    return redirect('archivos')
+
+
+@portal_login_required
+@throttle_user('archivo_descargar', per_minute=120)
+def archivo_descargar_view(request, archivo_id):
+    """Sirve el archivo al usuario. Auth check por perfil."""
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+
+    archivo = get_object_or_404(Archivo, id=archivo_id, eliminado_en__isnull=True)
+    if not _archivo_puede_ver(usuario, archivo):
+        raise Http404
+
+    try:
+        f = archivo.archivo.open('rb')
+    except FileNotFoundError:
+        raise Http404('Archivo no encontrado en disco')
+
+    response = FileResponse(
+        f,
+        content_type=archivo.mime_type or 'application/octet-stream',
+        as_attachment=False,
+        filename=archivo.nombre,
+    )
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
+@portal_login_required
+@require_POST
+def archivo_borrar_view(request, archivo_id):
+    """Soft-delete: mueve a papelera. NO borra de disco."""
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+
+    archivo = get_object_or_404(Archivo, id=archivo_id, eliminado_en__isnull=True)
+    if not _archivo_puede_ver(usuario, archivo):
+        raise Http404
+
+    nombre = archivo.nombre
+    tipo = archivo.tipo
+    archivo.soft_delete(usuario)
+    try:
+        EventoAuditoria.objects.create(
+            usuario=usuario, accion='archivo_eliminar',
+            target_tipo='archivo', target_id=archivo_id,
+            meta={'nombre': nombre, 'tipo': tipo},
+            ip_hash=hash_ip(_get_ip(request)),
+        )
+    except Exception:
+        logger.exception('audit archivo_eliminar falló')
+
+    messages.success(request, f'Movido a papelera: {nombre}')
+    if tipo == Archivo.Tipo.CONTRATO:
+        return redirect('contratos')
+    return redirect('archivos')
+
+
+@portal_login_required
+@throttle_user('contratos', per_minute=60)
+@never_cache
+def contratos_list_view(request):
+    """App Contratos: archivos con tipo=contrato y NO eliminados."""
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+
+    visibles_qs = usuario.buzones_visibles()
+    visibles_ids = set(visibles_qs.values_list('id', flat=True))
+
+    qs = (Archivo.objects
+          .filter(eliminado_en__isnull=True, tipo=Archivo.Tipo.CONTRATO)
+          .filter(Q(perfil__isnull=True) | Q(perfil_id__in=visibles_ids))
+          .select_related('perfil', 'creado_por')
+          .order_by('-creado'))
+
+    filtro_perfil = (request.GET.get('perfil') or '').strip()
+    if filtro_perfil.isdigit():
+        qs = qs.filter(perfil_id=int(filtro_perfil))
+
+    # Próximos a vencer (siguientes 30 días)
+    en_30d = timezone.localdate() + timedelta(days=30)
+    prox_vencer = qs.filter(
+        contrato_vencimiento__isnull=False,
+        contrato_vencimiento__lte=en_30d,
+        contrato_vencimiento__gte=timezone.localdate(),
+    ).order_by('contrato_vencimiento')
+
+    total = qs.count()
+    paginator = Paginator(qs, 50)
+    page = paginator.get_page(request.GET.get('p') or 1)
+
+    return render(request, 'correos/archivos_list.html', {
+        'archivos':       page.object_list,
+        'page':           page,
+        'paginator':      paginator,
+        'total':          total,
+        'prox_vencer':    prox_vencer,
+        'buzones_visibles': visibles_qs,
+        'filtro_perfil':  filtro_perfil,
+        'tipos_choices':  [(Archivo.Tipo.CONTRATO, 'Contrato')],
+        'forzar_tipo':    Archivo.Tipo.CONTRATO,
+        'app_label':      'Contratos',
+        'app_color':      '#d97706',
+        'is_contratos':   True,
+    })
+
+
+@portal_login_required
+@throttle_user('papelera', per_minute=60)
+@never_cache
+def papelera_list_view(request):
+    """App Papelera: archivos eliminados de TODAS las apps."""
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+
+    visibles_qs = usuario.buzones_visibles()
+    visibles_ids = set(visibles_qs.values_list('id', flat=True))
+
+    qs = (Archivo.objects
+          .filter(eliminado_en__isnull=False)
+          .filter(Q(perfil__isnull=True) | Q(perfil_id__in=visibles_ids))
+          .select_related('perfil', 'creado_por', 'eliminado_por')
+          .order_by('-eliminado_en'))
+
+    total = qs.count()
+    paginator = Paginator(qs, 50)
+    page = paginator.get_page(request.GET.get('p') or 1)
+
+    return render(request, 'correos/papelera_list.html', {
+        'archivos':  page.object_list,
+        'page':      page,
+        'paginator': paginator,
+        'total':     total,
+        'app_label': 'Papelera',
+        'app_color': 'var(--text-muted)',
+    })
+
+
+@portal_login_required
+@require_POST
+def archivo_restaurar_view(request, archivo_id):
+    """Sacar de papelera (vuelve a su app de origen según tipo)."""
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+
+    archivo = get_object_or_404(Archivo, id=archivo_id, eliminado_en__isnull=False)
+    if not _archivo_puede_ver(usuario, archivo):
+        raise Http404
+
+    archivo.restaurar()
+    try:
+        EventoAuditoria.objects.create(
+            usuario=usuario, accion='archivo_restaurar',
+            target_tipo='archivo', target_id=archivo_id,
+            meta={'nombre': archivo.nombre, 'tipo': archivo.tipo},
+            ip_hash=hash_ip(_get_ip(request)),
+        )
+    except Exception:
+        logger.exception('audit archivo_restaurar falló')
+
+    messages.success(request, f'Restaurado: {archivo.nombre}')
+    return redirect('papelera')
+
+
+@portal_login_required
+@require_POST
+def archivo_borrar_permanente_view(request, archivo_id):
+    """Borrado físico del archivo. SOLO admins (irreversible)."""
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+    if not usuario.es_admin:
+        messages.error(request, 'Solo administradores pueden borrar permanente.')
+        return redirect('papelera')
+
+    archivo = get_object_or_404(Archivo, id=archivo_id, eliminado_en__isnull=False)
+    nombre = archivo.nombre
+    archivo_id_log = archivo.id
+    if archivo.archivo:
+        try:
+            archivo.archivo.delete(save=False)
+        except Exception:
+            logger.warning('No se pudo borrar el archivo físico de %s', nombre)
+    archivo.delete()
+    try:
+        EventoAuditoria.objects.create(
+            usuario=usuario, accion='archivo_borrar_perm',
+            target_tipo='archivo', target_id=archivo_id_log,
+            meta={'nombre': nombre},
+            ip_hash=hash_ip(_get_ip(request)),
+        )
+    except Exception:
+        logger.exception('audit archivo_borrar_perm falló')
+
+    messages.success(request, f'Borrado permanente: {nombre}')
+    return redirect('papelera')
