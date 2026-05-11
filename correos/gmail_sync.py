@@ -12,6 +12,16 @@ Diseño:
 
 Esto NO escribe a Gmail (readonly select). NO marca como leído. NO mueve
 mensajes. Solo lee.
+
+Hardening 2026-05-11 (post-incidente OVERQUOTA + OOM):
+  - `fetch_nuevos` ahora es generator → memoria constante (no carga
+    miles de mensajes a RAM antes de procesar).
+  - Timeout TCP de 120s → conexión IMAP no se cuelga eternamente si
+    Gmail tarda en responder.
+  - `imap.close()` antes de logout en finally → no quedan conexiones
+    half-open del lado de Gmail (que es lo que acumula el OVERQUOTA).
+  - `OverquotaError` excepción específica para que el caller pueda
+    pausar el sync N horas en vez de fallar silencioso.
 """
 from __future__ import annotations
 
@@ -26,15 +36,41 @@ from django.conf import settings
 logger = logging.getLogger('correos.gmail_sync')
 
 
+# Timeout TCP en segundos para todas las operaciones IMAP. Si Gmail no responde
+# en este tiempo, el socket levanta excepción y liberamos la conexión, en vez
+# de quedar colgados hasta que el OOM killer lo mate (lo que dejaba la
+# conexión half-open del lado de Gmail y disparaba OVERQUOTA).
+IMAP_TIMEOUT_SEG = 120
+
+
 class ImapError(RuntimeError):
     """Error de conexión / select / fetch IMAP."""
+
+
+class OverquotaError(ImapError):
+    """
+    Gmail bloqueó la cuenta por exceder los límites de IMAP (conexiones/
+    bandwidth/comandos por día). Se desbloquea solo en 12-24h.
+    El caller debe pausar el sync durante ese período en vez de reintentar.
+    """
+
+
+def _es_overquota(error_obj) -> bool:
+    """Detecta si una IMAP4.error es por [OVERQUOTA]."""
+    return 'OVERQUOTA' in str(error_obj).upper()
 
 
 @contextmanager
 def imap_connection():
     """
     Context manager que abre IMAP4_SSL contra Gmail con la App Password.
-    Hace logout al salir, incluso si hay excepción.
+    Hace close + logout al salir, incluso si hay excepción.
+
+    `close()` antes de `logout()` es importante: select pone un mailbox en
+    estado "selected" en el server; sin close el server lo mantiene abierto
+    en el estado interno. Acumulado en múltiples crashes silenciosos (OOM
+    killer mata el proceso sin chance al finally), esto contribuye al
+    OVERQUOTA.
 
     Credenciales (lookup en orden):
       1. GMAIL_IMAP_USER + GMAIL_IMAP_PASSWORD  ← preferidas, separadas del SMTP
@@ -60,14 +96,22 @@ def imap_connection():
     host = getattr(settings, 'GMAIL_IMAP_HOST', 'imap.gmail.com')
     port = getattr(settings, 'GMAIL_IMAP_PORT', 993)
 
-    imap = imaplib.IMAP4_SSL(host, port)
+    imap = imaplib.IMAP4_SSL(host, port, timeout=IMAP_TIMEOUT_SEG)
     try:
         try:
             imap.login(user, pwd)
         except imaplib.IMAP4.error as e:
+            if _es_overquota(e):
+                raise OverquotaError(f'Gmail rate-limit: {e}') from e
             raise ImapError(f'Login IMAP rechazado: {e}') from e
         yield imap
     finally:
+        # close() cierra el mailbox SELECTED (si había uno). Si nunca hicimos
+        # select(), close() puede fallar — lo silenciamos. Después logout().
+        try:
+            imap.close()
+        except Exception:
+            pass
         try:
             imap.logout()
         except Exception:
@@ -110,20 +154,33 @@ def listar_labels() -> list[str]:
     return out
 
 
-def fetch_nuevos(label_name: str, last_uid: int = 0) -> list[tuple[int, bytes]]:
+def fetch_nuevos(label_name: str, last_uid: int = 0):
     """
-    Fetchea los mensajes con UID > last_uid del label dado, en READONLY.
-    Devuelve lista [(uid, raw_rfc822_bytes), ...] ordenada por uid asc.
+    Generator que yieldea (uid, raw_rfc822_bytes) de los mensajes con
+    UID > last_uid del label dado, en READONLY.
 
-    Si last_uid == 0, trae todo el contenido del label.
+    Si last_uid == 0, recorre todo el contenido del label.
 
-    Lanza ImapError si el select falla.
+    Generator → memoria CONSTANTE: procesa uno por uno en vez de cargar
+    todos los mensajes a RAM antes de empezar. Anti-OOM en buzones grandes
+    (label con 5000+ correos).
+
+    Errores:
+      - OverquotaError: Gmail bloqueó la cuenta por exceso de uso IMAP.
+        El caller debe pausar el sync y reintentar después de 12-24h.
+      - ImapError: cualquier otro fallo de IMAP (select inválido, etc).
+
+    Errores en un mensaje INDIVIDUAL no abortan el resto — se skipea.
     """
-    out: list[tuple[int, bytes]] = []
     with imap_connection() as imap:
         # Quoteamos el nombre del label porque puede tener espacios o /.
         select_arg = f'"{label_name}"'
-        typ, _ = imap.select(select_arg, readonly=True)
+        try:
+            typ, _ = imap.select(select_arg, readonly=True)
+        except imaplib.IMAP4.error as e:
+            if _es_overquota(e):
+                raise OverquotaError(f'select {label_name}: {e}') from e
+            raise ImapError(f'No se pudo seleccionar label {label_name}: {e}') from e
         if typ != 'OK':
             raise ImapError(f'No se pudo seleccionar label: {label_name}')
 
@@ -134,22 +191,36 @@ def fetch_nuevos(label_name: str, last_uid: int = 0) -> list[tuple[int, bytes]]:
             criterio = f'UID {last_uid + 1}:*'.encode('ascii')
         else:
             criterio = b'ALL'
-        typ, data = imap.uid('search', None, criterio)
+        try:
+            typ, data = imap.uid('search', None, criterio)
+        except imaplib.IMAP4.error as e:
+            if _es_overquota(e):
+                raise OverquotaError(f'search {label_name}: {e}') from e
+            raise ImapError(f'IMAP search error: {e}') from e
         if typ != 'OK':
-            return out
+            return
         if not data or not data[0]:
-            return out
+            return
 
-        uids = [int(u) for u in data[0].split()]
-        uids = sorted(set(u for u in uids if u > last_uid))
+        uids = sorted(set(int(u) for u in data[0].split() if int(u) > last_uid))
 
         for uid in uids:
             uid_b = str(uid).encode('ascii')
-            typ, msg_data = imap.uid('fetch', uid_b, '(RFC822)')
+            try:
+                typ, msg_data = imap.uid('fetch', uid_b, '(RFC822)')
+            except imaplib.IMAP4.error as e:
+                # OVERQUOTA en medio del fetch → abortar todo el sync para
+                # no extender el bloqueo (cada fetch que falla con
+                # OVERQUOTA cuenta como otro intento contra la cuota).
+                if _es_overquota(e):
+                    raise OverquotaError(f'fetch uid={uid}: {e}') from e
+                # Otro error puntual (mensaje borrado del label en el medio,
+                # encoding raro, etc.): skip ese mensaje y seguir.
+                logger.warning('Skip uid=%s en %s: %s', uid, label_name, e)
+                continue
             if typ != 'OK' or not msg_data:
                 continue
             for chunk in msg_data:
                 if isinstance(chunk, tuple) and len(chunk) >= 2 and isinstance(chunk[1], (bytes, bytearray)):
-                    out.append((uid, bytes(chunk[1])))
+                    yield (uid, bytes(chunk[1]))
                     break
-    return out

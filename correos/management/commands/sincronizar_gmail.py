@@ -35,7 +35,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
 
-from correos.gmail_sync import ImapError, fetch_nuevos, listar_labels
+from correos.gmail_sync import ImapError, OverquotaError, fetch_nuevos, listar_labels
 from correos.models import Adjunto, BuzonGmailLabel, Correo
 
 
@@ -47,6 +47,14 @@ SYNC_LOCK_KEY = 'sync_gmail:running'
 SYNC_LOCK_TTL = 30 * 60       # 30 min — si por algún motivo el lock no se
                               # libera (crash), se cae solo y la siguiente
                               # corrida vuelve a tomar el control.
+
+# Flag de pausa por OVERQUOTA de Gmail. Cuando Gmail rate-limitea la cuenta
+# por exceso de uso IMAP (típico tras OOM-kills que dejan conexiones
+# half-open), seteamos este flag para que los próximos ticks del cron salgan
+# limpios en vez de seguir golpeando y empeorar el bloqueo.
+# Gmail desbloquea solo en 12-24h.
+OVERQUOTA_PAUSE_KEY = 'sync_gmail:overquota_until'
+OVERQUOTA_PAUSE_SEG = 24 * 60 * 60   # 24h
 from correos.management.commands.import_mbox import (
     decodificar_header,
     extraer_adjuntos,
@@ -73,6 +81,11 @@ class Command(BaseCommand):
         parser.add_argument('--ignore-lock', action='store_true',
                             help='Forzar ejecución aunque haya otro sync corriendo. '
                                  'Solo para diagnóstico — peligroso en cron.')
+        parser.add_argument('--ignore-overquota', action='store_true',
+                            help='Forzar ejecución aunque Gmail haya bloqueado por '
+                                 'OVERQUOTA en las últimas 24h. PELIGROSO: cada intento '
+                                 'extiende el bloqueo. Solo si estás 100% seguro que '
+                                 'Gmail ya desbloqueó.')
         parser.add_argument('--max-labels', type=int, default=5,
                             help='Máximo de labels a sincronizar por corrida (default 5). '
                                  'Ordena por last_sync_at ASC NULLS FIRST → los nunca-corridos '
@@ -80,6 +93,26 @@ class Command(BaseCommand):
                                  'y 20 labels, una vuelta completa toma ~8 min.')
 
     def handle(self, *args, **options):
+        # ─── Pausa por OVERQUOTA de Gmail ──────────────────────────────────
+        # Si en una corrida anterior Gmail nos rate-limiteó, salimos limpios
+        # durante 24h en vez de seguir golpeando (cada intento extiende el
+        # bloqueo). El --label individual también queda pausado, salvo que
+        # el operador pase --ignore-overquota explícitamente.
+        overquota_until = cache.get(OVERQUOTA_PAUSE_KEY)
+        if overquota_until and not options.get('ignore_overquota'):
+            from datetime import datetime
+            try:
+                ts = datetime.fromtimestamp(int(overquota_until))
+                ts_str = ts.strftime('%Y-%m-%d %H:%M:%S')
+            except (TypeError, ValueError):
+                ts_str = '(desconocido)'
+            if not options['quiet']:
+                self.stdout.write(self.style.WARNING(
+                    f'⚠️  Gmail OVERQUOTA — sync pausado hasta ~{ts_str}. '
+                    f'Salgo limpio. Pasá --ignore-overquota si Gmail ya desbloqueó.'
+                ))
+            return
+
         if options['listar_labels']:
             try:
                 for lab in sorted(listar_labels()):
@@ -155,8 +188,26 @@ class Command(BaseCommand):
                 f'\n→ {sync.label_name} → {sync.buzon.email} (last_uid={sync.last_uid})'
             )
 
+        # Cargar mensaje_ids existentes ANTES de iterar para tener dedup en RAM.
+        # Se mantiene también después de fetch_nuevos generator — el iterator
+        # rinde uno por vez, no carga todos a memoria.
+        existing_msgids = set(
+            sync.buzon.correos.exclude(mensaje_id='').values_list('mensaje_id', flat=True)
+        )
+
+        nuevos = 0
+        dedup  = 0
+        errores = 0
+        max_uid = sync.last_uid
+        hubo_algo = False    # True si al menos 1 mensaje pasó por el iterator
+
         try:
-            mensajes = fetch_nuevos(sync.label_name, sync.last_uid)
+            mensajes_iter = fetch_nuevos(sync.label_name, sync.last_uid)
+        except OverquotaError as e:
+            # No debería pasar acá (fetch_nuevos es lazy generator) pero
+            # por defensa.
+            self._registrar_overquota(sync, str(e), quiet)
+            return 0, 0, 1
         except ImapError as e:
             sync.error_msg = str(e)[:1000]
             sync.last_sync_at = timezone.now()
@@ -170,105 +221,105 @@ class Command(BaseCommand):
             self.stderr.write(self.style.ERROR(f'  ERROR: {e}'))
             return 0, 0, 1
 
-        if not mensajes:
-            sync.last_sync_at = timezone.now()
-            sync.error_msg = ''
-            sync.save(update_fields=['last_sync_at', 'error_msg'])
-            if not quiet:
-                self.stdout.write('  (sin novedades)')
-            return 0, 0, 0
-
-        # Cargar mensaje_ids existentes en este buzón para dedup
-        existing_msgids = set(
-            sync.buzon.correos.exclude(mensaje_id='').values_list('mensaje_id', flat=True)
-        )
-
-        nuevos = 0
-        dedup  = 0
-        errores = 0
-        max_uid = sync.last_uid
-
-        for uid, raw in mensajes:
-            try:
-                if uid > max_uid:
-                    max_uid = uid
-
-                msg = email_lib.message_from_bytes(raw)
-
-                # NUL bytes que Postgres rechaza
-                msg_id = (msg.get('Message-ID', '') or '').replace('\x00', '')[:500]
-
-                # Dedup
-                if msg_id and msg_id in existing_msgids:
-                    dedup += 1
-                    continue
-
-                asunto    = decodificar_header(msg.get('Subject', '')).replace('\x00', '')
-                remitente = decodificar_header(msg.get('From', '')).replace('\x00', '')
-                dest      = decodificar_header(msg.get('To', '')).replace('\x00', '')
-                fecha_str = msg.get('Date', '')
-
-                fecha = None
-                if fecha_str:
-                    try:
-                        parsed = email.utils.parsedate_to_datetime(fecha_str)
-                        if parsed.tzinfo is None:
-                            parsed = timezone.make_aware(parsed)
-                        fecha = parsed
-                    except Exception:
-                        # Fecha mal-formateada en el correo original. Lo guardamos
-                        # con fecha=None y seguimos. Trazamos para diagnóstico.
-                        logger.warning('Fecha no parseable %r en uid=%s', fecha_str, uid)
-
-                texto, html = extraer_cuerpos(msg)
-                texto = texto.replace('\x00', '')
-                html  = html.replace('\x00', '')
-                adjuntos_data = extraer_adjuntos(msg)
-
+        try:
+            for uid, raw in mensajes_iter:
+                hubo_algo = True
                 try:
-                    with transaction.atomic():
-                        correo = Correo.objects.create(
-                            buzon=sync.buzon,
-                            tipo_carpeta=sync.tipo_carpeta,
-                            mensaje_id=msg_id,
-                            remitente=remitente[:500],
-                            destinatario=dest[:1000],
-                            asunto=asunto[:1000],
-                            fecha=fecha,
-                            cuerpo_texto=texto,
-                            cuerpo_html=html,
-                            tiene_adjunto=bool(adjuntos_data),
-                        )
-                        for nombre, mime, payload, content_id in adjuntos_data:
-                            adj = Adjunto(
-                                correo=correo,
-                                nombre_original=nombre,
-                                mime_type=mime[:200],
-                                tamano_bytes=len(payload),
-                                content_id=content_id,
+                    if uid > max_uid:
+                        max_uid = uid
+
+                    msg = email_lib.message_from_bytes(raw)
+
+                    # NUL bytes que Postgres rechaza
+                    msg_id = (msg.get('Message-ID', '') or '').replace('\x00', '')[:500]
+
+                    # Dedup en memoria — la constraint DB también lo cubre via
+                    # IntegrityError abajo, pero esto evita pegarle al INSERT.
+                    if msg_id and msg_id in existing_msgids:
+                        dedup += 1
+                        continue
+
+                    asunto    = decodificar_header(msg.get('Subject', '')).replace('\x00', '')
+                    remitente = decodificar_header(msg.get('From', '')).replace('\x00', '')
+                    dest      = decodificar_header(msg.get('To', '')).replace('\x00', '')
+                    fecha_str = msg.get('Date', '')
+
+                    fecha = None
+                    if fecha_str:
+                        try:
+                            parsed = email.utils.parsedate_to_datetime(fecha_str)
+                            if parsed.tzinfo is None:
+                                parsed = timezone.make_aware(parsed)
+                            fecha = parsed
+                        except Exception:
+                            # Fecha mal-formateada en el correo original. Lo guardamos
+                            # con fecha=None y seguimos. Trazamos para diagnóstico.
+                            logger.warning('Fecha no parseable %r en uid=%s', fecha_str, uid)
+
+                    texto, html = extraer_cuerpos(msg)
+                    texto = texto.replace('\x00', '')
+                    html  = html.replace('\x00', '')
+                    adjuntos_data = extraer_adjuntos(msg)
+
+                    try:
+                        with transaction.atomic():
+                            correo = Correo.objects.create(
+                                buzon=sync.buzon,
+                                tipo_carpeta=sync.tipo_carpeta,
+                                mensaje_id=msg_id,
+                                remitente=remitente[:500],
+                                destinatario=dest[:1000],
+                                asunto=asunto[:1000],
+                                fecha=fecha,
+                                cuerpo_texto=texto,
+                                cuerpo_html=html,
+                                tiene_adjunto=bool(adjuntos_data),
                             )
-                            adj.archivo.save(nombre, ContentFile(payload), save=False)
-                            adj.save()
-                except IntegrityError:
-                    # La UniqueConstraint partial (migración 0022) sobre
-                    # (buzon, mensaje_id) lo detectó: otro proceso o un sync
-                    # paralelo ya insertó este correo. Es el caso que el set
-                    # en memoria no puede ver. Lo contamos como dedup, no
-                    # error, y seguimos.
-                    dedup += 1
+                            for nombre, mime, payload, content_id in adjuntos_data:
+                                adj = Adjunto(
+                                    correo=correo,
+                                    nombre_original=nombre,
+                                    mime_type=mime[:200],
+                                    tamano_bytes=len(payload),
+                                    content_id=content_id,
+                                )
+                                adj.archivo.save(nombre, ContentFile(payload), save=False)
+                                adj.save()
+                    except IntegrityError:
+                        # La UniqueConstraint partial (migración 0022) sobre
+                        # (buzon, mensaje_id) lo detectó: otro proceso o un sync
+                        # paralelo ya insertó este correo.
+                        dedup += 1
+                        if msg_id:
+                            existing_msgids.add(msg_id)
+                        continue
+
                     if msg_id:
                         existing_msgids.add(msg_id)
-                    continue
+                    nuevos += 1
 
-                if msg_id:
-                    existing_msgids.add(msg_id)
-                nuevos += 1
+                except Exception as e:
+                    errores += 1
+                    if errores <= 3:
+                        self.stderr.write(f'  Error msg uid={uid}: {e}')
 
-            except Exception as e:
-                errores += 1
-                if errores <= 3:
-                    self.stderr.write(f'  Error msg uid={uid}: {e}')
+        except OverquotaError as e:
+            # Gmail nos rate-limiteó en el medio del fetch. Persistimos parcial
+            # y marcamos el flag para que próximas corridas salgan limpias 24h.
+            self._registrar_overquota(sync, str(e), quiet, nuevos, dedup, max_uid)
+            return nuevos, dedup, errores + 1
+        except ImapError as e:
+            sync.error_msg = str(e)[:1000]
+            sync.last_uid = max_uid
+            sync.last_sync_at = timezone.now()
+            sync.correos_sincronizados += nuevos
+            sync.save(update_fields=[
+                'last_uid', 'last_sync_at', 'correos_sincronizados', 'error_msg',
+            ])
+            self.stderr.write(self.style.ERROR(f'  IMAP en medio del fetch: {e}'))
+            return nuevos, dedup, errores + 1
 
+        # Persiste el progreso final (todo OK o errores puntuales por mensaje)
         sync.last_uid = max_uid
         sync.last_sync_at = timezone.now()
         sync.correos_sincronizados += nuevos
@@ -278,7 +329,36 @@ class Command(BaseCommand):
         ])
 
         if not quiet:
-            self.stdout.write(self.style.SUCCESS(
-                f'  +{nuevos} nuevos · dedup {dedup} · errores {errores} · last_uid={max_uid}'
-            ))
+            if hubo_algo:
+                self.stdout.write(self.style.SUCCESS(
+                    f'  +{nuevos} nuevos · dedup {dedup} · errores {errores} · last_uid={max_uid}'
+                ))
+            else:
+                self.stdout.write('  (sin novedades)')
         return nuevos, dedup, errores
+
+    def _registrar_overquota(
+        self, sync: BuzonGmailLabel, err: str, quiet: bool,
+        nuevos: int = 0, dedup: int = 0, max_uid: int = 0,
+    ) -> None:
+        """
+        Marca la pausa global por OVERQUOTA en cache (24h) y persiste el
+        estado del sync con el último UID procesado para que cuando Gmail
+        desbloquee, retomemos donde quedamos.
+        """
+        cache.set(OVERQUOTA_PAUSE_KEY, int(time.time()) + OVERQUOTA_PAUSE_SEG,
+                  OVERQUOTA_PAUSE_SEG)
+        sync.error_msg = f'OVERQUOTA: {err}'[:1000]
+        if max_uid > sync.last_uid:
+            sync.last_uid = max_uid
+            sync.correos_sincronizados += nuevos
+        sync.last_sync_at = timezone.now()
+        sync.save(update_fields=[
+            'last_uid', 'last_sync_at', 'correos_sincronizados', 'error_msg',
+        ])
+        if not quiet:
+            self.stderr.write(self.style.ERROR(
+                f'  ⚠️  OVERQUOTA: {err}\n'
+                f'  → Sync pausado 24h. Próximas corridas saldrán limpias '
+                f'hasta que Gmail desbloquee.'
+            ))

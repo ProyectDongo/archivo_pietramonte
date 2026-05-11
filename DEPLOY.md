@@ -399,29 +399,90 @@ Cada nuevo proyecto repite el flujo:
 
 ---
 
-## 11.4 Sync Gmail — cron cada 2 minutos (post hardening dedup)
+## 11.4 Sync Gmail — cron cada 15 minutos (post hardening completo)
 
-A partir del commit `8bfcc2e` + migración 0022, el sync tiene 4 capas de
-dedup:
+### Pre-requisito: configurar Redis (CRÍTICO)
+
+Sin Redis, el cache backend cae a LocMemCache que es **per-proceso** — el
+lock anti-solapamiento del sync NO funciona entre procesos del cron (cada
+tick crea su propio Python process con su propio LocMemCache, y NUNCA se
+ven entre sí). Resultado: ticks del cron se solapan, abren conexiones
+IMAP en paralelo, Gmail eventualmente rate-limitea con `[OVERQUOTA]` y
+bloquea la cuenta 24h.
+
+**Setup Redis en Coolify:**
+
+1. Coolify panel → tu proyecto → **+ New Resource** → **Database** → **Redis**
+2. Aceptás defaults (Redis 7, sin password si está aislado en la red del
+   proyecto).
+3. Anotás el "Internal connection URL" que muestra (ej. `redis://redis-xyz:6379/0`).
+4. En tu app Django (también en el panel Coolify) → **Environment Variables**
+   → agregar:
+   ```
+   REDIS_URL=redis://redis-xyz:6379/0
+   ```
+5. **Redeploy** la app.
+6. Verificar:
+   ```bash
+   docker exec $CONT printenv | grep REDIS_URL
+   # Debe imprimir tu URL
+   docker exec $CONT python manage.py shell -c "from django.core.cache import cache; cache.set('test', 'ok'); print(cache.get('test'))"
+   # Debe imprimir: ok
+   ```
+
+### Dedup garantizado en 4 capas
+
+A partir del commit `8bfcc2e` + migración 0022:
 1. Cursor `last_uid` por label.
 2. Set en memoria por buzón dentro de cada run.
 3. **UniqueConstraint partial en DB** sobre `(buzon, mensaje_id)` —
    garantía Postgres-level contra inserts duplicados de cualquier proceso.
-4. **Lock de cache** anti-solapamiento: si un sync demora más que el
-   intervalo del cron, el siguiente se sale limpio con WARNING.
+4. **Lock de cache** anti-solapamiento (con Redis configurado — ver arriba).
 
-Eso permite **bajar el cron a cada 2 minutos sin riesgo de corromper**.
+### Hardening post-OVERQUOTA (commit `c0d664a` + posterior)
 
-Línea de crontab (host):
+5. **`fetch_nuevos` como generator** — memoria constante (no carga miles
+   de mensajes a RAM antes de procesar). Anti-OOM en buzones grandes.
+6. **Timeout TCP 120s** en `imap_connection()` — si Gmail tarda, abortar
+   en vez de colgarse hasta que el OOM killer mate.
+7. **`imap.close()` antes de `logout()`** en finally — no quedan
+   conexiones half-open del lado de Gmail (lo que disparaba OVERQUOTA).
+8. **Detección de `OverquotaError`** — si Gmail bloquea, setea flag
+   `gmail_overquota_until` en cache 24h. Próximas corridas salen limpias
+   automáticamente. Cuando expira el flag (24h), retoma. El operador
+   puede limpiar manual con:
+   ```bash
+   docker exec $CONT python manage.py shell -c "from django.core.cache import cache; cache.delete('sync_gmail:overquota_until'); print('cleared')"
+   ```
+   O forzar una corrida con `--ignore-overquota`.
+
+### Línea de crontab — cada 15 minutos
 
 ```cron
-# Sync Gmail cada 2 min — dedup garantizado por DB + lock concurrente.
-*/2 * * * * docker exec $(docker ps --format '{{.Names}}' | grep o1rd | head -1) python manage.py sincronizar_gmail --quiet >> /var/log/pietramonte-gmail-sync.log 2>&1
+# Sync Gmail cada 15 min — frecuencia conservadora respetando límites
+# de IMAP Gmail (~2500 conexiones/día, ~7-9 GB bandwidth/día por cuenta).
+*/15 * * * * docker exec $(docker ps --format '{{.Names}}' | grep o1rd | head -1) python manage.py sincronizar_gmail --quiet >> /var/log/pietramonte-gmail-sync.log 2>&1
 ```
 
-Para diagnóstico forzado (skip del lock — usar con cuidado):
+Con `--max-labels=5` default (en el código), cada tick procesa 5 labels.
+20 labels × tick cada 15 min = 1 hora para vuelta completa. Suficiente
+fresh para uso PyME normal.
+
+### Diagnóstico
+
 ```bash
-docker exec -it $CONT python manage.py sincronizar_gmail --ignore-lock
+# Estado de cada sync
+docker exec $CONT python manage.py estado_sync
+
+# Solo los que tienen error reciente
+docker exec $CONT python manage.py estado_sync --solo-errores
+
+# Inspeccionar un correo problemático
+docker exec $CONT python manage.py inspeccionar_correo <id>
+
+# Forzar 1 label saltando lock + overquota flag (PELIGROSO si Gmail no desbloqueó)
+docker exec -it $CONT python manage.py sincronizar_gmail \
+    --label "cpietrasanta@pietramonte.cl" --ignore-lock --ignore-overquota
 ```
 
 ---
