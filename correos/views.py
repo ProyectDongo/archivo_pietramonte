@@ -9,7 +9,7 @@ from django.contrib import messages
 from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.db.models import Count, Exists, OuterRef, Q
-from django.db.models.functions import TruncMonth
+from django.db.models.functions import TruncDate, TruncMonth
 from django.http import FileResponse, Http404, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
@@ -18,9 +18,9 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from . import captcha, totp as totp_helpers
 from .models import (
-    Adjunto, BorradorAdjunto, BorradorCorreo, Buzon, Correo, CorreoEnviado, CorreoLeido,
-    CorreoSnooze, Etiqueta, EventoAuditoria, IntentoLogin, ReenvioCorreo,
-    UsuarioPortal, hash_ip,
+    Adjunto, BorradorAdjunto, BorradorCorreo, Buzon, CategoriaTema, Correo,
+    CorreoEnviado, CorreoLeido, CorreoSnooze, Etiqueta, EventoAuditoria,
+    IntentoLogin, ReenvioCorreo, UserDesktopPrefs, UsuarioPortal, hash_ip,
 )
 from .throttle import throttle_user
 from taller.anti_bot import verify_turnstile
@@ -216,7 +216,7 @@ def _log_intento(request, ip_h: str, email: str, motivo: str, exito: bool,
 # ─── Vistas públicas ───────────────────────────────────────────────────────
 def landing_view(request):
     if request.session.get('usuario_email'):
-        return redirect('inbox')
+        return redirect('escritorio')
     return render(request, 'correos/landing.html')
 
 
@@ -246,7 +246,7 @@ ERROR_GENERICO = 'No fue posible iniciar sesión. Verifica tus datos e intenta d
 @require_http_methods(['GET', 'POST'])
 def login_view(request):
     if request.session.get('usuario_email'):
-        return redirect('inbox')
+        return redirect('escritorio')
 
     ip_h = hash_ip(_get_ip(request))
 
@@ -498,7 +498,7 @@ def verify_2fa_view(request):
 
         _rl_intento(ip_h, exito=True)
         _promover_sesion(request, user)
-        return redirect('inbox')
+        return redirect('escritorio')
 
     return render(request, 'correos/2fa_verify.html', {
         'modo':            request.GET.get('modo', 'totp'),
@@ -2595,3 +2595,201 @@ def bulk_acciones_view(request):
         'afectados': afectados,
         'no_leidos_buzon': no_leidos_buzon,
     })
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Escritorio — home tipo Windows con dashboard + widgets (Fase 1)
+# ═════════════════════════════════════════════════════════════════════════════
+
+ESCRITORIO_CACHE_TTL = 5 * 60      # 5 min — dashboard se recalcula cada tanto
+ESCRITORIO_CHART_DIAS = 14         # días del bar chart de ingresos
+
+
+def _esc_stats_buzones(usuario, buzones_visibles):
+    """
+    Stats agregados: total correos, total adjuntos, contratos (placeholder),
+    citas semana (placeholder hasta wiring taller).
+    """
+    cache_key = f'esc:stats:{usuario.id}'
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    correos_total = Correo.objects.filter(buzon__in=buzones_visibles).count()
+    adjuntos_total = Adjunto.objects.filter(correo__buzon__in=buzones_visibles).count()
+
+    stats = {
+        'correos_total':  correos_total,
+        'adjuntos_total': adjuntos_total,
+        'contratos_total': 0,    # TODO Fase 2: cuando exista el modelo Contrato
+        'citas_semana':    0,    # TODO Fase 2: query a taller.Cita
+    }
+    cache.set(cache_key, stats, ESCRITORIO_CACHE_TTL)
+    return stats
+
+
+def _esc_chart_ingresos(usuario, buzones_visibles, dias=ESCRITORIO_CHART_DIAS):
+    """
+    Datos del bar chart "Ingresos últimos N días" — correos recibidos +
+    archivos subidos por día. Devuelve lista de dicts ordenada de
+    antiguo a reciente.
+    """
+    cache_key = f'esc:chart:{usuario.id}:{dias}'
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    hoy = timezone.localdate()
+    desde = hoy - timedelta(days=dias - 1)
+
+    # Correos por día — agrupados por fecha local
+    correos_por_dia = dict(
+        Correo.objects
+        .filter(buzon__in=buzones_visibles, fecha__date__gte=desde)
+        .annotate(dia=TruncDate('fecha'))
+        .values_list('dia')
+        .annotate(c=Count('id'))
+        .values_list('dia', 'c')
+    )
+    adjuntos_por_dia = dict(
+        Adjunto.objects
+        .filter(correo__buzon__in=buzones_visibles, creado__date__gte=desde)
+        .annotate(dia=TruncDate('creado'))
+        .values_list('dia')
+        .annotate(c=Count('id'))
+        .values_list('dia', 'c')
+    )
+
+    serie = []
+    max_val = 1
+    for i in range(dias):
+        d = desde + timedelta(days=i)
+        c = correos_por_dia.get(d, 0)
+        a = adjuntos_por_dia.get(d, 0)
+        max_val = max(max_val, c, a)
+        serie.append({'dia': d, 'correos': c, 'archivos': a})
+
+    # Pre-calculamos altura % para que el template solo concatene
+    for p in serie:
+        p['h_correos']  = round(p['correos']  * 100 / max_val, 1)
+        p['h_archivos'] = round(p['archivos'] * 100 / max_val, 1)
+
+    out = {'serie': serie, 'max_val': max_val}
+    cache.set(cache_key, out, ESCRITORIO_CACHE_TTL)
+    return out
+
+
+def _esc_top_perfiles(usuario, buzones_visibles, top=5):
+    """Top N buzones por cantidad de correos, visibles para este usuario."""
+    cache_key = f'esc:perf:{usuario.id}:{top}'
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    perfiles = list(
+        buzones_visibles
+        .annotate(n_correos=Count('correos'))
+        .order_by('-n_correos')[:top]
+        .values('id', 'email', 'nombre', 'n_correos')
+    )
+    max_n = max((p['n_correos'] for p in perfiles), default=1) or 1
+    for p in perfiles:
+        p['pct'] = round(p['n_correos'] * 100 / max_n, 1)
+        p['iniciales'] = (p['email'][:2] or '??').upper()
+    cache.set(cache_key, perfiles, ESCRITORIO_CACHE_TTL)
+    return perfiles
+
+
+def _esc_top_temas(buzones_visibles, top=5):
+    """
+    Top N CategoriaTema activas con más correos matcheados por keyword.
+    Match case-insensitive en asunto + cuerpo_texto.
+
+    Cacheado global (no por usuario) porque el conteo es por buzones
+    visibles — para multi-tenant futuro habría que keyear por tenant.
+    """
+    buzon_ids = sorted(buzones_visibles.values_list('id', flat=True))
+    cache_key = f'esc:temas:{",".join(map(str, buzon_ids))}'
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    resultado = []
+    base_qs = Correo.objects.filter(buzon_id__in=buzon_ids)
+    for cat in CategoriaTema.objects.filter(activa=True).order_by('orden'):
+        kws = cat.keywords_lista()
+        if not kws:
+            continue
+        q = Q()
+        for kw in kws[:20]:    # cap por sanidad
+            q |= Q(asunto__icontains=kw) | Q(cuerpo_texto__icontains=kw)
+        count = base_qs.filter(q).count()
+        resultado.append({
+            'id':     cat.id,
+            'nombre': cat.nombre,
+            'color':  cat.color,
+            'count':  count,
+        })
+
+    # Top N ordenado por count desc
+    resultado.sort(key=lambda x: -x['count'])
+    resultado = resultado[:top]
+    max_n = max((r['count'] for r in resultado), default=1) or 1
+    for r in resultado:
+        r['pct'] = round(r['count'] * 100 / max_n, 1)
+
+    cache.set(cache_key, resultado, ESCRITORIO_CACHE_TTL)
+    return resultado
+
+
+def _esc_ultimos_correos(usuario, buzones_visibles, n=4):
+    """Últimos N correos cualesquiera de los buzones visibles."""
+    qs = (Correo.objects
+          .filter(buzon__in=buzones_visibles)
+          .select_related('buzon')
+          .annotate(is_leido=Exists(
+              CorreoLeido.objects.filter(usuario=usuario, correo=OuterRef('pk'))
+          ))
+          .order_by('-fecha')[:n])
+    return list(qs)
+
+
+def _esc_archivos_recientes(buzones_visibles, n=4):
+    """Últimos N adjuntos subidos."""
+    return list(
+        Adjunto.objects
+        .filter(correo__buzon__in=buzones_visibles)
+        .select_related('correo', 'correo__buzon')
+        .order_by('-creado')[:n]
+    )
+
+
+@portal_login_required
+@throttle_user('escritorio', per_minute=60)
+@never_cache
+def escritorio_view(request):
+    """
+    Home del portal — escritorio tipo Windows con dashboard + widgets.
+    Renderiza después del login en lugar del inbox directo.
+    """
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+
+    visibles_qs = usuario.buzones_visibles()
+    if not visibles_qs.exists():
+        request.session.flush()
+        messages.error(request, 'No tienes buzones asignados. Contacta al administrador.')
+        return redirect('login')
+
+    ctx = {
+        'usuario':           usuario,
+        'stats':             _esc_stats_buzones(usuario, visibles_qs),
+        'chart':             _esc_chart_ingresos(usuario, visibles_qs),
+        'top_perfiles':      _esc_top_perfiles(usuario, visibles_qs),
+        'top_temas':         _esc_top_temas(visibles_qs),
+        'ultimos_correos':   _esc_ultimos_correos(usuario, visibles_qs),
+        'archivos_recientes': _esc_archivos_recientes(visibles_qs),
+        'hoy': timezone.localdate(),
+    }
+    return render(request, 'correos/escritorio.html', ctx)

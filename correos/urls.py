@@ -24,6 +24,7 @@ urlpatterns = [
     path('intranet/2fa/regenerar/',          views.regenerar_recovery_codes_view, name='regenerar_recovery_codes'),
     path('intranet/buzon/cambiar/',          views.cambiar_buzon_view,    name='cambiar_buzon'),
     path('intranet/salir/',                  views.logout_view,       name='logout'),
+    path('intranet/escritorio/',             views.escritorio_view,   name='escritorio'),
     path('intranet/bandeja/',                views.inbox_view,        name='inbox'),
     path('intranet/correo/<int:correo_id>/preview/',     views.correo_preview_view,   name='correo_preview'),
     path('intranet/correo/<int:correo_id>/prefill/',     views.correo_prefill_view,   name='correo_prefill'),

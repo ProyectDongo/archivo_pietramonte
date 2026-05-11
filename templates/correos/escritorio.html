@@ -1,0 +1,233 @@
+{% extends 'base_app.html' %}
+{% load static %}
+
+{% block title %}Escritorio — {{ usuario.email }}{% endblock %}
+{% block body_class %}page-escritorio{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/escritorio.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="escritorio">
+
+  {# ─── Desktop: app icons (izquierda) + widgets (derecha) ─────────── #}
+  <main class="esc-desktop">
+
+    {# ─── Apps ──────────────────────────────────────────────────── #}
+    <section class="esc-apps" aria-label="Aplicaciones">
+
+      <a class="esc-app" href="{% url 'inbox' %}" title="Correos">
+        <div class="esc-app-tile esc-tile-correos">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="5" width="18" height="14" rx="2"/>
+            <path d="M3 7l9 6 9-6"/>
+          </svg>
+          {% if stats.correos_total %}
+          <span class="esc-app-badge">{{ stats.correos_total }}</span>
+          {% endif %}
+        </div>
+        <span class="esc-app-label">Correos</span>
+      </a>
+
+      <a class="esc-app esc-app-disabled" href="#" title="Archivos (próximamente)" aria-disabled="true">
+        <div class="esc-app-tile esc-tile-archivos">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          </svg>
+        </div>
+        <span class="esc-app-label">Archivos</span>
+        <span class="esc-app-soon">Próximamente</span>
+      </a>
+
+      <a class="esc-app esc-app-disabled" href="#" title="Contratos (próximamente)" aria-disabled="true">
+        <div class="esc-app-tile esc-tile-contratos">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+            <path d="M14 3v6h6"/>
+            <path d="M8 13h8M8 17h5"/>
+          </svg>
+        </div>
+        <span class="esc-app-label">Contratos</span>
+        <span class="esc-app-soon">Próximamente</span>
+      </a>
+
+      <a class="esc-app" href="/taller/" title="Taller">
+        <div class="esc-app-tile esc-tile-taller">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+          </svg>
+        </div>
+        <span class="esc-app-label">Taller</span>
+      </a>
+
+      <a class="esc-app esc-app-disabled" href="#" title="Papelera (próximamente)" aria-disabled="true">
+        <div class="esc-app-tile esc-tile-papelera">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+          </svg>
+        </div>
+        <span class="esc-app-label">Papelera</span>
+      </a>
+
+      <a class="esc-app" href="{% url 'cambiar_password' %}" title="Ajustes">
+        <div class="esc-app-tile esc-tile-ajustes">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </div>
+        <span class="esc-app-label">Ajustes</span>
+      </a>
+    </section>
+
+    {# ─── Widgets ──────────────────────────────────────────────── #}
+    <section class="esc-widgets" aria-label="Widgets">
+
+      {# Dashboard: chart + KPIs #}
+      <article class="esc-widget esc-widget-wide">
+        <header class="esc-widget-head">
+          <h3 class="esc-widget-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/>
+            </svg>
+            Ingresos · últimos {{ chart.serie|length }} días
+          </h3>
+        </header>
+        <div class="esc-chart-wrap">
+          <div class="esc-chart" role="img" aria-label="Correos vs archivos por día">
+            {% for p in chart.serie %}
+            <div class="esc-chart-day" title="{{ p.dia|date:'d/m/Y' }} · {{ p.correos }} correos · {{ p.archivos }} archivos">
+              <div class="esc-chart-bar esc-chart-bar-correos" style="height:{{ p.h_correos }}%"></div>
+              <div class="esc-chart-bar esc-chart-bar-archivos" style="height:{{ p.h_archivos }}%"></div>
+            </div>
+            {% endfor %}
+          </div>
+          <div class="esc-chart-legend">
+            <span class="esc-legend-item"><span class="esc-legend-dot esc-legend-dot-correos"></span>Correos recibidos</span>
+            <span class="esc-legend-item"><span class="esc-legend-dot esc-legend-dot-archivos"></span>Archivos subidos</span>
+          </div>
+        </div>
+        <div class="esc-kpis">
+          <div class="esc-kpi"><div class="esc-kpi-v">{{ stats.correos_total }}</div><div class="esc-kpi-l">Correos</div></div>
+          <div class="esc-kpi"><div class="esc-kpi-v">{{ stats.adjuntos_total }}</div><div class="esc-kpi-l">Archivos</div></div>
+          <div class="esc-kpi"><div class="esc-kpi-v">{{ stats.contratos_total }}</div><div class="esc-kpi-l">Contratos</div></div>
+          <div class="esc-kpi"><div class="esc-kpi-v">{{ stats.citas_semana }}</div><div class="esc-kpi-l">Citas</div></div>
+        </div>
+      </article>
+
+      {# Últimos correos #}
+      <article class="esc-widget">
+        <header class="esc-widget-head">
+          <h3 class="esc-widget-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>
+            </svg>
+            Últimos correos
+          </h3>
+          <a class="esc-widget-action" href="{% url 'inbox' %}">Abrir →</a>
+        </header>
+        <ul class="esc-list">
+          {% for c in ultimos_correos %}
+          <li class="esc-list-item esc-email{% if not c.is_leido %} esc-email-unread{% endif %}">
+            <a href="{% url 'detalle' c.id %}">
+              <div class="esc-email-row">
+                <div class="esc-email-sender">{{ c.remitente|default:c.buzon.email|truncatechars:32 }}</div>
+                <div class="esc-email-date">{{ c.fecha|date:"d/m/Y" }}</div>
+              </div>
+              <div class="esc-email-subject">{{ c.asunto|default:"(sin asunto)"|truncatechars:60 }}</div>
+            </a>
+          </li>
+          {% empty %}
+          <li class="esc-list-empty">No hay correos todavía.</li>
+          {% endfor %}
+        </ul>
+      </article>
+
+      {# Top temas (editable) #}
+      <article class="esc-widget">
+        <header class="esc-widget-head">
+          <h3 class="esc-widget-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M7 7h10M7 12h10M7 17h6"/>
+            </svg>
+            Top temas mencionados
+          </h3>
+          {% if usuario.es_admin %}
+          <a class="esc-widget-action" href="/{{ admin_url_path|default:'admin-pm-staff/' }}correos/categoriatema/" title="Editar categorías y keywords">Editar →</a>
+          {% endif %}
+        </header>
+        <ul class="esc-list esc-list-temas">
+          {% for t in top_temas %}
+          <li class="esc-tema">
+            <span class="esc-tema-name">{{ t.nombre }}</span>
+            <div class="esc-tema-bar"><div class="esc-tema-fill" style="width:{{ t.pct }}%; background:{{ t.color }}"></div></div>
+            <span class="esc-tema-count">{{ t.count }}</span>
+          </li>
+          {% empty %}
+          <li class="esc-list-empty">Sin categorías activas. Crealas desde el admin.</li>
+          {% endfor %}
+        </ul>
+      </article>
+
+      {# Top perfiles activos #}
+      <article class="esc-widget">
+        <header class="esc-widget-head">
+          <h3 class="esc-widget-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            Top perfiles activos
+          </h3>
+        </header>
+        <ul class="esc-list">
+          {% for p in top_perfiles %}
+          <li class="esc-perfil">
+            <span class="esc-perfil-avatar">{{ p.iniciales }}</span>
+            <div class="esc-perfil-info">
+              <div class="esc-perfil-name">{{ p.nombre|default:p.email|truncatechars:24 }}</div>
+              <div class="esc-perfil-email">{{ p.email|truncatechars:28 }}</div>
+            </div>
+            <div class="esc-perfil-bar"><div class="esc-perfil-fill" style="width:{{ p.pct }}%"></div></div>
+            <span class="esc-perfil-count">{{ p.n_correos }}</span>
+          </li>
+          {% empty %}
+          <li class="esc-list-empty">No hay perfiles visibles.</li>
+          {% endfor %}
+        </ul>
+      </article>
+
+      {# Archivos recientes — wide #}
+      <article class="esc-widget esc-widget-wide">
+        <header class="esc-widget-head">
+          <h3 class="esc-widget-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 8v4l3 2"/>
+              <circle cx="12" cy="12" r="10"/>
+            </svg>
+            Archivos recientes
+          </h3>
+        </header>
+        <ul class="esc-list">
+          {% for a in archivos_recientes %}
+          <li class="esc-archivo">
+            <a href="{% url 'adjunto' a.id %}">
+              <span class="esc-archivo-name">{{ a.nombre_original|truncatechars:48 }}</span>
+              <span class="esc-archivo-meta">{{ a.correo.buzon.email|truncatechars:28 }} · {{ a.creado|date:"d/m/Y" }}</span>
+            </a>
+          </li>
+          {% empty %}
+          <li class="esc-list-empty">Sin adjuntos todavía.</li>
+          {% endfor %}
+        </ul>
+      </article>
+
+    </section>
+  </main>
+
+</div>
+{% endblock %}
