@@ -238,7 +238,7 @@ Si todo verde: **¡estás en producción!** 🎉
 
 ---
 
-## 7.5 Backup de adjuntos a Backblaze B2 (post-deploy, 10 min)
+## 7.5 Backup de adjuntos a Backblaze B2 (post-deploy, 10 min) — cron 01:00 AM
 
 Coolify ya respalda la DB Postgres a B2 (sección 8). Esto cubre **el otro
 volumen crítico**: `/app/data/adjuntos/` (archivos adjuntos de correos).
@@ -247,6 +247,18 @@ El comando vive en el contenedor (`python manage.py backup_adjuntos_b2`)
 porque ahí está `rclone` instalado (Dockerfile) y `MEDIA_ROOT` se resuelve
 con `settings.py`. Lo dispara el cron del host vía `docker exec` para que
 sobreviva al rebuild de imagen.
+
+### 7.5.0. ⚠️ ANTES de todo — sacar el cap de Backblaze
+
+Backblaze trae por default un **storage cap** (originalmente 10 GB free).
+Si tus adjuntos pasan eso, el sync corta a mitad con
+`storage_cap_exceeded (403)`. Aprendido en producción 2026-05-11.
+
+1. Agregá método de pago: https://secure.backblaze.com/account_payment.htm
+   (costo real ≈ $0.006/GB/mes → 15 GB ≈ $0.09/mes).
+2. Subí el cap o desactivalo: https://secure.backblaze.com/account_alerts.htm
+   → recomendado **$5/mes** como cap (≈ 800 GB, sobra para años).
+3. Recién después de eso correr el primer sync real.
 
 ### 7.5.1. Env vars en Coolify (una vez)
 
@@ -399,8 +411,8 @@ rebuild). Editá el crontab con `crontab -e`:
 # Carga feriados oficiales del año actual + siguiente. 1ro de enero, 4 AM.
 0 4 1 1 * docker exec $(docker ps --format '{{.Names}}' | grep o1rd | head -1) python manage.py cargar_feriados >> /var/log/pietramonte-feriados.log 2>&1
 
-# Backup nocturno de adjuntos a Backblaze B2. 3:30 AM (después del pg_dump de Coolify).
-30 3 * * * docker exec $(docker ps --format '{{.Names}}' | grep o1rd | head -1) python manage.py backup_adjuntos_b2 >> /var/log/pietramonte-backup-adjuntos.log 2>&1
+# Backup nocturno de adjuntos a Backblaze B2. 01:00 AM (después del pg_dump de Coolify).
+0 1 * * * docker exec $(docker ps --format '{{.Names}}' | grep o1rd | head -1) python manage.py backup_adjuntos_b2 >> /var/log/pietramonte-backup-adjuntos.log 2>&1
 ```
 
 Setup inicial (después del primer deploy con la app `taller` activa):
@@ -418,6 +430,110 @@ Verificación del cron a la hora siguiente de configurarlo:
 tail -20 /var/log/pietramonte-recordatorios.log
 ```
 
+
+---
+
+## 11.7 Seguridad implementada (estado actual)
+
+**Mantener actualizado:** cada vez que se modifica `middleware.py`,
+`admin_2fa.py`, `views.login_view`, `throttle.py`, `captcha.py`, `totp.py`
+o el modelo `IntentoLogin`, actualizar esta tabla. Es el documento que
+miramos cuando hay que responder "¿qué tenemos contra X?".
+
+### Controles activos (auditoría 2026-05-11)
+
+| Capa | Control | Implementación |
+|---|---|---|
+| **Transporte** | HTTPS obligatorio + HSTS 30d + Cloudflare Tunnel termina TLS | `SECURE_HSTS_SECONDS=2592000`, `SECURE_PROXY_SSL_HEADER` |
+| **CSP** | Estricta sin `unsafe-inline` para script-src, separada para admin | `middleware.SecurityHeadersMiddleware`, test que la valida |
+| **CSRF** | Token obligatorio + `HttpOnly` + `SameSite=Lax` + `CSRF_TRUSTED_ORIGINS` | Django built-in + override |
+| **Sessions** | `HttpOnly` + `SameSite=Lax` + `Secure` (prod) + cycle_key en pre-2FA | `settings.py` §Sesiones |
+| **Headers** | X-Frame DENY (override SAMEORIGIN solo en adjuntos inline), nosniff, referrer-policy strict-origin, Permissions-Policy (cam/mic/geo/etc OFF) | `settings.py` §Endurecimiento + `middleware.SecurityHeadersMiddleware` |
+| **Captcha** | v3 propio: respuesta cifrada con Fernet (AES-128-CBC + HMAC-SHA256, key derivada de SECRET_KEY) — la solución NO viaja en plaintext | `correos/captcha.py` |
+| **Anti-bot** | Cloudflare Turnstile en login + agenda pública + honeypot + tiempo mínimo en form | `views.login_view`, `taller/anti_bot.py` |
+| **Rate-limit login portal** | Per-IP con cache backend (Redis multi-worker, sino LocMemCache) | `views._rl_intento`, `views._rl_bloqueado` |
+| **Rate-limit login admin** | 8 fallos / 15 min / IP → 429 con `Retry-After` | `middleware.AdminLoginRateLimitMiddleware` |
+| **Anti-timing en login** | `check_password` dummy si email no existe → tiempo de respuesta uniforme | `views.login_view` §4 |
+| **Anti-enumeración** | Mensaje de error uniforme (`ERROR_GENERICO`) para todos los fallos | `views.fallo()` |
+| **Password hashing** | PBKDF2-SHA256 600.000 iteraciones (Django default 5.x) | `AUTH_PASSWORD_VALIDATORS` |
+| **Validadores password** | Min 10 chars, anti-similarity con email, anti-common, anti-numeric | `settings.AUTH_PASSWORD_VALIDATORS` |
+| **2FA portal** | TOTP obligatorio + anti-replay (último código rechazado) + recovery codes hash PBKDF2 | `correos/totp.py`, `views.verify_2fa_view` |
+| **2FA admin** | TOTP separado + `AdminTOTP` model + middleware bloquea admin sin 2FA | `archivo_pietramonte/admin_2fa.py` |
+| **Adjuntos auth** | Ownership check por buzón + Http404 (NO 403) anti-enumeración | `views.adjunto_view` |
+| **Adjuntos CSP** | CSP locked per-response, sandbox, nosniff, inline solo para tipos seguros (PDF/img) | `views.adjunto_view`, `views.adjunto_por_cid_view` |
+| **CID inline** | Solo imágenes (mime image/*), scope al correo origen | `views.adjunto_por_cid_view` |
+| **Logging** | `IntentoLogin` con `ip_hash` (no PII en claro) + `EventoAuditoria` | `correos/models.py` |
+| **Admin ofuscado** | URL random vía `ADMIN_URL_PATH` env | `settings.ADMIN_URL_PATH` |
+| **IP spoofing** | XFF solo respetado si conexión viene de `TRUSTED_PROXIES` | `views._get_ip`, `views._ip_in_trusted` |
+| **Backup Postgres** | Automático nightly Coolify → Backblaze B2 (SSE-B2 encryption at rest) | Coolify Backups tab |
+| **Backup adjuntos** | rclone nightly → Backblaze B2, soft-delete con `--backup-dir` versionado | `management/commands/backup_adjuntos_b2.py` |
+
+### Lecciones de breaches en la competencia (anti-patrones a evitar)
+
+Auditadas para mantener el sistema preparado:
+
+**1. Microsoft Storm-0558 (2023)** — Actor estatal chino robó una signing
+key de Microsoft Account y la usó para acceder a 22 organizaciones + 500
+individuos vía Exchange Online. El CSRB concluyó que "la cultura de
+seguridad de Microsoft era inadecuada".
+- **Lección:** signing keys son la corona. SECRET_KEY rota acá deriva
+  Fernet del captcha, sessions, tokens de pre-2FA. **Si se filtra todo
+  cae**. Prefijos por contexto (`captcha-v3::SECRET_KEY`) limitan el
+  blast radius pero no eliminan el riesgo. **Plan:** documentar
+  rotación de SECRET_KEY como procedimiento (TODO).
+- **Lección 2:** Microsoft escondía logs de seguridad detrás del tier
+  premium. Acá los logs son iguales en todos los deploys (no hay tiers).
+
+**2. Nextcloud CVE-2024-37313 (2FA Bypass)** — Bypass del segundo factor
+después de proveer credenciales válidas. CVSS 7.3.
+- **Lección:** la verificación de 2FA debe ser server-side en CADA
+  request a recursos sensibles, no solo en el flujo de login.
+- **Cómo lo evitamos:** `Admin2FAMiddleware.__call__` chequea
+  `request.session.get('admin_2fa_ok')` en cada request a `/admin-*`.
+  El portal cliente exige verify_2fa antes de marcar `usuario_email` en
+  sesión. ✅
+
+**3. Nextcloud CVE-2024-52518 (Improper Authentication)** — Cambiar
+storage externo no requería confirmación de password.
+- **Lección:** operaciones sensibles (cambiar password, cambiar email,
+  agregar buzón al UsuarioPortal, etc) deben re-confirmar password.
+- **Estado:** parcial. Cambiar password sí re-confirma. Cambiar email
+  o agregar buzones desde admin: solo requiere 2FA admin, no
+  re-confirmación. **TODO P1.**
+
+**4. Nextcloud CVE-2024-52525 (Password en memoria)** — Password
+quedaba en memoria del proceso PHP.
+- **Lección:** no mantener password plain en variables más tiempo del
+  necesario.
+- **Estado:** acá `password` vive solo dentro de `login_view`,
+  se pasa a `check_password()` que lo hashea, y la variable se libera
+  al salir de la función. Python GC normal. ✅
+
+**5. Nextcloud XSS en files_pdfviewer** — JS arbitrario vía PDF crafted.
+- **Lección:** los PDFs adjuntos pueden contener JS y formularios.
+- **Cómo lo evitamos:** `adjunto_view` setea CSP estricta en la
+  respuesta de cada PDF inline:
+  `default-src 'self'; script-src 'none'; object-src 'self'; frame-ancestors 'self'`.
+  Sin scripts → no XSS. ✅
+
+**6. Exchange ProxyShell/ProxyLogon (2021)** — RCE en Exchange Server
+on-prem. Decenas de miles de servidores comprometidos.
+- **Lección:** no exponer servidores backend a internet directo.
+- **Cómo lo evitamos:** Hetzner solo abre SSH (UFW). Todo el tráfico
+  HTTP entra por Cloudflare Tunnel saliente — **cero puertos abiertos
+  al internet en el server**. ✅
+
+### Cuándo actualizar esta sección
+
+| Si cambiás… | Actualizá |
+|---|---|
+| `archivo_pietramonte/middleware.py` | Tabla "Controles activos" → fila correspondiente |
+| `correos/views.login_view` o flujo 2FA | Filas anti-timing / 2FA / rate-limit |
+| `correos/captcha.py`, `correos/totp.py` | Filas Captcha / 2FA |
+| `correos/adjunto_view` o `adjunto_por_cid_view` | Filas Adjuntos |
+| Modelos `IntentoLogin`, `EventoAuditoria` | Fila Logging |
+| Dependencias (Django, Pillow, cryptography) | Anotar version bump + razón |
+| Aparece un CVE nuevo relevante en competencia | Sumá a "Lecciones de breaches" con respuesta nuestra |
 
 ---
 
