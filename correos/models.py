@@ -808,6 +808,124 @@ class CategoriaTema(models.Model):
         return [k.strip().lower() for k in raw.split(',') if k.strip()]
 
 
+class Archivo(models.Model):
+    """
+    Documento digital subido al portal — base para apps Archivos, Contratos,
+    Papelera. Un solo modelo con campo `tipo` que diferencia.
+
+    Organización:
+      - `perfil` (FK Buzon): a quién pertenece / responsable (Claudia, Vicente,
+        Compartido, etc.). Reusa la lista de Buzones para consistencia.
+      - `tema`: clasificación libre (Facturación, Proveedores, Mantención…).
+      - `fecha`: fecha asociada al documento (no la de upload — ej. fecha de
+        factura, fecha del contrato).
+
+    Soft-delete (Papelera): si `eliminado_en` no es null, el archivo está en
+    la papelera. Los listados normales filtran por `eliminado_en__isnull=True`.
+    Un cron puede purgar archivos en papelera > N días (TODO).
+    """
+    class Tipo(models.TextChoices):
+        DOCUMENTO = 'doc',       'Documento'
+        CONTRATO  = 'contrato',  'Contrato'
+        FACTURA   = 'factura',   'Factura'
+        IMAGEN    = 'imagen',    'Imagen'
+        OTRO      = 'otro',      'Otro'
+
+    nombre        = models.CharField(max_length=200,
+                                     help_text='Nombre descriptivo (no el filename).')
+    archivo       = models.FileField(upload_to='archivos/%Y/%m/')
+    mime_type     = models.CharField(max_length=200, blank=True)
+    tamano_bytes  = models.PositiveBigIntegerField(default=0)
+    tipo          = models.CharField(
+        max_length=15, choices=Tipo.choices, default=Tipo.DOCUMENTO, db_index=True,
+        help_text='Categoría del archivo. Define en qué app aparece.',
+    )
+
+    # Organización por perfil/tema/fecha
+    perfil        = models.ForeignKey(
+        Buzon, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='archivos',
+        help_text='Perfil/responsable. Si vacío, el archivo es "Compartido".',
+    )
+    tema          = models.CharField(
+        max_length=80, blank=True, default='', db_index=True,
+        help_text='Tema/carpeta libre (ej. Facturación, Proveedores).',
+    )
+    fecha         = models.DateField(
+        null=True, blank=True, db_index=True,
+        help_text='Fecha del documento (no la de upload).',
+    )
+
+    descripcion   = models.TextField(blank=True, default='')
+
+    # ─── Contrato (solo aplica si tipo=='contrato') ──────────────────────
+    contrato_partes      = models.CharField(
+        max_length=300, blank=True, default='',
+        help_text='Partes firmantes (separadas por ;). Solo para tipo=contrato.',
+    )
+    contrato_vencimiento = models.DateField(
+        null=True, blank=True, db_index=True,
+        help_text='Fecha de vencimiento. Solo para tipo=contrato.',
+    )
+
+    # ─── Audit ───────────────────────────────────────────────────────────
+    creado        = models.DateTimeField(auto_now_add=True, db_index=True)
+    modificado    = models.DateTimeField(auto_now=True)
+    creado_por    = models.ForeignKey(
+        'UsuarioPortal', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='archivos_subidos',
+    )
+
+    # ─── Soft-delete (Papelera) ──────────────────────────────────────────
+    eliminado_en  = models.DateTimeField(
+        null=True, blank=True, db_index=True,
+        help_text='Si no es null, el archivo está en la papelera.',
+    )
+    eliminado_por = models.ForeignKey(
+        'UsuarioPortal', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='archivos_eliminados',
+    )
+
+    class Meta:
+        verbose_name = 'Archivo'
+        verbose_name_plural = 'Archivos'
+        ordering = ['-creado']
+        indexes = [
+            models.Index(fields=['tipo', '-creado'],  name='correos_arc_tipo_idx'),
+            models.Index(fields=['perfil', '-creado'], name='correos_arc_perfil_idx'),
+            models.Index(fields=['eliminado_en'],     name='correos_arc_elim_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.get_tipo_display()} · {self.nombre}'
+
+    @property
+    def en_papelera(self) -> bool:
+        return self.eliminado_en is not None
+
+    @property
+    def tamano_legible(self) -> str:
+        n = self.tamano_bytes
+        for unidad in ['B', 'KB', 'MB', 'GB']:
+            if n < 1024:
+                return f'{n:.1f} {unidad}' if unidad != 'B' else f'{n} {unidad}'
+            n /= 1024
+        return f'{n:.1f} TB'
+
+    def soft_delete(self, usuario):
+        """Mover a papelera."""
+        from django.utils import timezone
+        self.eliminado_en = timezone.now()
+        self.eliminado_por = usuario
+        self.save(update_fields=['eliminado_en', 'eliminado_por'])
+
+    def restaurar(self):
+        """Sacar de papelera."""
+        self.eliminado_en = None
+        self.eliminado_por = None
+        self.save(update_fields=['eliminado_en', 'eliminado_por'])
+
+
 class UserDesktopPrefs(models.Model):
     """
     Layout personalizado del escritorio por usuario. JSON con orden + visibilidad
