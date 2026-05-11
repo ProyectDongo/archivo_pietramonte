@@ -60,6 +60,25 @@ def _es_overquota(error_obj) -> bool:
     return 'OVERQUOTA' in str(error_obj).upper()
 
 
+def _es_conexion_muerta(error_obj) -> bool:
+    """
+    Detecta si el error indica que la conexión IMAP se cayó (SSL EOF,
+    socket roto, broken pipe). Si la conexión murió, seguir intentando
+    sobre la misma conexión es inútil — hay que abortar y reconectar en
+    la próxima corrida.
+    """
+    s = str(error_obj).lower()
+    return any(marker in s for marker in [
+        'eof',
+        'socket error',
+        'broken pipe',
+        'connection reset',
+        'connection aborted',
+        'closed by',
+        'timed out',
+    ])
+
+
 @contextmanager
 def imap_connection():
     """
@@ -208,16 +227,33 @@ def fetch_nuevos(label_name: str, last_uid: int = 0):
             uid_b = str(uid).encode('ascii')
             try:
                 typ, msg_data = imap.uid('fetch', uid_b, '(RFC822)')
+            except imaplib.IMAP4.abort as e:
+                # IMAP4.abort = la librería ya considera la conexión muerta.
+                # Cualquier fetch posterior va a fallar igual.
+                raise ImapError(f'IMAP abort en fetch uid={uid}: {e}') from e
             except imaplib.IMAP4.error as e:
                 # OVERQUOTA en medio del fetch → abortar todo el sync para
                 # no extender el bloqueo (cada fetch que falla con
                 # OVERQUOTA cuenta como otro intento contra la cuota).
                 if _es_overquota(e):
                     raise OverquotaError(f'fetch uid={uid}: {e}') from e
-                # Otro error puntual (mensaje borrado del label en el medio,
+                # Conexión muerta (SSL EOF, socket roto, broken pipe): hay
+                # que abortar el for loop entero. Seguir intentando sobre
+                # una conexión cerrada genera miles de warnings inútiles y
+                # cero inserts. La próxima corrida del cron reconecta limpio.
+                if _es_conexion_muerta(e):
+                    raise ImapError(
+                        f'Conexión IMAP perdida en fetch uid={uid}: {e}'
+                    ) from e
+                # Error puntual del mensaje (borrado del label en el medio,
                 # encoding raro, etc.): skip ese mensaje y seguir.
                 logger.warning('Skip uid=%s en %s: %s', uid, label_name, e)
                 continue
+            except (OSError, ConnectionError) as e:
+                # Socket-level error: idem, conexión rota.
+                raise ImapError(
+                    f'Socket error en fetch uid={uid}: {e}'
+                ) from e
             if typ != 'OK' or not msg_data:
                 continue
             for chunk in msg_data:
