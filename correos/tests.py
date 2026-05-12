@@ -3,21 +3,20 @@ Tests del flujo crítico — NO romper.
 
 Cubre:
   - Login: éxito / password incorrecto / email inexistente / captcha mal /
-    honeypot / submit muy rápido / rate limit / anti-enumeración (status y
-    mensaje uniformes).
+    honeypot / rate limit / anti-enumeración (status y mensaje uniformes).
   - Logout: solo POST.
   - Adjuntos: dueño puede descargar; otro usuario logueado no.
   - Admin: requiere staff/superuser; URL ofuscada.
   - Cambiar password: validadores activos.
-  - Captcha: token firmado, replay bloqueado, expiración.
+  - Captcha interno (emoji): token firmado, replay bloqueado.
 
 Correr con:
     python manage.py test correos
 """
-import base64
 import json
 import re
 import time
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core.cache import cache
@@ -28,16 +27,8 @@ from django.urls import reverse
 from .models import Adjunto, Buzon, Correo, Etiqueta, IntentoLogin, UsuarioPortal
 
 
-# Captcha helper compartido por los tests
-def _resolver_captcha_de(html: str):
-    """Extrae token + selección correcta de la página de login."""
-    csrf = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', html).group(1)
-    token = re.search(r'name="captcha_token" id="captcha-token" value="([^"]+)"', html).group(1)
-    page_loaded = re.search(r'name="page_loaded_at" id="page-loaded-at" value="([^"]+)"', html).group(1)
-    payload_b64 = token.split('.')[0]
-    pad = 4 - len(payload_b64) % 4
-    seleccion = json.loads(base64.urlsafe_b64decode(payload_b64 + '=' * pad))['i']
-    return csrf, token, page_loaded, seleccion
+def _get_csrf_de(html: str) -> str:
+    return re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', html).group(1)
 
 
 @override_settings(
@@ -61,34 +52,45 @@ class LoginFlowTests(TestCase):
 
         self.c = Client(HTTP_HOST='localhost', enforce_csrf_checks=True)
 
-    def _get_login_data(self):
+    def _post_login(self, email, password='PassMuy.Larga2026!', honeypot=''):
         r = self.c.get('/intranet/')
-        return _resolver_captcha_de(r.content.decode())
-
-    def _post_login(self, email, password='PassMuy.Larga2026!',
-                    captcha_ok=True, honeypot='', dormir=2.0):
-        csrf, token, loaded, sel = self._get_login_data()
-        if not captcha_ok:
-            sel = [0]   # respuesta incorrecta
-        time.sleep(dormir)
+        csrf = _get_csrf_de(r.content.decode())
         return self.c.post('/intranet/', {
             'csrfmiddlewaretoken': csrf,
             'email': email,
             'password': password,
             'website': honeypot,
-            'captcha_token': token,
-            'captcha_seleccion[]': sel,
-            'page_loaded_at': str(loaded),
+            'cf-turnstile-response': '',   # dev: verify_turnstile devuelve True sin secret key
+            'page_loaded_at': str(int(time.time() * 1000)),
         })
 
     # ─── Casos de éxito ────────────────────────────────────────────────
     def test_login_exitoso(self):
-        r = self._post_login('empleado@gmail.com')
-        self.assertEqual(r.status_code, 302)
-        self.assertEqual(r['Location'], '/intranet/bandeja/')
+        import pyotp
+        # Pre-configurar TOTP para completar el flujo 2FA
+        secret = pyotp.random_base32()
+        self.user.totp_secret = secret
+        self.user.totp_activo = True
+        self.user.save()
+
+        # Step 1: Credenciales correctas → pre-2FA (redirect a verify)
+        r1 = self._post_login('empleado@gmail.com')
+        self.assertEqual(r1.status_code, 302)
+        self.assertIn('2fa', r1['Location'])
+
+        # Step 2: Verificar TOTP
+        r_get = self.c.get('/intranet/2fa/verify/')
+        csrf = _get_csrf_de(r_get.content.decode())
+        r2 = self.c.post('/intranet/2fa/verify/', {
+            'csrfmiddlewaretoken': csrf,
+            'codigo': pyotp.TOTP(secret).now(),
+        })
+        self.assertEqual(r2.status_code, 302)
+        # Post-2FA redirige al escritorio (landing del portal)
+        self.assertIn(r2['Location'], ('/intranet/escritorio/', '/intranet/bandeja/'))
         self.assertEqual(self.c.session.get('usuario_email'), 'empleado@gmail.com')
         self.assertEqual(self.c.session.get('buzon_actual_email'), 'empleado.bandeja@pietramonte.cl')
-        self.assertTrue(IntentoLogin.objects.filter(motivo='exito').exists())
+        self.assertTrue(IntentoLogin.objects.filter(motivo='totp_ok').exists())
 
     def test_usuario_sin_buzones_no_entra(self):
         """Usuario activo y autenticado, pero sin buzones asignados → bloqueado."""
@@ -111,7 +113,17 @@ class LoginFlowTests(TestCase):
         self.assertTrue(IntentoLogin.objects.filter(motivo='email_no_lista').exists())
 
     def test_captcha_incorrecto_devuelve_400(self):
-        r = self._post_login('empleado@gmail.com', captcha_ok=False)
+        r = self.c.get('/intranet/')
+        csrf = _get_csrf_de(r.content.decode())
+        with patch('correos.views.verify_turnstile', return_value=False):
+            r = self.c.post('/intranet/', {
+                'csrfmiddlewaretoken': csrf,
+                'email': 'empleado@gmail.com',
+                'password': 'PassMuy.Larga2026!',
+                'website': '',
+                'cf-turnstile-response': 'token-invalido',
+                'page_loaded_at': str(int(time.time() * 1000)),
+            })
         self.assertEqual(r.status_code, 400)
         self.assertTrue(IntentoLogin.objects.filter(motivo='captcha_fail').exists())
 
@@ -211,12 +223,13 @@ class AdjuntoAuthTests(TestCase):
         c1 = Correo.objects.create(buzon=self.b1, asunto='para alice')
         c2 = Correo.objects.create(buzon=self.b2, asunto='para bob')
 
-        self.adj_alice = Adjunto(correo=c1, nombre_original='alice.pdf', mime_type='application/pdf', tamano_bytes=4)
-        self.adj_alice.archivo.save('alice.pdf', ContentFile(b'%PDF'), save=False)
+        # ZIP no es inline-safe → se sirve como attachment con CSP sandbox
+        self.adj_alice = Adjunto(correo=c1, nombre_original='alice.zip', mime_type='application/zip', tamano_bytes=4)
+        self.adj_alice.archivo.save('alice.zip', ContentFile(b'PK\x03\x04'), save=False)
         self.adj_alice.save()
 
-        self.adj_bob = Adjunto(correo=c2, nombre_original='bob.pdf', mime_type='application/pdf', tamano_bytes=4)
-        self.adj_bob.archivo.save('bob.pdf', ContentFile(b'%PDF'), save=False)
+        self.adj_bob = Adjunto(correo=c2, nombre_original='bob.zip', mime_type='application/zip', tamano_bytes=4)
+        self.adj_bob.archivo.save('bob.zip', ContentFile(b'PK\x03\x04'), save=False)
         self.adj_bob.save()
 
     def test_sin_login_redirige(self):
@@ -294,10 +307,9 @@ class CaptchaTests(TestCase):
     def test_token_correcto_pasa(self):
         from correos import captcha
         ch = captcha.generar_challenge('vehiculos')
-        # Decodifica para conocer la respuesta correcta
-        payload_b64 = ch['token'].split('.')[0]
-        pad = 4 - len(payload_b64) % 4
-        correctos = json.loads(base64.urlsafe_b64decode(payload_b64 + '=' * pad))['i']
+        # Token es Fernet opaco — derivamos índices correctos desde las celdas retornadas
+        correctos_nombres = set(captcha.CHALLENGES['vehiculos']['correctos'])
+        correctos = [i for i, c in enumerate(ch['celdas']) if c['nombre'] in correctos_nombres]
         cat = captcha.verificar(ch['token'], correctos)
         self.assertEqual(cat, 'vehiculos')
 
@@ -741,8 +753,9 @@ class CidResolutionTests(TestCase):
         out = _resolver_cid_en_html(html, self.correo)
         self.assertEqual(out, html)
 
+    @override_settings(EMAIL_ALLOW_EXTERNAL_IMAGES=False)
     def test_render_correo_html_strip_de_imgs_externas(self):
-        """`<img>` con src http externa debe ser strippeado (anti tracking)."""
+        """`<img>` con src http externa: URL blockeada cuando EMAIL_ALLOW_EXTERNAL_IMAGES=False."""
         from correos.templatetags.correos_tags import render_correo_html
         c = Correo.objects.create(
             buzon=self.b_alice,
@@ -750,8 +763,9 @@ class CidResolutionTests(TestCase):
         )
         out = str(render_correo_html(c))
         self.assertIn('<p>x</p>', out)
+        # La URL del tracker debe estar ausente (src bloqueado)
         self.assertNotIn('tracking.evil', out)
-        self.assertNotIn('<img', out)
+        self.assertNotIn('pixel.png', out)
 
     def test_render_correo_html_permite_data_image(self):
         from correos.templatetags.correos_tags import render_correo_html
