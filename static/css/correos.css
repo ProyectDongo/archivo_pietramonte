@@ -1227,10 +1227,6 @@
   border-color: var(--r);
 }
 
-/* (Reglas .preview-empty / .preview-empty-icon / .preview-empty-hint
-   retiradas 2026-05-11 junto con el modo preview-pane viejo.
-   Solo .preview-empty-body sigue en uso — definido más abajo.) */
-
 .preview-card {
   display: flex;
   flex-direction: column;
@@ -3556,10 +3552,7 @@
 [data-theme="dark"] .active-filters-label { color: #9aa0a6; }
 [data-theme="dark"] .active-filters-count { color: #9aa0a6; }
 
-/* Preview pane (dark mode) */
-[data-theme="dark"] .preview-header,
-[data-theme="dark"] .preview-meta { color: #c0c4c8; border-color: #383f45; }
-[data-theme="dark"] .preview-asunto { color: #fff; }
+/* Preview card (dark mode) */
 [data-theme="dark"] .preview-body { color: #e8eaed; background: transparent; }
 [data-theme="dark"] .preview-actions button,
 [data-theme="dark"] .preview-actions a { background: #252b30; color: #c0c4c8; border-color: #383f45; }
@@ -4731,10 +4724,6 @@
 [data-theme="dark"] .sidebar-draft-meta,
 [data-theme="dark"] .sidebar-draft-more { color: #9aa0a6; }
 [data-theme="dark"] .sidebar-draft-more { border-top-color: #383f45; }
-
-/* (Bloque "Modo lectura" / .inbox-shell.is-reading retirado 2026-05-11:
-   el modo preview-pane fue eliminado en commits anteriores. Ver
-   CLAUDE.md §Gotchas y mockup de inbox para el reemplazo Gmail-style.) */
 
 /* ==========================================================================
    Tipografía mejorada del cuerpo del correo (preview + detalle)
