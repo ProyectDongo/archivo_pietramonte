@@ -1,5 +1,5 @@
 """
-Settings de Django para Archivo de Correos Pietramonte.
+Settings de Django para Bóveda Pietramonte.
 
 Variables sensibles se leen de .env (ver .env.example).
 En producción, asegúrate de:
