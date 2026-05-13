@@ -1,5 +1,5 @@
 """
-Settings de Django para Archivo de Correos Pietramonte.
+Settings de Django para Bóveda Pietramonte.
 
 Variables sensibles se leen de .env (ver .env.example).
 En producción, asegúrate de:
@@ -299,6 +299,16 @@ EMAIL_ALLOW_EXTERNAL_IMAGES = env_bool('EMAIL_ALLOW_EXTERNAL_IMAGES', True)
 
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# ─── Backup (Backblaze B2 vía rclone) ──────────────────────────────────────
+# Credenciales en: Backblaze → Account → App Keys → Add a New App Key.
+# Usadas por backup_adjuntos_b2 (media) y hacer_backup (DB dump).
+# Si B2_KEY_ID está vacío, los comandos de backup saltean el upload (dry-run).
+B2_KEY_ID          = os.getenv('B2_KEY_ID', '')            # keyID de Backblaze
+B2_APPLICATION_KEY = os.getenv('B2_APPLICATION_KEY', '')   # applicationKey
+B2_BUCKET_NAME     = os.getenv('B2_BUCKET_NAME', '')
+B2_PREFIX          = os.getenv('B2_PREFIX', 'backup')
 
 
 # ─── Cache backend ─────────────────────────────────────────────────────────

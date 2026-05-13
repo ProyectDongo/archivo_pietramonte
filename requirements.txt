@@ -16,3 +16,4 @@ bleach[css]==6.2.0
 # para funcionar. Solo se usa si REDIS_URL está seteado en env (sino el cache
 # cae a LocMemCache automáticamente).
 redis==5.2.0
+

@@ -3,41 +3,37 @@ Tests del flujo crítico — NO romper.
 
 Cubre:
   - Login: éxito / password incorrecto / email inexistente / captcha mal /
-    honeypot / submit muy rápido / rate limit / anti-enumeración (status y
-    mensaje uniformes).
+    honeypot / rate limit / anti-enumeración (status y mensaje uniformes).
   - Logout: solo POST.
   - Adjuntos: dueño puede descargar; otro usuario logueado no.
   - Admin: requiere staff/superuser; URL ofuscada.
   - Cambiar password: validadores activos.
-  - Captcha: token firmado, replay bloqueado, expiración.
+  - Captcha interno (emoji): token firmado, replay bloqueado.
 
 Correr con:
     python manage.py test correos
 """
-import base64
 import json
 import re
 import time
+from datetime import timedelta
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.core.files.base import ContentFile
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
-from .models import Adjunto, Buzon, Correo, Etiqueta, IntentoLogin, UsuarioPortal
+from .models import (
+    Adjunto, BorradorCorreo, Buzon, Correo, CorreoLeido, CorreoSnooze,
+    Etiqueta, IntentoLogin, UsuarioPortal,
+)
 
 
-# Captcha helper compartido por los tests
-def _resolver_captcha_de(html: str):
-    """Extrae token + selección correcta de la página de login."""
-    csrf = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', html).group(1)
-    token = re.search(r'name="captcha_token" id="captcha-token" value="([^"]+)"', html).group(1)
-    page_loaded = re.search(r'name="page_loaded_at" id="page-loaded-at" value="([^"]+)"', html).group(1)
-    payload_b64 = token.split('.')[0]
-    pad = 4 - len(payload_b64) % 4
-    seleccion = json.loads(base64.urlsafe_b64decode(payload_b64 + '=' * pad))['i']
-    return csrf, token, page_loaded, seleccion
+def _get_csrf_de(html: str) -> str:
+    return re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', html).group(1)
 
 
 @override_settings(
@@ -61,34 +57,45 @@ class LoginFlowTests(TestCase):
 
         self.c = Client(HTTP_HOST='localhost', enforce_csrf_checks=True)
 
-    def _get_login_data(self):
+    def _post_login(self, email, password='PassMuy.Larga2026!', honeypot=''):
         r = self.c.get('/intranet/')
-        return _resolver_captcha_de(r.content.decode())
-
-    def _post_login(self, email, password='PassMuy.Larga2026!',
-                    captcha_ok=True, honeypot='', dormir=2.0):
-        csrf, token, loaded, sel = self._get_login_data()
-        if not captcha_ok:
-            sel = [0]   # respuesta incorrecta
-        time.sleep(dormir)
+        csrf = _get_csrf_de(r.content.decode())
         return self.c.post('/intranet/', {
             'csrfmiddlewaretoken': csrf,
             'email': email,
             'password': password,
             'website': honeypot,
-            'captcha_token': token,
-            'captcha_seleccion[]': sel,
-            'page_loaded_at': str(loaded),
+            'cf-turnstile-response': '',   # dev: verify_turnstile devuelve True sin secret key
+            'page_loaded_at': str(int(time.time() * 1000)),
         })
 
     # ─── Casos de éxito ────────────────────────────────────────────────
     def test_login_exitoso(self):
-        r = self._post_login('empleado@gmail.com')
-        self.assertEqual(r.status_code, 302)
-        self.assertEqual(r['Location'], '/intranet/bandeja/')
+        import pyotp
+        # Pre-configurar TOTP para completar el flujo 2FA
+        secret = pyotp.random_base32()
+        self.user.totp_secret = secret
+        self.user.totp_activo = True
+        self.user.save()
+
+        # Step 1: Credenciales correctas → pre-2FA (redirect a verify)
+        r1 = self._post_login('empleado@gmail.com')
+        self.assertEqual(r1.status_code, 302)
+        self.assertIn('2fa', r1['Location'])
+
+        # Step 2: Verificar TOTP
+        r_get = self.c.get('/intranet/2fa/verify/')
+        csrf = _get_csrf_de(r_get.content.decode())
+        r2 = self.c.post('/intranet/2fa/verify/', {
+            'csrfmiddlewaretoken': csrf,
+            'codigo': pyotp.TOTP(secret).now(),
+        })
+        self.assertEqual(r2.status_code, 302)
+        # Post-2FA redirige al escritorio (landing del portal)
+        self.assertIn(r2['Location'], ('/intranet/escritorio/', '/intranet/bandeja/'))
         self.assertEqual(self.c.session.get('usuario_email'), 'empleado@gmail.com')
         self.assertEqual(self.c.session.get('buzon_actual_email'), 'empleado.bandeja@pietramonte.cl')
-        self.assertTrue(IntentoLogin.objects.filter(motivo='exito').exists())
+        self.assertTrue(IntentoLogin.objects.filter(motivo='totp_ok').exists())
 
     def test_usuario_sin_buzones_no_entra(self):
         """Usuario activo y autenticado, pero sin buzones asignados → bloqueado."""
@@ -111,7 +118,17 @@ class LoginFlowTests(TestCase):
         self.assertTrue(IntentoLogin.objects.filter(motivo='email_no_lista').exists())
 
     def test_captcha_incorrecto_devuelve_400(self):
-        r = self._post_login('empleado@gmail.com', captcha_ok=False)
+        r = self.c.get('/intranet/')
+        csrf = _get_csrf_de(r.content.decode())
+        with patch('correos.views.verify_turnstile', return_value=False):
+            r = self.c.post('/intranet/', {
+                'csrfmiddlewaretoken': csrf,
+                'email': 'empleado@gmail.com',
+                'password': 'PassMuy.Larga2026!',
+                'website': '',
+                'cf-turnstile-response': 'token-invalido',
+                'page_loaded_at': str(int(time.time() * 1000)),
+            })
         self.assertEqual(r.status_code, 400)
         self.assertTrue(IntentoLogin.objects.filter(motivo='captcha_fail').exists())
 
@@ -211,12 +228,13 @@ class AdjuntoAuthTests(TestCase):
         c1 = Correo.objects.create(buzon=self.b1, asunto='para alice')
         c2 = Correo.objects.create(buzon=self.b2, asunto='para bob')
 
-        self.adj_alice = Adjunto(correo=c1, nombre_original='alice.pdf', mime_type='application/pdf', tamano_bytes=4)
-        self.adj_alice.archivo.save('alice.pdf', ContentFile(b'%PDF'), save=False)
+        # ZIP no es inline-safe → se sirve como attachment con CSP sandbox
+        self.adj_alice = Adjunto(correo=c1, nombre_original='alice.zip', mime_type='application/zip', tamano_bytes=4)
+        self.adj_alice.archivo.save('alice.zip', ContentFile(b'PK\x03\x04'), save=False)
         self.adj_alice.save()
 
-        self.adj_bob = Adjunto(correo=c2, nombre_original='bob.pdf', mime_type='application/pdf', tamano_bytes=4)
-        self.adj_bob.archivo.save('bob.pdf', ContentFile(b'%PDF'), save=False)
+        self.adj_bob = Adjunto(correo=c2, nombre_original='bob.zip', mime_type='application/zip', tamano_bytes=4)
+        self.adj_bob.archivo.save('bob.zip', ContentFile(b'PK\x03\x04'), save=False)
         self.adj_bob.save()
 
     def test_sin_login_redirige(self):
@@ -294,10 +312,9 @@ class CaptchaTests(TestCase):
     def test_token_correcto_pasa(self):
         from correos import captcha
         ch = captcha.generar_challenge('vehiculos')
-        # Decodifica para conocer la respuesta correcta
-        payload_b64 = ch['token'].split('.')[0]
-        pad = 4 - len(payload_b64) % 4
-        correctos = json.loads(base64.urlsafe_b64decode(payload_b64 + '=' * pad))['i']
+        # Token es Fernet opaco — derivamos índices correctos desde las celdas retornadas
+        correctos_nombres = set(captcha.CHALLENGES['vehiculos']['correctos'])
+        correctos = [i for i, c in enumerate(ch['celdas']) if c['nombre'] in correctos_nombres]
         cat = captcha.verificar(ch['token'], correctos)
         self.assertEqual(cat, 'vehiculos')
 
@@ -741,8 +758,9 @@ class CidResolutionTests(TestCase):
         out = _resolver_cid_en_html(html, self.correo)
         self.assertEqual(out, html)
 
+    @override_settings(EMAIL_ALLOW_EXTERNAL_IMAGES=False)
     def test_render_correo_html_strip_de_imgs_externas(self):
-        """`<img>` con src http externa debe ser strippeado (anti tracking)."""
+        """`<img>` con src http externa: URL blockeada cuando EMAIL_ALLOW_EXTERNAL_IMAGES=False."""
         from correos.templatetags.correos_tags import render_correo_html
         c = Correo.objects.create(
             buzon=self.b_alice,
@@ -750,8 +768,9 @@ class CidResolutionTests(TestCase):
         )
         out = str(render_correo_html(c))
         self.assertIn('<p>x</p>', out)
+        # La URL del tracker debe estar ausente (src bloqueado)
         self.assertNotIn('tracking.evil', out)
-        self.assertNotIn('<img', out)
+        self.assertNotIn('pixel.png', out)
 
     def test_render_correo_html_permite_data_image(self):
         from correos.templatetags.correos_tags import render_correo_html
@@ -852,3 +871,339 @@ class HtmlSanitizationTests(TestCase):
         from correos.templatetags.correos_tags import sanitizar_email_html
         out = sanitizar_email_html('<iframe src="evil"></iframe>')
         self.assertNotIn('<iframe', out)
+
+
+# ─── Fixture mixin reutilizable ───────────────────────────────────────────────
+
+class _PortalMixin:
+    """Crea usuario + buzón + correo y hace login por sesión directa."""
+
+    def _setup(self):
+        cache.clear()
+        self.buzon = Buzon.objects.create(email='alice@pietramonte.cl')
+        self.buzon_otro = Buzon.objects.create(email='otro@pietramonte.cl')
+
+        self.usuario = UsuarioPortal(email='alice@gmail.com', activo=True)
+        self.usuario.set_password('PassMuy.Larga2026!')
+        self.usuario.save()
+        self.usuario.buzones.add(self.buzon)
+
+        self.correo = Correo.objects.create(buzon=self.buzon, asunto='test')
+        self.correo_ajeno = Correo.objects.create(buzon=self.buzon_otro, asunto='ajeno')
+
+        self.c = Client(HTTP_HOST='localhost', enforce_csrf_checks=False)
+        s = self.c.session
+        s['usuario_email'] = 'alice@gmail.com'
+        s['buzon_actual_id'] = self.buzon.id
+        s['buzon_actual_email'] = self.buzon.email
+        s.save()
+
+
+# ─── toggle_leido ─────────────────────────────────────────────────────────────
+
+class ToggleLeidoTests(_PortalMixin, TestCase):
+    def setUp(self):
+        self._setup()
+
+    def test_marcar_leido_crea_registro(self):
+        r = self.c.post(f'/intranet/correo/{self.correo.id}/leido/')
+        self.assertEqual(r.status_code, 200)
+        data = json.loads(r.content)
+        self.assertTrue(data['is_leido'])
+        self.assertTrue(CorreoLeido.objects.filter(usuario=self.usuario, correo=self.correo).exists())
+
+    def test_toggle_dos_veces_deja_no_leido(self):
+        self.c.post(f'/intranet/correo/{self.correo.id}/leido/')
+        r = self.c.post(f'/intranet/correo/{self.correo.id}/leido/')
+        data = json.loads(r.content)
+        self.assertFalse(data['is_leido'])
+        self.assertFalse(CorreoLeido.objects.filter(usuario=self.usuario, correo=self.correo).exists())
+
+    def test_responde_badge_no_leidos(self):
+        r = self.c.post(f'/intranet/correo/{self.correo.id}/leido/')
+        data = json.loads(r.content)
+        self.assertIn('no_leidos_buzon', data)
+        self.assertGreaterEqual(data['no_leidos_buzon'], 0)
+
+    def test_correo_ajeno_404(self):
+        r = self.c.post(f'/intranet/correo/{self.correo_ajeno.id}/leido/')
+        self.assertEqual(r.status_code, 404)
+
+    def test_solo_post(self):
+        r = self.c.get(f'/intranet/correo/{self.correo.id}/leido/')
+        self.assertEqual(r.status_code, 405)
+
+
+# ─── snooze / unsnooze ────────────────────────────────────────────────────────
+
+class SnoozeTests(_PortalMixin, TestCase):
+    def setUp(self):
+        self._setup()
+
+    def test_snooze_con_preset_manana(self):
+        r = self.c.post(f'/intranet/correo/{self.correo.id}/snooze/', {'preset': 'manana'})
+        self.assertEqual(r.status_code, 200)
+        data = json.loads(r.content)
+        self.assertTrue(data['ok'])
+        self.assertIn('until', data)
+        self.assertTrue(CorreoSnooze.objects.filter(usuario=self.usuario, correo=self.correo).exists())
+
+    def test_snooze_con_until_futuro(self):
+        futuro = (timezone.now() + timedelta(days=2)).strftime('%Y-%m-%dT%H:%M')
+        r = self.c.post(f'/intranet/correo/{self.correo.id}/snooze/', {'until': futuro})
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(CorreoSnooze.objects.filter(usuario=self.usuario, correo=self.correo).exists())
+
+    def test_snooze_sin_parametros_es_400(self):
+        r = self.c.post(f'/intranet/correo/{self.correo.id}/snooze/', {})
+        self.assertEqual(r.status_code, 400)
+
+    def test_snooze_con_until_pasado_es_400(self):
+        pasado = (timezone.now() - timedelta(days=1)).strftime('%Y-%m-%dT%H:%M')
+        r = self.c.post(f'/intranet/correo/{self.correo.id}/snooze/', {'until': pasado})
+        self.assertEqual(r.status_code, 400)
+
+    def test_snooze_reemplaza_el_existente(self):
+        futuro1 = (timezone.now() + timedelta(days=1)).strftime('%Y-%m-%dT%H:%M')
+        futuro2 = (timezone.now() + timedelta(days=3)).strftime('%Y-%m-%dT%H:%M')
+        self.c.post(f'/intranet/correo/{self.correo.id}/snooze/', {'until': futuro1})
+        self.c.post(f'/intranet/correo/{self.correo.id}/snooze/', {'until': futuro2})
+        self.assertEqual(CorreoSnooze.objects.filter(usuario=self.usuario, correo=self.correo).count(), 1)
+
+    def test_unsnooze_elimina_registro(self):
+        CorreoSnooze.objects.create(
+            usuario=self.usuario, correo=self.correo,
+            until_at=timezone.now() + timedelta(days=1),
+        )
+        r = self.c.post(f'/intranet/correo/{self.correo.id}/unsnooze/')
+        self.assertEqual(r.status_code, 200)
+        data = json.loads(r.content)
+        self.assertTrue(data['eliminado'])
+        self.assertFalse(CorreoSnooze.objects.filter(usuario=self.usuario, correo=self.correo).exists())
+
+    def test_unsnooze_sin_snooze_ok_eliminado_false(self):
+        r = self.c.post(f'/intranet/correo/{self.correo.id}/unsnooze/')
+        self.assertEqual(r.status_code, 200)
+        data = json.loads(r.content)
+        self.assertFalse(data['eliminado'])
+
+    def test_snooze_correo_ajeno_404(self):
+        futuro = (timezone.now() + timedelta(days=1)).strftime('%Y-%m-%dT%H:%M')
+        r = self.c.post(f'/intranet/correo/{self.correo_ajeno.id}/snooze/', {'until': futuro})
+        self.assertEqual(r.status_code, 404)
+
+    def test_snooze_solo_post(self):
+        r = self.c.get(f'/intranet/correo/{self.correo.id}/snooze/')
+        self.assertEqual(r.status_code, 405)
+
+
+# ─── borradores ───────────────────────────────────────────────────────────────
+
+class BorradoresTests(_PortalMixin, TestCase):
+    def setUp(self):
+        self._setup()
+
+    def test_lista_vacia_al_inicio(self):
+        r = self.c.get('/intranet/borradores/')
+        self.assertEqual(r.status_code, 200)
+        data = json.loads(r.content)
+        self.assertEqual(data['borradores'], [])
+
+    def test_crear_borrador(self):
+        r = self.c.post('/intranet/borradores/', {
+            'to': 'cliente@empresa.cl',
+            'asunto': 'Presupuesto Nº123',
+            'cuerpo': 'Estimado…',
+        })
+        self.assertEqual(r.status_code, 200)
+        data = json.loads(r.content)
+        self.assertIn('id', data)
+        self.assertEqual(data['to'], 'cliente@empresa.cl')
+        self.assertTrue(BorradorCorreo.objects.filter(id=data['id'], usuario=self.usuario).exists())
+
+    def test_borrador_aparece_en_lista(self):
+        b = BorradorCorreo.objects.create(
+            usuario=self.usuario, buzon=self.buzon,
+            to='x@x.cl', asunto='Draft', cuerpo='',
+        )
+        r = self.c.get('/intranet/borradores/')
+        data = json.loads(r.content)
+        ids = [item['id'] for item in data['borradores']]
+        self.assertIn(b.id, ids)
+
+    def test_get_detalle_borrador(self):
+        b = BorradorCorreo.objects.create(
+            usuario=self.usuario, buzon=self.buzon,
+            to='x@x.cl', asunto='Draft detalle', cuerpo='cuerpo',
+        )
+        r = self.c.get(f'/intranet/borradores/{b.id}/')
+        self.assertEqual(r.status_code, 200)
+        data = json.loads(r.content)
+        self.assertEqual(data['asunto'], 'Draft detalle')
+
+    def test_autosave_borrador(self):
+        b = BorradorCorreo.objects.create(
+            usuario=self.usuario, buzon=self.buzon,
+            to='', asunto='', cuerpo='',
+        )
+        r = self.c.post(f'/intranet/borradores/{b.id}/', {
+            'asunto': 'Asunto actualizado',
+            'cuerpo': 'Cuerpo actualizado',
+        })
+        self.assertEqual(r.status_code, 200)
+        b.refresh_from_db()
+        self.assertEqual(b.asunto, 'Asunto actualizado')
+
+    def test_delete_borrador(self):
+        b = BorradorCorreo.objects.create(
+            usuario=self.usuario, buzon=self.buzon,
+            to='', asunto='borrar', cuerpo='',
+        )
+        r = self.c.delete(f'/intranet/borradores/{b.id}/')
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(BorradorCorreo.objects.filter(id=b.id).exists())
+
+    def test_borrador_ajeno_404(self):
+        otro = UsuarioPortal(email='otro@gmail.com', activo=True)
+        otro.set_password('Pass.2026!')
+        otro.save()
+        b = BorradorCorreo.objects.create(
+            usuario=otro, buzon=self.buzon_otro,
+            to='', asunto='no tuyo', cuerpo='',
+        )
+        r = self.c.get(f'/intranet/borradores/{b.id}/')
+        self.assertEqual(r.status_code, 404)
+
+
+# ─── bulk_acciones ────────────────────────────────────────────────────────────
+
+class BulkAccionesTests(_PortalMixin, TestCase):
+    def setUp(self):
+        self._setup()
+        self.c2 = Correo.objects.create(buzon=self.buzon, asunto='segundo')
+
+    def _bulk(self, accion, extra=None):
+        ids = f'{self.correo.id},{self.c2.id}'
+        data = {'accion': accion, 'ids': ids}
+        if extra:
+            data.update(extra)
+        return self.c.post('/intranet/correos/bulk/', data)
+
+    def test_leer_marca_como_leidos(self):
+        r = self._bulk('leer')
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(CorreoLeido.objects.filter(usuario=self.usuario, correo=self.correo).exists())
+        self.assertTrue(CorreoLeido.objects.filter(usuario=self.usuario, correo=self.c2).exists())
+
+    def test_no_leer_borra_marcas(self):
+        CorreoLeido.objects.create(usuario=self.usuario, correo=self.correo)
+        CorreoLeido.objects.create(usuario=self.usuario, correo=self.c2)
+        r = self._bulk('no_leer')
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(CorreoLeido.objects.filter(usuario=self.usuario, correo__in=[self.correo, self.c2]).exists())
+
+    def test_destacar_marca_correos(self):
+        r = self._bulk('destacar')
+        self.assertEqual(r.status_code, 200)
+        self.correo.refresh_from_db()
+        self.c2.refresh_from_db()
+        self.assertTrue(self.correo.destacado)
+        self.assertTrue(self.c2.destacado)
+
+    def test_no_destacar_desmarca(self):
+        self.correo.destacado = True
+        self.correo.save()
+        r = self._bulk('no_destacar')
+        self.assertEqual(r.status_code, 200)
+        self.correo.refresh_from_db()
+        self.assertFalse(self.correo.destacado)
+
+    def test_accion_invalida_400(self):
+        r = self._bulk('borrar_todo')
+        self.assertEqual(r.status_code, 400)
+
+    def test_ids_vacios_400(self):
+        r = self.c.post('/intranet/correos/bulk/', {'accion': 'leer', 'ids': ''})
+        self.assertEqual(r.status_code, 400)
+
+    def test_correos_de_buzon_ajeno_ignorados(self):
+        r = self.c.post('/intranet/correos/bulk/', {
+            'accion': 'destacar',
+            'ids': str(self.correo_ajeno.id),
+        })
+        self.assertEqual(r.status_code, 200)
+        self.correo_ajeno.refresh_from_db()
+        self.assertFalse(self.correo_ajeno.destacado)
+
+    def test_asignar_etiqueta_bulk(self):
+        et = Etiqueta.objects.create(buzon=self.buzon, nombre='Bulk', color='#1976D2')
+        r = self._bulk('asignar_etiqueta', {'etiqueta_id': et.id})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn(et, self.correo.etiquetas.all())
+        self.assertIn(et, self.c2.etiquetas.all())
+
+    def test_solo_post(self):
+        r = self.c.get('/intranet/correos/bulk/')
+        self.assertEqual(r.status_code, 405)
+
+
+# ─── firma ────────────────────────────────────────────────────────────────────
+
+@override_settings(STORAGES={
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+})
+class FirmaTests(_PortalMixin, TestCase):
+    def setUp(self):
+        self._setup()
+
+    def test_get_devuelve_200(self):
+        r = self.c.get('/intranet/buzon/firma/')
+        self.assertEqual(r.status_code, 200)
+
+    def test_post_guarda_campos(self):
+        r = self.c.post('/intranet/buzon/firma/', {
+            'firma_activa': '1',
+            'firma_nombre': 'Alice Díaz',
+            'firma_cargo': 'Gerente',
+            'firma_telefono': '+56 9 1234 5678',
+            'firma_web': 'www.pietramonte.cl',
+            'firma_email_visible': 'alice@pietramonte.cl',
+        })
+        self.assertIn(r.status_code, (200, 302))
+        self.buzon.refresh_from_db()
+        self.assertTrue(self.buzon.firma_activa)
+        self.assertEqual(self.buzon.firma_nombre, 'Alice Díaz')
+        self.assertEqual(self.buzon.firma_cargo, 'Gerente')
+
+    def test_web_javascript_rechazada(self):
+        r = self.c.post('/intranet/buzon/firma/', {
+            'firma_activa': '0',
+            'firma_nombre': '',
+            'firma_cargo': '',
+            'firma_telefono': '',
+            'firma_web': 'javascript:alert(1)',
+            'firma_email_visible': '',
+        })
+        # Debe rerender el form con error (200), no guardar el esquema peligroso
+        self.assertEqual(r.status_code, 200)
+        self.buzon.refresh_from_db()
+        self.assertNotEqual(self.buzon.firma_web, 'javascript:alert(1)')
+
+    def test_email_visible_invalido_rechazado(self):
+        r = self.c.post('/intranet/buzon/firma/', {
+            'firma_activa': '0',
+            'firma_nombre': '',
+            'firma_cargo': '',
+            'firma_telefono': '',
+            'firma_web': '',
+            'firma_email_visible': 'no-es-un-email',
+        })
+        self.assertEqual(r.status_code, 200)
+        self.buzon.refresh_from_db()
+        self.assertNotEqual(self.buzon.firma_email_visible, 'no-es-un-email')
+
+    def test_sin_sesion_redirige(self):
+        c = Client(HTTP_HOST='localhost')
+        r = c.get('/intranet/buzon/firma/')
+        self.assertIn(r.status_code, (302, 301))

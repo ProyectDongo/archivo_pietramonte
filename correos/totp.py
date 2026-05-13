@@ -175,7 +175,7 @@ def pdf_recovery_codes(codes: list[str], identidad: str, app_url: str = 'archivo
     # ─── Pie ─────────────────────────────────────────────────────────────
     c.setFillColorRGB(0.50, 0.50, 0.50)
     c.setFont('Helvetica', 8)
-    c.drawCentredString(width / 2, 1.5 * cm, f'Archivo de Correos Pietramonte · {app_url}')
+    c.drawCentredString(width / 2, 1.5 * cm, f'Bóveda Pietramonte · {app_url}')
 
     c.showPage()
     c.save()

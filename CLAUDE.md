@@ -73,10 +73,9 @@ Guía rápida para asistentes IA y colaboradores. Para deploy paso-a-paso ver
 
 ## CSS
 
-Todo en `static/css/correos.css` (4900+ líneas). Hay **CSS muerto** del modo
-preview pane que retiramos en commits recientes (`.split-preview`,
-`.is-reading`, `.preview-back-mobile-btn`) — no aplica nada porque sus
-elementos ya no existen, pero ocupa lugar. Cleanup pendiente, no urgente.
+Todo en `static/css/correos.css` (~5000 líneas). El CSS del modo split-preview
+(`.split-preview`, `.is-reading`, `.preview-back-mobile-btn`) fue limpiado.
+Sin deuda CSS conocida pendiente.
 
 `static/css/base.css` define vars (`--r`, `--gd`, `--gl`, `--bdr`, etc.) y
 reset. Los tema dark se aplican vía `[data-theme="dark"]` overrides.

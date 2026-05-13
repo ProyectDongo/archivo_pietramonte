@@ -9,7 +9,7 @@ from . import admin_2fa
 # Encabezado del admin (lo que se ve en /admin/)
 admin.site.site_header  = 'Pietramonte · Administración'
 admin.site.site_title   = 'Pietramonte Admin'
-admin.site.index_title  = 'Gestión del archivo de correos'
+admin.site.index_title  = 'Gestión — Bóveda Pietramonte'
 
 urlpatterns = [
     # 2FA del admin — registrado ANTES de admin.site.urls para que matchee primero.

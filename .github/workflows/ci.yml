@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Tests & checks
+    runs-on: ubuntu-latest
+
+    env:
+      SECRET_KEY: ci-test-key-not-used-in-prod
+      DEBUG: "True"
+      # Sin DATABASE_URL → cae a SQLite (ver settings.py)
+      ALLOWED_HOSTS: localhost,127.0.0.1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Colectar estáticos
+        # ManifestStaticFilesStorage (WhiteNoise) requiere collectstatic antes
+        # de los tests — sin él los tests que renderizan templates fallan con
+        # "Missing staticfiles manifest entry".
+        run: python manage.py collectstatic --noinput
+
+      - name: Verificar migraciones al día
+        run: python manage.py migrate --run-syncdb
+
+      - name: Detectar migraciones faltantes
+        run: python manage.py makemigrations --check --dry-run
+        # Falla si hay cambios en modelos sin migración generada.
+
+      - name: Correr tests
+        run: python manage.py test correos taller --verbosity=2
