@@ -33,25 +33,50 @@
         <input type="text"
                name="to"
                value="{{ to|default:'' }}"
-               placeholder="destinatario@empresa.cl"
+               placeholder="juan@cliente.cl, maria@cliente.cl"
                required
                maxlength="500"
                autocomplete="off"
                autofocus>
+        <small style="color:#666;font-size:12px;margin-top:4px;display:block">
+          Podés poner varios destinatarios separados por coma o punto-y-coma.
+        </small>
       </label>
 
       <label class="adv-field" style="display:block;margin-bottom:1rem">
-        <span class="adv-label">Cc</span>
+        <span class="adv-label">Cc <small style="color:#888;font-weight:400">(con copia visible)</small></span>
         <input type="text"
                name="cc"
                value="{{ cc|default:'' }}"
-               placeholder="otro@empresa.cl, mas@empresa.cl"
+               placeholder="jefe@pietramonte.cl, contador@pietramonte.cl"
                maxlength="500"
                autocomplete="off">
         <small style="color:#666;font-size:12px;margin-top:4px;display:block">
-          Coma para separar varios. Total To+Cc máximo 10.
+          Los destinatarios ven que estas personas están en copia.
         </small>
       </label>
+
+      <details class="bcc-toggle" {% if bcc %}open{% endif %} style="margin-bottom:1rem">
+        <summary style="cursor:pointer;color:#666;font-size:13px;padding:6px 0;user-select:none">
+          + Agregar Cco (copia oculta)
+        </summary>
+        <label class="adv-field" style="display:block;margin-top:8px">
+          <span class="adv-label">Cco <small style="color:#888;font-weight:400">(copia oculta — los demás no la ven)</small></span>
+          <input type="text"
+                 name="bcc"
+                 value="{{ bcc|default:'' }}"
+                 placeholder="masivo1@x.cl, masivo2@x.cl"
+                 maxlength="500"
+                 autocomplete="off">
+          <small style="color:#666;font-size:12px;margin-top:4px;display:block">
+            Útil para correos masivos a clientes — cada uno recibe sin ver a los demás.
+          </small>
+        </label>
+      </details>
+
+      <div style="background:#F1F8FF;border:1px solid #C7E0FF;border-radius:8px;padding:8px 12px;margin-bottom:1rem;font-size:12px;color:#1e40af">
+        Total To + Cc + Cco máximo {{ max_dest|default:30 }} destinatarios por envío.
+      </div>
 
       <label class="adv-field" style="display:block;margin-bottom:1rem">
         <span class="adv-label">Asunto <span style="color:#C80C0F">*</span></span>

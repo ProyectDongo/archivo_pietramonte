@@ -1184,14 +1184,16 @@ def _reenvios_recientes(usuario: UsuarioPortal) -> int:
 
 
 def _parse_destinatarios(raw: str) -> list[str]:
-    """Parsea 'a@b.cl, c@d.cl' → ['a@b.cl', 'c@d.cl']. Valida formato. Lanza ValidationError."""
+    """
+    Parsea 'a@b.cl, c@d.cl' → ['a@b.cl', 'c@d.cl']. Valida formato.
+    NO chequea cantidad — cada caller aplica su propio tope (compose, reenviar,
+    responder usan límites distintos). Lanza ValidationError si formato inválido.
+    """
     from django.core.exceptions import ValidationError
     from django.core.validators import validate_email
     emails = [e.strip() for e in (raw or '').replace(';', ',').split(',') if e.strip()]
     if not emails:
         raise ValidationError('Indicá al menos un destinatario.')
-    if len(emails) > REENVIO_MAX_DEST:
-        raise ValidationError(f'Máximo {REENVIO_MAX_DEST} destinatarios por reenvío.')
     for e in emails:
         validate_email(e)
     return emails
@@ -1243,6 +1245,13 @@ def reenviar_correo_view(request, correo_id):
     except ValidationError as e:
         for msg in e.messages if hasattr(e, 'messages') else [str(e)]:
             messages.error(request, msg)
+        return render(request, 'correos/reenviar.html', {
+            'correo': correo, 'limite': limite, 'usados': usados, 'restantes': restantes,
+            'destinatarios': raw_dest, 'mensaje_extra': nota,
+        }, status=400)
+
+    if len(destinatarios) > REENVIO_MAX_DEST:
+        messages.error(request, f'Máximo {REENVIO_MAX_DEST} destinatarios por reenvío.')
         return render(request, 'correos/reenviar.html', {
             'correo': correo, 'limite': limite, 'usados': usados, 'restantes': restantes,
             'destinatarios': raw_dest, 'mensaje_extra': nota,
@@ -1327,7 +1336,9 @@ def reenviar_correo_view(request, correo_id):
 RESP_RL_HORAS    = 24
 RESP_LIMIT_USER  = 30
 RESP_LIMIT_ADMIN = 100
-RESP_MAX_DEST    = 10        # poco más que reenvío porque reply-all suma varios
+RESP_MAX_DEST    = 30        # total To+Cc+Bcc por envío. Resend soporta 50 por
+                             # mensaje sin penalizar reputación; dejamos margen
+                             # de 20 para listas oficiales del cliente.
 RESP_MAX_BODY    = 50000     # 50 KB de texto plano del usuario
 
 
@@ -2455,10 +2466,12 @@ def compose_view(request):
             'buzon': buzon,
             'to':     (request.GET.get('to') or '').strip()[:500],
             'cc':     (request.GET.get('cc') or '').strip()[:500],
+            'bcc':    (request.GET.get('bcc') or '').strip()[:500],
             'asunto': (request.GET.get('asunto') or '').strip()[:500],
             'cuerpo': '',
             'limite': limite, 'usados': usados, 'restantes': restantes,
             'prefilled_archivos': prefilled,
+            'max_dest': RESP_MAX_DEST,
         })
 
     # ─── POST ───────────────────────────────────────────────────────────
@@ -2469,21 +2482,25 @@ def compose_view(request):
         return render(request, 'correos/compose.html', {
             'buzon': buzon,
             'to': request.POST.get('to') or '', 'cc': request.POST.get('cc') or '',
+            'bcc': request.POST.get('bcc') or '',
             'asunto': request.POST.get('asunto') or '', 'cuerpo': request.POST.get('cuerpo') or '',
             'limite': limite, 'usados': usados, 'restantes': 0,
             'prefilled_archivos': prefilled_archivos,
+            'max_dest': RESP_MAX_DEST,
         }, status=429)
 
-    raw_to = request.POST.get('to') or ''
-    raw_cc = request.POST.get('cc') or ''
-    asunto = (request.POST.get('asunto') or '').strip()[:1000]
-    cuerpo = (request.POST.get('cuerpo') or '')[:RESP_MAX_BODY]
+    raw_to  = request.POST.get('to') or ''
+    raw_cc  = request.POST.get('cc') or ''
+    raw_bcc = request.POST.get('bcc') or ''
+    asunto  = (request.POST.get('asunto') or '').strip()[:1000]
+    cuerpo  = (request.POST.get('cuerpo') or '')[:RESP_MAX_BODY]
 
     ctx_form = {
         'buzon': buzon,
-        'to': raw_to, 'cc': raw_cc, 'asunto': asunto, 'cuerpo': cuerpo,
+        'to': raw_to, 'cc': raw_cc, 'bcc': raw_bcc, 'asunto': asunto, 'cuerpo': cuerpo,
         'limite': limite, 'usados': usados, 'restantes': restantes,
         'prefilled_archivos': prefilled_archivos,
+        'max_dest': RESP_MAX_DEST,
     }
 
     try:
@@ -2502,8 +2519,18 @@ def compose_view(request):
                 messages.error(request, f'Cc: {m}')
             return render(request, 'correos/compose.html', ctx_form, status=400)
 
-    if len(to_addrs) + len(cc_addrs) > RESP_MAX_DEST:
-        messages.error(request, f'Máximo {RESP_MAX_DEST} destinatarios (To + Cc) por envío.')
+    bcc_addrs: list[str] = []
+    if raw_bcc.strip():
+        try:
+            bcc_addrs = _parse_destinatarios(raw_bcc)
+        except ValidationError as e:
+            for m in (e.messages if hasattr(e, 'messages') else [str(e)]):
+                messages.error(request, f'Cco: {m}')
+            return render(request, 'correos/compose.html', ctx_form, status=400)
+
+    total_dest = len(to_addrs) + len(cc_addrs) + len(bcc_addrs)
+    if total_dest > RESP_MAX_DEST:
+        messages.error(request, f'Máximo {RESP_MAX_DEST} destinatarios totales (To + Cc + Cco) por envío. Tenés {total_dest}.')
         return render(request, 'correos/compose.html', ctx_form, status=400)
 
     if not asunto:
@@ -2566,6 +2593,7 @@ def compose_view(request):
         asunto=asunto,
         para=to_addrs,
         cc=cc_addrs or None,
+        bcc=bcc_addrs or None,
         template='correos/email/compose',
         contexto={
             'asunto':         asunto,
@@ -2582,12 +2610,18 @@ def compose_view(request):
     sent_correo = None
     if resultado['ok']:
         try:
+            # Bcc en el archivo Enviados queda con prefijo "Bcc:" para que el
+            # uploader sepa a quién mandó con copia oculta (audit interno).
+            # Los headers SMTP del correo enviado NO los exponen.
+            dest_str = ', '.join(to_addrs + cc_addrs)
+            if bcc_addrs:
+                dest_str = (dest_str + ', Bcc: ' + ', '.join(bcc_addrs)) if dest_str else ('Bcc: ' + ', '.join(bcc_addrs))
             sent_correo = Correo.objects.create(
                 buzon=buzon,
                 tipo_carpeta=Correo.Carpeta.ENVIADOS,
                 mensaje_id=new_msg_id[:500],
                 remitente=_from_alias_buzon(buzon)[:500],
-                destinatario=', '.join(to_addrs + cc_addrs)[:1000],
+                destinatario=dest_str[:1000],
                 asunto=asunto[:1000],
                 fecha=timezone.now(),
                 cuerpo_texto=cuerpo,
@@ -2641,6 +2675,8 @@ def compose_view(request):
         msg_dest = ', '.join(to_addrs)
         if cc_addrs:
             msg_dest += f' (cc: {", ".join(cc_addrs)})'
+        if bcc_addrs:
+            msg_dest += f' (cco: {len(bcc_addrs)} oculto{"s" if len(bcc_addrs) != 1 else ""})'
         messages.success(request, f'Correo enviado a {msg_dest}.')
         return redirect('inbox')
 
