@@ -2858,6 +2858,29 @@ ESCRITORIO_CHART_DIAS = 14         # días del bar chart de ingresos
 ESCRITORIO_TEMAS_VENTANA_DIAS = 180  # top temas solo mira últimos 6 meses
                                      # (archivo histórico = scan inviable).
 
+# Períodos del dashboard. Los KPIs operativos miran solo el período elegido
+# (default: mes) — el archivo histórico 2024-2025 NO contamina los números
+# del "ahora". El volumen mensual de 12 meses queda aparte como vista
+# histórica intencional ("guía para decisiones").
+ESCRITORIO_PERIODOS = {
+    'mes': (30,  'Último mes'),
+    '3m':  (90,  'Últimos 3 meses'),
+    '12m': (365, 'Últimos 12 meses'),
+}
+ESCRITORIO_PERIODO_DEFAULT = 'mes'
+
+
+def _esc_periodo(request):
+    """
+    Resuelve el período del dashboard desde ?periodo=. Devuelve
+    (clave, fecha_desde, label). Default = mes (últimos 30 días).
+    """
+    clave = (request.GET.get('periodo') or ESCRITORIO_PERIODO_DEFAULT).strip()
+    if clave not in ESCRITORIO_PERIODOS:
+        clave = ESCRITORIO_PERIODO_DEFAULT
+    dias, label = ESCRITORIO_PERIODOS[clave]
+    return clave, timezone.now() - timedelta(days=dias), label
+
 
 def _esc_stats_buzones(usuario, buzones_visibles):
     """
@@ -3013,17 +3036,26 @@ def _esc_archivos_recientes(buzones_visibles, n=4):
     )
 
 
-def _esc_kpis_ejecutivos(usuario, buzones_visibles):
+def _esc_kpis_ejecutivos(usuario, buzones_visibles, fecha_desde=None):
     """
     KPIs de operación: recibidos, enviados, tasa respuesta, sin leer,
-    pendientes con snooze, hoy.
+    pendientes con snooze.
+
+    `fecha_desde` acota el período (default del dashboard: último mes). Sin
+    él cuenta todo el archivo histórico — eso se usa solo internamente para
+    `_esc_pie_carpetas` cuando quiere la foto total. Los KPIs del escritorio
+    siempre pasan un `fecha_desde` para no mezclar 2024-2025 con el "ahora".
+    `no_leidos` y `snooze_activos` son estado actual → NO se acotan por fecha.
     """
-    cache_key = f'esc:kpis:{usuario.id}'
+    periodo_key = fecha_desde.date().isoformat() if fecha_desde else 'all'
+    cache_key = f'esc:kpis:{usuario.id}:{periodo_key}'
     cached = cache.get(cache_key)
     if cached:
         return cached
 
     base = Correo.objects.filter(buzon__in=buzones_visibles)
+    if fecha_desde:
+        base = base.filter(fecha__gte=fecha_desde)
     total      = base.count()
     recibidos  = base.filter(tipo_carpeta='inbox').count()
     enviados   = base.filter(tipo_carpeta='enviados').count()
@@ -3031,12 +3063,11 @@ def _esc_kpis_ejecutivos(usuario, buzones_visibles):
     # Tasa de respuesta = enviados / recibidos (proxy razonable)
     tasa_resp  = round(enviados * 100 / recibidos, 1) if recibidos else 0.0
 
-    # Sin leer (per-usuario)
-    no_leidos = base.exclude(
-        id__in=CorreoLeido.objects.filter(usuario=usuario).values('correo_id')
-    ).count()
-
-    # Snooze activos
+    # Sin leer y snooze son ESTADO ACTUAL — no se acotan por período.
+    no_leidos = (Correo.objects.filter(buzon__in=buzones_visibles)
+                 .exclude(id__in=CorreoLeido.objects.filter(usuario=usuario)
+                          .values('correo_id'))
+                 .count())
     snooze_activos = CorreoSnooze.objects.filter(
         usuario=usuario, until_at__gt=timezone.now()
     ).count()
@@ -3114,12 +3145,12 @@ def _esc_volumen_mensual(usuario, buzones_visibles, meses=12):
     return out
 
 
-def _esc_pie_carpetas(usuario, buzones_visibles):
+def _esc_pie_carpetas(usuario, buzones_visibles, fecha_desde=None):
     """
     Distribución por tipo_carpeta para un donut chart.
-    Reutiliza los counts de KPIs.
+    Reutiliza los counts de KPIs (mismo período).
     """
-    kpis = _esc_kpis_ejecutivos(usuario, buzones_visibles)
+    kpis = _esc_kpis_ejecutivos(usuario, buzones_visibles, fecha_desde)
     total = max(kpis['total'], 1)
     slices = [
         {'nombre': 'Recibidos', 'count': kpis['recibidos'],
@@ -3230,20 +3261,22 @@ def _esc_heatmap_actividad(usuario, buzones_visibles, dias=90):
 
 def _esc_tiempo_respuesta_y_pendientes(usuario, buzones_visibles, ventana_dias=90):
     """
-    Calcula 2 métricas de valor real para el dueño del negocio:
+    Métricas de valor real para el dueño del negocio:
       1. tiempo_respuesta_horas: promedio horas entre que llega un correo
          externo y la primera respuesta del mismo buzón al mismo remitente.
-         Es proxy de "qué tan rápido atendemos a los clientes".
-      2. sin_responder_7d: cantidad de correos recibidos hace >7 días que
-         NUNCA se respondieron. Alerta de "esto se está acumulando".
+      2. sin_responder_7d: recibidos hace >7 días que nunca se respondieron.
+      3. semaforo: desglose de pendientes-sin-respuesta por antigüedad
+         (verde <24h, amarillo 24-72h, rojo >72h) — alimenta el widget
+         accionable "Pendientes de respuesta" del escritorio.
+      4. urgentes: lista de los pendientes más viejos (hasta 6) con id,
+         remitente, asunto y horas — para listarlos clickeables.
 
-    Implementación: cargar recibidos + enviados en RAM (sample N=2000),
+    Implementación: cargar recibidos + enviados en RAM (sample 1500 c/u),
     indexar enviados por (buzon, email destino), buscar primera respuesta
-    para cada recibido. Cacheado 30min porque es O(N) sobre los últimos
-    90 días — costoso para hacer en cada request.
+    para cada recibido. Cacheado 30min — es O(N) sobre los últimos 90 días.
     """
     import re
-    cache_key = f'esc:tiempo_resp:{usuario.id}'
+    cache_key = f'esc:tiempo_resp:v2:{usuario.id}'
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -3252,8 +3285,14 @@ def _esc_tiempo_respuesta_y_pendientes(usuario, buzones_visibles, ventana_dias=9
     desde = ahora - timedelta(days=ventana_dias)
     hace_7d = ahora - timedelta(days=7)
     visibles_ids = list(buzones_visibles.values_list('id', flat=True))
+    vacio = {
+        'tiempo_respuesta_horas': None, 'tiempo_respuesta_str': '—',
+        'sin_responder_7d': 0, 'sample_n': 0, 'respondidos_n': 0,
+        'semaforo': {'verde': 0, 'amarillo': 0, 'rojo': 0},
+        'urgentes': [],
+    }
     if not visibles_ids:
-        return {'tiempo_respuesta_horas': None, 'sin_responder_7d': 0}
+        return vacio
 
     # Sample limitado para que la query no estalle (1500 inbox + 1500 sent)
     recibidos = list(
@@ -3261,7 +3300,7 @@ def _esc_tiempo_respuesta_y_pendientes(usuario, buzones_visibles, ventana_dias=9
         .filter(buzon_id__in=visibles_ids, tipo_carpeta='inbox',
                 fecha__gte=desde, fecha__lte=ahora)
         .order_by('fecha')
-        .values('buzon_id', 'remitente', 'fecha')[:1500]
+        .values('id', 'buzon_id', 'remitente', 'asunto', 'fecha')[:1500]
     )
     enviados = list(
         Correo.objects
@@ -3289,6 +3328,8 @@ def _esc_tiempo_respuesta_y_pendientes(usuario, buzones_visibles, ventana_dias=9
 
     diffs_horas = []
     sin_responder = 0
+    semaforo = {'verde': 0, 'amarillo': 0, 'rojo': 0}
+    pendientes = []   # sin respuesta, para clasificar y listar urgentes
     for r in recibidos:
         em_from = email_de(r['remitente'])
         if not em_from:
@@ -3303,9 +3344,31 @@ def _esc_tiempo_respuesta_y_pendientes(usuario, buzones_visibles, ventana_dias=9
             if 0 < horas < 24 * 30:
                 diffs_horas.append(horas)
         else:
-            # Sin respuesta detectada. Si es viejo, cuenta como pendiente.
+            # Sin respuesta detectada → clasificar por antigüedad.
+            horas_sin = (ahora - r['fecha']).total_seconds() / 3600
+            if horas_sin < 24:
+                semaforo['verde'] += 1
+            elif horas_sin < 72:
+                semaforo['amarillo'] += 1
+            else:
+                semaforo['rojo'] += 1
             if r['fecha'] < hace_7d:
                 sin_responder += 1
+            pendientes.append({
+                'id':        r['id'],
+                'remitente': r['remitente'],
+                'asunto':    r['asunto'] or '(sin asunto)',
+                'fecha':     r['fecha'],
+                'horas_sin': horas_sin,
+            })
+
+    # Urgentes = los pendientes más viejos primero (ya vienen ordenados por
+    # fecha asc desde la query). Tope 6 para el widget.
+    urgentes = []
+    for p in pendientes[:6]:
+        h = p['horas_sin']
+        p['antiguedad_str'] = f'{h / 24:.0f}d' if h >= 24 else f'{h:.0f}h'
+        urgentes.append(p)
 
     if diffs_horas:
         promedio = sum(diffs_horas) / len(diffs_horas)
@@ -3322,6 +3385,8 @@ def _esc_tiempo_respuesta_y_pendientes(usuario, buzones_visibles, ventana_dias=9
                                   if diffs_horas else None,
         'tiempo_respuesta_str':   tiempo_str,
         'sin_responder_7d':       sin_responder,
+        'semaforo':               semaforo,
+        'urgentes':               urgentes,
         'sample_n':               len(recibidos),
         'respondidos_n':          len(diffs_horas),
     }
@@ -3402,6 +3467,79 @@ def _esc_top_perfiles_stacked(usuario, buzones_visibles, top=5):
     return out
 
 
+def _esc_contratos_por_vencer(usuario, dias=90):
+    """
+    Contratos del almacén digital con `contrato_vencimiento` dentro de los
+    próximos `dias`. Widget accionable: evita perder renovaciones por olvido.
+    NO depende del período del dashboard — esto mira al FUTURO.
+    """
+    hoy = timezone.localdate()
+    limite = hoy + timedelta(days=dias)
+    qs = (_archivos_visibles_qs(usuario)
+          .filter(eliminado_en__isnull=True,
+                  tipo=Archivo.Tipo.CONTRATO,
+                  contrato_vencimiento__isnull=False,
+                  contrato_vencimiento__gte=hoy,
+                  contrato_vencimiento__lte=limite)
+          .order_by('contrato_vencimiento')[:8])
+    out = []
+    for a in qs:
+        dias_restantes = (a.contrato_vencimiento - hoy).days
+        # Semáforo: rojo ≤7d, amarillo ≤30d, verde el resto
+        if dias_restantes <= 7:
+            urgencia = 'rojo'
+        elif dias_restantes <= 30:
+            urgencia = 'amarillo'
+        else:
+            urgencia = 'verde'
+        out.append({
+            'id':              a.id,
+            'nombre':          a.nombre,
+            'vencimiento':     a.contrato_vencimiento,
+            'dias_restantes':  dias_restantes,
+            'urgencia':        urgencia,
+        })
+    return out
+
+
+def _esc_carga_por_buzon(usuario, buzones_visibles):
+    """
+    Carga de trabajo ACTUAL por buzón: cuántos correos sin leer tiene cada
+    uno. Estado ahora — no depende del período. Ordenado por carga desc:
+    el de arriba es "dónde está la pila". Útil para redistribuir trabajo.
+    """
+    visibles_ids = list(buzones_visibles.values_list('id', flat=True))
+    if not visibles_ids:
+        return []
+    leidos_ids = CorreoLeido.objects.filter(usuario=usuario).values('correo_id')
+    no_leidos = dict(
+        Correo.objects
+        .filter(buzon_id__in=visibles_ids)
+        .exclude(id__in=leidos_ids)
+        .values('buzon_id')
+        .annotate(c=Count('id'))
+        .values_list('buzon_id', 'c')
+    )
+    buzones_map = {b.id: b for b in buzones_visibles}
+    out = []
+    for bid in visibles_ids:
+        b = buzones_map.get(bid)
+        if not b:
+            continue
+        n = no_leidos.get(bid, 0)
+        out.append({
+            'id':        bid,
+            'email':     b.email,
+            'nombre':    b.nombre or b.email,
+            'sin_leer':  n,
+        })
+    out.sort(key=lambda x: -x['sin_leer'])
+    max_n = max((x['sin_leer'] for x in out), default=1) or 1
+    for x in out:
+        x['pct'] = round(x['sin_leer'] * 100 / max_n, 1)
+    return out
+
+
 @portal_login_required
 @throttle_user('escritorio', per_minute=60)
 @never_cache
@@ -3420,6 +3558,10 @@ def escritorio_view(request):
         messages.error(request, 'No tienes buzones asignados. Contacta al administrador.')
         return redirect('login')
 
+    # Período del dashboard (default: último mes). Acota los KPIs operativos
+    # para que el archivo histórico 2024-2025 no contamine el "ahora".
+    periodo_key, fecha_desde, periodo_label = _esc_periodo(request)
+
     ctx = {
         'usuario':           usuario,
         'stats':             _esc_stats_buzones(usuario, visibles_qs),
@@ -3428,11 +3570,19 @@ def escritorio_view(request):
         'top_temas':         _esc_top_temas(visibles_qs),
         'ultimos_correos':   _esc_ultimos_correos(usuario, visibles_qs),
         'archivos_recientes': _esc_archivos_recientes(visibles_qs),
-        # ─── Dashboard expandido (Fase 1.5) ──────────────────────────────
-        'kpis':              _esc_kpis_ejecutivos(usuario, visibles_qs),
+        # ─── Período seleccionable ───────────────────────────────────────
+        'periodo':           periodo_key,
+        'periodo_label':     periodo_label,
+        'periodos':          [(k, v[1]) for k, v in ESCRITORIO_PERIODOS.items()],
+        # ─── KPIs operativos — acotados al período elegido ───────────────
+        'kpis':              _esc_kpis_ejecutivos(usuario, visibles_qs, fecha_desde),
         'tiempo_resp':       _esc_tiempo_respuesta_y_pendientes(usuario, visibles_qs),
+        'pie_carpetas':      _esc_pie_carpetas(usuario, visibles_qs, fecha_desde),
+        # ─── Widgets accionables (estado actual / futuro, sin período) ───
+        'contratos_vencer': _esc_contratos_por_vencer(usuario),
+        'carga_buzones':    _esc_carga_por_buzon(usuario, visibles_qs),
+        # ─── Vista histórica intencional (guía para decisiones) ──────────
         'volumen_mensual':   _esc_volumen_mensual(usuario, visibles_qs),
-        'pie_carpetas':      _esc_pie_carpetas(usuario, visibles_qs),
         'top_remitentes':    _esc_top_remitentes_externos(usuario, visibles_qs),
         'heatmap':           _esc_heatmap_actividad(usuario, visibles_qs),
         'hoy': timezone.localdate(),

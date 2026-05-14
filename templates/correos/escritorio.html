@@ -80,6 +80,16 @@
 
     <section class="esc-widgets" aria-label="Widgets">
 
+      <div class="esc-periodo-bar">
+        <span class="esc-periodo-label">KPIs de: <strong>{{ periodo_label }}</strong></span>
+        <div class="esc-periodo-tabs" role="group" aria-label="Período del dashboard">
+          {% for key, label in periodos %}
+          <a href="?periodo={{ key }}"
+             class="esc-periodo-tab{% if key == periodo %} active{% endif %}">{{ label }}</a>
+          {% endfor %}
+        </div>
+      </div>
+
       <article class="esc-widget esc-widget-wide esc-kpis-row">
         <div class="esc-kpi-card">
           <div class="esc-kpi-v">{{ kpis.total }}</div>
@@ -115,6 +125,108 @@
         </div>
       </article>
 
+      {# ─── Widgets accionables — "¿qué tengo que hacer hoy?" ─────────── #}
+
+      <article class="esc-widget esc-widget-accion">
+        <header class="esc-widget-head">
+          <h3 class="esc-widget-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+            </svg>
+            Pendientes de respuesta
+          </h3>
+        </header>
+        <div class="esc-semaforo">
+          <div class="esc-sem esc-sem-rojo" title="Sin responder hace más de 72 horas">
+            <span class="esc-sem-n">{{ tiempo_resp.semaforo.rojo }}</span>
+            <span class="esc-sem-l">&gt; 72 h</span>
+          </div>
+          <div class="esc-sem esc-sem-amarillo" title="Sin responder hace 24 a 72 horas">
+            <span class="esc-sem-n">{{ tiempo_resp.semaforo.amarillo }}</span>
+            <span class="esc-sem-l">24-72 h</span>
+          </div>
+          <div class="esc-sem esc-sem-verde" title="Llegó hace menos de 24 horas">
+            <span class="esc-sem-n">{{ tiempo_resp.semaforo.verde }}</span>
+            <span class="esc-sem-l">&lt; 24 h</span>
+          </div>
+        </div>
+        <ul class="esc-list esc-list-urgentes">
+          {% for u in tiempo_resp.urgentes %}
+          <li class="esc-urgente">
+            <a href="{% url 'detalle' u.id %}">
+              <span class="esc-urgente-edad" title="Sin responder hace {{ u.antiguedad_str }}">{{ u.antiguedad_str }}</span>
+              <span class="esc-urgente-texto">
+                <span class="esc-urgente-rem">{{ u.remitente|truncatechars:34 }}</span>
+                <span class="esc-urgente-asunto">{{ u.asunto|truncatechars:48 }}</span>
+              </span>
+            </a>
+          </li>
+          {% empty %}
+          <li class="esc-list-empty">Sin pendientes — todo respondido. 🎉</li>
+          {% endfor %}
+        </ul>
+      </article>
+
+      <article class="esc-widget esc-widget-accion">
+        <header class="esc-widget-head">
+          <h3 class="esc-widget-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+              <path d="M14 3v6h6"/><path d="M9 14l2 2 4-4"/>
+            </svg>
+            Contratos por vencer · próximos 90 días
+          </h3>
+          <a class="esc-widget-action" href="{% url 'contratos' %}">Ver todos →</a>
+        </header>
+        <ul class="esc-list esc-list-contratos">
+          {% for c in contratos_vencer %}
+          <li class="esc-contrato esc-contrato-{{ c.urgencia }}">
+            <a href="{% url 'archivo_descargar' c.id %}" target="_blank">
+              <span class="esc-contrato-nombre">{{ c.nombre|truncatechars:42 }}</span>
+              <span class="esc-contrato-meta">
+                <span class="esc-contrato-fecha">{{ c.vencimiento|date:"d/m/Y" }}</span>
+                <span class="esc-contrato-dias">
+                  {% if c.dias_restantes == 0 %}vence hoy
+                  {% elif c.dias_restantes == 1 %}1 día
+                  {% else %}{{ c.dias_restantes }} días{% endif %}
+                </span>
+              </span>
+            </a>
+          </li>
+          {% empty %}
+          <li class="esc-list-empty">Sin contratos próximos a vencer.</li>
+          {% endfor %}
+        </ul>
+      </article>
+
+      <article class="esc-widget esc-widget-accion">
+        <header class="esc-widget-head">
+          <h3 class="esc-widget-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 3v18h18"/><rect x="7" y="9" width="3" height="9"/><rect x="14" y="5" width="3" height="13"/>
+            </svg>
+            Carga por buzón · sin leer ahora
+          </h3>
+        </header>
+        <ul class="esc-list esc-list-carga">
+          {% for b in carga_buzones %}
+          <li class="esc-carga">
+            <form method="post" action="{% url 'cambiar_buzon' %}">
+              {% csrf_token %}
+              <input type="hidden" name="buzon_id" value="{{ b.id }}">
+              <button type="submit" title="Ir a la bandeja de {{ b.email }}">
+                <span class="esc-carga-nombre">{{ b.nombre|truncatechars:26 }}</span>
+                <span class="esc-carga-bar"><span class="esc-carga-fill" style="width:{{ b.pct }}%"></span></span>
+                <span class="esc-carga-n{% if b.sin_leer %} esc-carga-n-activo{% endif %}">{{ b.sin_leer }}</span>
+              </button>
+            </form>
+          </li>
+          {% empty %}
+          <li class="esc-list-empty">No hay buzones visibles.</li>
+          {% endfor %}
+        </ul>
+      </article>
+
       <article class="esc-widget esc-widget-wide">
         <header class="esc-widget-head">
           <h3 class="esc-widget-title">
@@ -122,6 +234,7 @@
               <path d="M3 3v18h18"/><polyline points="6 16 10 10 14 13 19 7"/>
             </svg>
             Volumen mensual · últimos {{ volumen_mensual.serie|length }} meses
+            <span class="esc-widget-hint">vista histórica — incluye 2024-2025 como referencia</span>
           </h3>
         </header>
         <div class="esc-line-wrap">

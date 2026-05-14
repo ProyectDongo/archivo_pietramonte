@@ -683,6 +683,223 @@
   .esc-perfil-email { display: none; }
 }
 
+/* ════════════════════════════════════════════════════════════════
+   Selector de período + widgets accionables (rediseño 2026-05-15)
+   ════════════════════════════════════════════════════════════════ */
+
+/* ─── Barra de período ─────────────────────────────────────────── */
+.esc-periodo-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 2px 4px;
+}
+.esc-periodo-label {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, .72);
+}
+.esc-periodo-label strong { color: #fff; font-weight: 600; }
+.esc-periodo-tabs {
+  display: flex;
+  gap: 2px;
+  background: rgba(255, 255, 255, .12);
+  border-radius: 999px;
+  padding: 3px;
+}
+.esc-periodo-tab {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, .8);
+  text-decoration: none;
+  padding: 5px 14px;
+  border-radius: 999px;
+  transition: background .12s ease, color .12s ease;
+}
+.esc-periodo-tab:hover { background: rgba(255, 255, 255, .1); color: #fff; }
+.esc-periodo-tab.active {
+  background: #fff;
+  color: var(--esc-brand);
+  font-weight: 600;
+}
+
+/* ─── Widget accionable (variante) ─────────────────────────────── */
+.esc-widget-accion {
+  border-color: rgba(200, 12, 15, .18);
+}
+.esc-widget-accion .esc-widget-head {
+  background: rgba(200, 12, 15, .04);
+}
+
+/* ─── Semáforo de pendientes ───────────────────────────────────── */
+.esc-semaforo {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 12px 16px 6px;
+}
+.esc-sem {
+  text-align: center;
+  padding: 10px 4px;
+  border-radius: 10px;
+  cursor: help;
+}
+.esc-sem-n {
+  display: block;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.esc-sem-l {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  margin-top: 4px;
+}
+.esc-sem-rojo     { background: rgba(220, 38, 38, .10); }
+.esc-sem-rojo     .esc-sem-n, .esc-sem-rojo .esc-sem-l     { color: #b91c1c; }
+.esc-sem-amarillo { background: rgba(217, 119, 6, .12); }
+.esc-sem-amarillo .esc-sem-n, .esc-sem-amarillo .esc-sem-l { color: #b45309; }
+.esc-sem-verde    { background: rgba(5, 150, 105, .10); }
+.esc-sem-verde    .esc-sem-n, .esc-sem-verde .esc-sem-l    { color: #047857; }
+
+/* ─── Lista de urgentes (pendientes más viejos) ────────────────── */
+.esc-urgente { padding: 0; }
+.esc-urgente a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  transition: background .12s;
+}
+.esc-urgente a:hover { background: rgba(15, 23, 42, .04); }
+.esc-urgente-edad {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #b91c1c;
+  background: rgba(220, 38, 38, .10);
+  padding: 3px 8px;
+  border-radius: 6px;
+  min-width: 38px;
+  text-align: center;
+}
+.esc-urgente-texto { min-width: 0; flex: 1; }
+.esc-urgente-rem {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--esc-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.esc-urgente-asunto {
+  display: block;
+  font-size: 11.5px;
+  color: var(--esc-text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── Contratos por vencer ─────────────────────────────────────── */
+.esc-contrato { padding: 0; }
+.esc-contrato a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border-left: 3px solid transparent;
+  transition: background .12s;
+}
+.esc-contrato a:hover { background: rgba(15, 23, 42, .04); }
+.esc-contrato-rojo a     { border-left-color: #dc2626; }
+.esc-contrato-amarillo a { border-left-color: #d97706; }
+.esc-contrato-verde a    { border-left-color: #059669; }
+.esc-contrato-nombre {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--esc-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.esc-contrato-meta {
+  flex-shrink: 0;
+  text-align: right;
+}
+.esc-contrato-fecha {
+  display: block;
+  font-size: 11px;
+  color: var(--esc-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.esc-contrato-dias {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.esc-contrato-rojo     .esc-contrato-dias { color: #b91c1c; }
+.esc-contrato-amarillo .esc-contrato-dias { color: #b45309; }
+.esc-contrato-verde    .esc-contrato-dias { color: #047857; }
+
+/* ─── Carga por buzón ──────────────────────────────────────────── */
+.esc-carga { padding: 0; }
+.esc-carga form { margin: 0; }
+.esc-carga button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 80px 36px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: background .12s;
+}
+.esc-carga button:hover { background: rgba(15, 23, 42, .04); }
+.esc-carga-nombre {
+  font-size: 12.5px;
+  color: var(--esc-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.esc-carga-bar {
+  height: 6px;
+  background: rgba(15, 23, 42, .08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.esc-carga-fill {
+  display: block;
+  height: 100%;
+  background: var(--esc-brand);
+  border-radius: 999px;
+}
+.esc-carga-n {
+  font-size: 12.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--esc-text-muted);
+  text-align: right;
+}
+.esc-carga-n-activo { color: var(--esc-brand); }
+
 /* ─── Dashboard expandido — ajustes responsive ─────────────────── */
 @media (max-width: 1200px) {
   /* En tablets/laptops chicos: 4 columnas (2 filas de 4) */
