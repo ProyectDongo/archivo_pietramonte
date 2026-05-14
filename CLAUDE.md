@@ -31,6 +31,7 @@ Guía rápida para asistentes IA y colaboradores. Para deploy paso-a-paso ver
 
 ## Modelos principales (`correos/models.py`)
 
+**Correos:**
 - `Buzon` — una cuenta de correo del cliente (cpietrasanta@, vpietrasanta@…). Tiene firma editable per-buzón (campos `firma_*`).
 - `Correo` — un email indexado. `tipo_carpeta` ∈ {inbox, enviados, otros}.
 - `UsuarioPortal` — login. M2M con `Buzon` (admins ven todos).
@@ -44,17 +45,35 @@ Guía rápida para asistentes IA y colaboradores. Para deploy paso-a-paso ver
 - `IntentoLogin` — bitácora con `ip_hash` (no PII en claro).
 - `AdminTOTP` — 2FA del superuser de Django.
 
+**Almacén digital (app Archivos/Contratos/Papelera, migraciones 0024-0026):**
+- `Archivo` — documento subido. `tipo` ∈ {doc, contrato, factura, imagen, otro}.
+  `visibilidad` ∈ {privado, perfil, publico} (ver `puede_ver()`). Soft-delete vía
+  `eliminado_en`. Versiones vía `version_padre` (FK self) + `version_num`. Carpetas
+  virtuales por el string `tema` con `/` (`carpeta_segments`).
+- `ArchivoComparticion` — comparte un `Archivo` con un `UsuarioPortal` específico.
+  Suma a la visibilidad base sin reemplazarla (expone privados a users puntuales).
+- `ArchivoVinculo` — M2M `Archivo`↔`Correo`. Asociación lógica, NO adjunto SMTP.
+- `CategoriaTema` — categorías de temas editables desde Ajustes.
+- `UserDesktopPrefs` — layout personalizado del escritorio per-usuario (JSON).
+
 ## Flujo del portal
 
 1. **Login** → `correos:login` → captcha + password + 2FA TOTP.
-2. **Inbox** → `/intranet/bandeja/` → lista a pantalla completa, sin preview pane.
-3. **Detalle** → `/intranet/correo/N/` → incluye partial `_correo_preview.html`
-   con todas las acciones (star, snooze, etiquetas, notas, hilo, reply/fwd).
-4. **Compose flotante** → ventana en esquina inferior-derecha. Hijack del
+2. **Escritorio** → `/intranet/escritorio/` → home tipo escritorio con KPIs + widgets.
+3. **Inbox** → `/intranet/bandeja/` → lista a pantalla completa, sin preview pane.
+   Banner "N correos nuevos" con polling liviano (`inbox_nuevos_view`, cada 45s).
+4. **Detalle** → `/intranet/correo/N/` → incluye partial `_correo_preview.html`
+   con todas las acciones (star, snooze, etiquetas, notas, hilo, reply/fwd) +
+   footer de archivos vinculados del almacén digital.
+5. **Compose flotante** → ventana en esquina inferior-derecha. Hijack del
    link "Redactar" del sidebar y de los botones Reply/Forward del detalle.
-5. **Drafts** → autosave debounced 1.5s en `/intranet/borradores/`.
-6. **Reenvío de archivado** → `reenviar_correo_view` (separa de "responder";
+   Compose clásico (`/intranet/redactar/`) soporta Cco, pre-adjuntar `?archivo=N`.
+6. **Drafts** → autosave debounced 1.5s en `/intranet/borradores/`.
+7. **Reenvío de archivado** → `reenviar_correo_view` (separa de "responder";
    logea en `ReenvioCorreo`).
+8. **Archivos / Contratos / Papelera** → `/intranet/archivos/`, `/intranet/contratos/`,
+   `/intranet/papelera/`. Upload con drag&drop, preview inline, versiones,
+   compartir con users, vincular a correos. Comparten `archivos_list.html`.
 
 ## Frontend / JS (todos en `static/js/`)
 
@@ -62,14 +81,19 @@ Guía rápida para asistentes IA y colaboradores. Para deploy paso-a-paso ver
 |---|---|
 | `theme_init.js` | **Sync, en `<head>`**. Aplica `data-theme`/`data-density` antes del paint (anti-FOUC). NO inline (CSP). |
 | `portal_helpers.js` | `PM.csrf`, `PM.post()`, `PM.debounce()`. Base de todo lo demás. |
-| `inbox.js` | Lista del inbox: star toggle por fila, atajos j/k/Enter/s, sidebar drawer mobile, popup ayuda búsqueda, toggles stats/filtros, buzones colapsable. |
+| `inbox.js` | Lista del inbox: star toggle por fila, atajos j/k/Enter/s, sidebar drawer mobile, popup ayuda búsqueda, toggles stats/filtros, buzones colapsable, banner "correos nuevos" (polling 45s). |
 | `bulk_select.js` | Multi-select + bulk action bar (leer, no-leer, destacar, etiquetar). |
 | `compose_floating.js` | Compose flotante (3 estados: normal/minimized/fullscreen). Autosave de draft. Hijack de Reply/Resp.todos/Reenviar del preview. |
 | `compose_attach.js` | Drag&drop + lista de adjuntos en `/intranet/redactar/` (form clásico, fallback no-JS). |
 | `correo_actions.js` | Handlers del detalle: star, etiquetas, notas, snooze, hilo, marcar no-leído. Auto-init buscando `.preview-card[data-correo-id]`. |
+| `archivos_upload.js` | App Archivos: modal de upload + drag&drop + preview inline (overlay iframe/img/audio/video según mime). |
 | `lightbox.js` | Imágenes adjuntas: nav prev/next, descarga, swipe mobile. |
 | `adj_viewer.js` | Modal inline para PDF / audio / video adjuntos. |
 | `theme.js` | Toggles tema/densidad en sidebar. |
+
+`data-confirm` en cualquier `<form>` dispara un `window.confirm()` — el handler
+está en `portal_helpers.js` (delegado en `document`, cubre forms inyectados).
+CSS de la app Archivos vive en `static/css/archivos.css`.
 
 ## CSS
 
@@ -95,10 +119,16 @@ reset. Los tema dark se aplican vía `[data-theme="dark"]` overrides.
 ## Comandos comunes
 
 ```bash
-# Desde el server vía ssh dongo + docker exec:
-CONT=$(docker ps -qf "name=archivo_pietramonte")
+# Desde el server vía ssh dongo + docker exec.
+# OJO: Coolify nombra el container con el UUID de la app + sufijo de deploy
+# (ej. o1rd0hq3fzcn29n0nun4naxu-215507897329). El sufijo cambia en cada
+# deploy → filtrá por el prefijo UUID, NO por "archivo_pietramonte" (ese
+# nombre nunca matchea). Ver memoria reference_pietramonte_endpoints.
+CONT=$(docker ps -qf "name=o1rd")
+echo $CONT   # verificá que devuelva un ID antes de seguir
 docker exec -it $CONT python manage.py migrate
 docker exec -it $CONT python manage.py createsuperuser
+docker exec -it $CONT python manage.py changepassword <username>   # reset pass
 docker exec -it $CONT python manage.py seed_estructura --password-default=ClaveTemp.2026!
 docker exec -it $CONT python manage.py sincronizar_gmail   # corre el sync IMAP
 docker exec -it $CONT python manage.py shell
@@ -112,9 +142,14 @@ python manage.py makemigrations
 ## Tests
 
 `correos/tests.py` cubre: CSP, X-Frame-Options, avatar iniciales, importer
-mbox, login flow (captcha, throttle, 2FA). **No hay tests** para los
-endpoints más nuevos (bulk, snooze, drafts, compose con adjuntos, firma,
-threading). Pendiente.
+mbox, login flow (captcha, throttle, 2FA), logout, multi-buzón, organización
+del inbox (destacar, etiquetas, notas, filtros), snooze, borradores, bulk,
+firma, sanitización de HTML, y la **app Archivos** (modelo `puede_ver`,
+visibilidad, soft-delete, versiones, compartir, vincular a correos —
+clases `Archivo*Tests`).
+
+**Pendiente de cobertura:** compose con Cco, threading de correos, el banner
+de "correos nuevos" (`inbox_nuevos_view`), escritorio/dashboard.
 
 ## Gotchas conocidos
 

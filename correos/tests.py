@@ -27,8 +27,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .models import (
-    Adjunto, BorradorCorreo, Buzon, Correo, CorreoLeido, CorreoSnooze,
-    Etiqueta, IntentoLogin, UsuarioPortal,
+    Adjunto, Archivo, ArchivoComparticion, ArchivoVinculo, BorradorCorreo,
+    Buzon, Correo, CorreoLeido, CorreoSnooze, Etiqueta, IntentoLogin,
+    UsuarioPortal,
 )
 
 
@@ -1207,3 +1208,387 @@ class FirmaTests(_PortalMixin, TestCase):
         c = Client(HTTP_HOST='localhost')
         r = c.get('/intranet/buzon/firma/')
         self.assertIn(r.status_code, (302, 301))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# App Archivos — modelo + endpoints (upload, descargar, papelera, compartir,
+# versiones, vínculos a correos). Cubre las migraciones 0024-0026.
+# ═══════════════════════════════════════════════════════════════════════════
+
+_STORAGE_FS = override_settings(STORAGES={
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+})
+
+
+def _login_directo(usuario, buzon=None):
+    """Setea la sesión del portal sin pasar por el flujo de login completo."""
+    c = Client(HTTP_HOST='localhost')
+    s = c.session
+    s['usuario_email'] = usuario.email
+    if buzon is not None:
+        s['buzon_actual_id'] = buzon.id
+        s['buzon_actual_email'] = buzon.email
+    s.save()
+    return c
+
+
+def _mk_archivo(creado_por, **kw):
+    """Crea un Archivo con un FileField mínimo. kw override de defaults."""
+    defaults = dict(
+        nombre='documento',
+        tipo=Archivo.Tipo.DOCUMENTO,
+        visibilidad=Archivo.Visibilidad.PRIVADO,
+        tamano_bytes=4,
+        mime_type='text/plain',
+    )
+    defaults.update(kw)
+    arc = Archivo(creado_por=creado_por, **defaults)
+    arc.archivo.save('doc.txt', ContentFile(b'test'), save=False)
+    arc.save()
+    return arc
+
+
+@_STORAGE_FS
+class ArchivoModeloTests(TestCase):
+    """Lógica de permisos del modelo Archivo (puede_ver) y métodos auxiliares."""
+
+    def setUp(self):
+        cache.clear()
+        self.buzon = Buzon.objects.create(email='ventas@pietramonte.cl')
+        self.otro_buzon = Buzon.objects.create(email='compras@pietramonte.cl')
+
+        self.uploader = UsuarioPortal(email='uploader@gmail.com', activo=True)
+        self.uploader.set_password('PassMuy.Larga2026!')
+        self.uploader.save()
+        self.uploader.buzones.add(self.buzon)
+
+        self.con_buzon = UsuarioPortal(email='conbuzon@gmail.com', activo=True)
+        self.con_buzon.set_password('PassMuy.Larga2026!')
+        self.con_buzon.save()
+        self.con_buzon.buzones.add(self.buzon)
+
+        self.ajeno = UsuarioPortal(email='ajeno@gmail.com', activo=True)
+        self.ajeno.set_password('PassMuy.Larga2026!')
+        self.ajeno.save()
+        self.ajeno.buzones.add(self.otro_buzon)
+
+        self.admin = UsuarioPortal(email='admin@gmail.com', activo=True, es_admin=True)
+        self.admin.set_password('PassMuy.Larga2026!')
+        self.admin.save()
+
+    def test_admin_ve_todo(self):
+        arc = _mk_archivo(self.uploader, visibilidad=Archivo.Visibilidad.PRIVADO)
+        self.assertTrue(arc.puede_ver(self.admin))
+
+    def test_uploader_ve_su_archivo_privado(self):
+        arc = _mk_archivo(self.uploader, visibilidad=Archivo.Visibilidad.PRIVADO)
+        self.assertTrue(arc.puede_ver(self.uploader))
+
+    def test_privado_otro_usuario_no_ve(self):
+        arc = _mk_archivo(self.uploader, visibilidad=Archivo.Visibilidad.PRIVADO)
+        self.assertFalse(arc.puede_ver(self.ajeno))
+        self.assertFalse(arc.puede_ver(self.con_buzon))
+
+    def test_publico_lo_ven_todos(self):
+        arc = _mk_archivo(self.uploader, visibilidad=Archivo.Visibilidad.PUBLICO)
+        self.assertTrue(arc.puede_ver(self.ajeno))
+        self.assertTrue(arc.puede_ver(self.con_buzon))
+
+    def test_perfil_solo_quien_ve_el_buzon(self):
+        arc = _mk_archivo(
+            self.uploader, visibilidad=Archivo.Visibilidad.PERFIL, perfil=self.buzon,
+        )
+        # con_buzon tiene acceso al buzón → lo ve
+        self.assertTrue(arc.puede_ver(self.con_buzon))
+        # ajeno NO tiene acceso al buzón → no lo ve
+        self.assertFalse(arc.puede_ver(self.ajeno))
+
+    def test_comparticion_habilita_ver_archivo_privado(self):
+        arc = _mk_archivo(self.uploader, visibilidad=Archivo.Visibilidad.PRIVADO)
+        self.assertFalse(arc.puede_ver(self.ajeno))
+        ArchivoComparticion.objects.create(
+            archivo=arc, usuario=self.ajeno, compartido_por=self.uploader,
+        )
+        self.assertTrue(arc.puede_ver(self.ajeno))
+
+    def test_puede_ver_sin_usuario_es_false(self):
+        arc = _mk_archivo(self.uploader)
+        self.assertFalse(arc.puede_ver(None))
+
+    def test_soft_delete_y_restaurar(self):
+        arc = _mk_archivo(self.uploader)
+        self.assertFalse(arc.en_papelera)
+        arc.soft_delete(self.uploader)
+        self.assertTrue(arc.en_papelera)
+        self.assertEqual(arc.eliminado_por_id, self.uploader.id)
+        arc.restaurar()
+        self.assertFalse(arc.en_papelera)
+        self.assertIsNone(arc.eliminado_por_id)
+
+    def test_carpeta_segments(self):
+        arc = _mk_archivo(self.uploader, tema='Facturación/2026/Enero')
+        self.assertEqual(arc.carpeta_segments, ['Facturación', '2026', 'Enero'])
+        arc_sin = _mk_archivo(self.uploader, tema='')
+        self.assertEqual(arc_sin.carpeta_segments, [])
+
+    def test_raiz_id_y_es_raiz(self):
+        raiz = _mk_archivo(self.uploader)
+        self.assertTrue(raiz.es_raiz)
+        self.assertEqual(raiz.raiz_id, raiz.id)
+        v2 = _mk_archivo(self.uploader, version_padre=raiz, version_num=2)
+        self.assertFalse(v2.es_raiz)
+        self.assertEqual(v2.raiz_id, raiz.id)
+
+
+@_STORAGE_FS
+class ArchivoEndpointsTests(TestCase):
+    """Endpoints de descarga, papelera y upload."""
+
+    def setUp(self):
+        cache.clear()
+        self.buzon = Buzon.objects.create(email='ventas@pietramonte.cl')
+
+        self.uploader = UsuarioPortal(email='uploader@gmail.com', activo=True)
+        self.uploader.set_password('PassMuy.Larga2026!')
+        self.uploader.save()
+        self.uploader.buzones.add(self.buzon)
+
+        self.ajeno = UsuarioPortal(email='ajeno@gmail.com', activo=True)
+        self.ajeno.set_password('PassMuy.Larga2026!')
+        self.ajeno.save()
+        self.ajeno.buzones.add(self.buzon)
+
+        self.admin = UsuarioPortal(email='admin@gmail.com', activo=True, es_admin=True)
+        self.admin.set_password('PassMuy.Larga2026!')
+        self.admin.save()
+
+    def test_descargar_sin_login_redirige(self):
+        arc = _mk_archivo(self.uploader)
+        c = Client(HTTP_HOST='localhost')
+        r = c.get(f'/intranet/archivos/{arc.id}/descargar/')
+        self.assertEqual(r.status_code, 302)
+
+    def test_descargar_propio_ok(self):
+        arc = _mk_archivo(self.uploader)
+        c = _login_directo(self.uploader, self.buzon)
+        r = c.get(f'/intranet/archivos/{arc.id}/descargar/')
+        self.assertEqual(r.status_code, 200)
+
+    def test_descargar_ajeno_privado_404(self):
+        """Un archivo privado de otro usuario no se puede descargar."""
+        arc = _mk_archivo(self.uploader, visibilidad=Archivo.Visibilidad.PRIVADO)
+        c = _login_directo(self.ajeno, self.buzon)
+        r = c.get(f'/intranet/archivos/{arc.id}/descargar/')
+        self.assertEqual(r.status_code, 404)
+
+    def test_descargar_inline_pdf_pone_csp(self):
+        arc = _mk_archivo(self.uploader, mime_type='application/pdf')
+        c = _login_directo(self.uploader, self.buzon)
+        r = c.get(f'/intranet/archivos/{arc.id}/descargar/?inline=1')
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('Content-Security-Policy', r)
+        self.assertEqual(r['X-Frame-Options'], 'SAMEORIGIN')
+
+    def test_borrar_mueve_a_papelera(self):
+        arc = _mk_archivo(self.uploader)
+        c = _login_directo(self.uploader, self.buzon)
+        r = c.post(f'/intranet/archivos/{arc.id}/borrar/')
+        self.assertEqual(r.status_code, 302)
+        arc.refresh_from_db()
+        self.assertTrue(arc.en_papelera)
+
+    def test_borrar_ajeno_privado_404(self):
+        arc = _mk_archivo(self.uploader, visibilidad=Archivo.Visibilidad.PRIVADO)
+        c = _login_directo(self.ajeno, self.buzon)
+        r = c.post(f'/intranet/archivos/{arc.id}/borrar/')
+        self.assertEqual(r.status_code, 404)
+        arc.refresh_from_db()
+        self.assertFalse(arc.en_papelera)
+
+    def test_restaurar_saca_de_papelera(self):
+        arc = _mk_archivo(self.uploader)
+        arc.soft_delete(self.uploader)
+        c = _login_directo(self.uploader, self.buzon)
+        r = c.post(f'/intranet/papelera/{arc.id}/restaurar/')
+        self.assertEqual(r.status_code, 302)
+        arc.refresh_from_db()
+        self.assertFalse(arc.en_papelera)
+
+    def test_borrar_permanente_solo_admin(self):
+        arc = _mk_archivo(self.uploader)
+        arc.soft_delete(self.uploader)
+        # uploader (no admin) no puede borrar permanente → redirige sin borrar
+        c = _login_directo(self.uploader, self.buzon)
+        c.post(f'/intranet/papelera/{arc.id}/borrar-permanente/')
+        self.assertTrue(Archivo.objects.filter(id=arc.id).exists())
+        # admin sí
+        c_admin = _login_directo(self.admin, self.buzon)
+        c_admin.post(f'/intranet/papelera/{arc.id}/borrar-permanente/')
+        self.assertFalse(Archivo.objects.filter(id=arc.id).exists())
+
+    def test_upload_crea_archivo(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        c = _login_directo(self.uploader, self.buzon)
+        f = SimpleUploadedFile('cotizacion.pdf', b'%PDF-1.4 test', content_type='application/pdf')
+        r = c.post('/intranet/archivos/subir/', {
+            'archivo': f,
+            'nombre': 'Cotización mayo',
+            'tipo': 'doc',
+            'visibilidad': 'privado',
+        })
+        self.assertEqual(r.status_code, 302)
+        arc = Archivo.objects.filter(nombre='Cotización mayo').first()
+        self.assertIsNotNone(arc)
+        self.assertEqual(arc.creado_por_id, self.uploader.id)
+
+
+@_STORAGE_FS
+class ArchivoCompartirTests(TestCase):
+    """Compartir / descompartir archivos con usuarios específicos."""
+
+    def setUp(self):
+        cache.clear()
+        self.buzon = Buzon.objects.create(email='ventas@pietramonte.cl')
+
+        self.uploader = UsuarioPortal(email='uploader@gmail.com', activo=True)
+        self.uploader.set_password('PassMuy.Larga2026!')
+        self.uploader.save()
+        self.uploader.buzones.add(self.buzon)
+
+        self.destino = UsuarioPortal(email='destino@gmail.com', activo=True)
+        self.destino.set_password('PassMuy.Larga2026!')
+        self.destino.save()
+        self.destino.buzones.add(self.buzon)
+
+    def test_compartir_con_usuario_crea_comparticion(self):
+        arc = _mk_archivo(self.uploader, visibilidad=Archivo.Visibilidad.PRIVADO)
+        c = _login_directo(self.uploader, self.buzon)
+        r = c.post(f'/intranet/archivos/{arc.id}/compartir/', {'email': 'destino@gmail.com'})
+        self.assertEqual(r.status_code, 302)
+        self.assertTrue(
+            ArchivoComparticion.objects.filter(archivo=arc, usuario=self.destino).exists()
+        )
+
+    def test_compartir_solo_uploader_o_admin(self):
+        """El destino (que no es uploader ni admin) no puede compartir el archivo."""
+        arc = _mk_archivo(self.uploader, visibilidad=Archivo.Visibilidad.PRIVADO)
+        c = _login_directo(self.destino, self.buzon)
+        c.post(f'/intranet/archivos/{arc.id}/compartir/', {'email': 'destino@gmail.com'})
+        self.assertFalse(ArchivoComparticion.objects.filter(archivo=arc).exists())
+
+    def test_descompartir_quita_comparticion(self):
+        arc = _mk_archivo(self.uploader, visibilidad=Archivo.Visibilidad.PRIVADO)
+        comp = ArchivoComparticion.objects.create(
+            archivo=arc, usuario=self.destino, compartido_por=self.uploader,
+        )
+        c = _login_directo(self.uploader, self.buzon)
+        r = c.post(f'/intranet/archivos/{arc.id}/compartir/{comp.id}/quitar/')
+        self.assertEqual(r.status_code, 302)
+        self.assertFalse(ArchivoComparticion.objects.filter(id=comp.id).exists())
+
+    def test_compartir_es_idempotente(self):
+        """Compartir dos veces con el mismo usuario no crea duplicados."""
+        arc = _mk_archivo(self.uploader, visibilidad=Archivo.Visibilidad.PRIVADO)
+        c = _login_directo(self.uploader, self.buzon)
+        c.post(f'/intranet/archivos/{arc.id}/compartir/', {'email': 'destino@gmail.com'})
+        c.post(f'/intranet/archivos/{arc.id}/compartir/', {'email': 'destino@gmail.com'})
+        self.assertEqual(
+            ArchivoComparticion.objects.filter(archivo=arc, usuario=self.destino).count(), 1
+        )
+
+
+@_STORAGE_FS
+class ArchivoVersionTests(TestCase):
+    """Subir nuevas versiones de un archivo."""
+
+    def setUp(self):
+        cache.clear()
+        self.buzon = Buzon.objects.create(email='ventas@pietramonte.cl')
+
+        self.uploader = UsuarioPortal(email='uploader@gmail.com', activo=True)
+        self.uploader.set_password('PassMuy.Larga2026!')
+        self.uploader.save()
+        self.uploader.buzones.add(self.buzon)
+
+        self.ajeno = UsuarioPortal(email='ajeno@gmail.com', activo=True)
+        self.ajeno.set_password('PassMuy.Larga2026!')
+        self.ajeno.save()
+        self.ajeno.buzones.add(self.buzon)
+
+    def test_subir_version_crea_nuevo_archivo_v2(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        base = _mk_archivo(self.uploader, nombre='Contrato', visibilidad=Archivo.Visibilidad.PUBLICO)
+        c = _login_directo(self.uploader, self.buzon)
+        f = SimpleUploadedFile('contrato_v2.txt', b'version 2', content_type='text/plain')
+        r = c.post(f'/intranet/archivos/{base.id}/version/', {'archivo': f, 'nota': 'corrección'})
+        self.assertEqual(r.status_code, 302)
+        v2 = Archivo.objects.filter(version_padre=base).first()
+        self.assertIsNotNone(v2)
+        self.assertEqual(v2.version_num, 2)
+        self.assertEqual(v2.nombre, 'Contrato')
+
+    def test_subir_version_solo_uploader_o_admin(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        base = _mk_archivo(self.uploader, visibilidad=Archivo.Visibilidad.PUBLICO)
+        c = _login_directo(self.ajeno, self.buzon)
+        f = SimpleUploadedFile('x.txt', b'data', content_type='text/plain')
+        c.post(f'/intranet/archivos/{base.id}/version/', {'archivo': f})
+        self.assertFalse(Archivo.objects.filter(version_padre=base).exists())
+
+
+@_STORAGE_FS
+class ArchivoVinculoTests(TestCase):
+    """Vincular / desvincular archivos a correos existentes."""
+
+    def setUp(self):
+        cache.clear()
+        self.buzon = Buzon.objects.create(email='ventas@pietramonte.cl')
+
+        self.usuario = UsuarioPortal(email='usuario@gmail.com', activo=True)
+        self.usuario.set_password('PassMuy.Larga2026!')
+        self.usuario.save()
+        self.usuario.buzones.add(self.buzon)
+
+        self.correo = Correo.objects.create(buzon=self.buzon, asunto='hilo cliente')
+        self.archivo = _mk_archivo(self.usuario, visibilidad=Archivo.Visibilidad.PUBLICO)
+
+    def test_vincular_archivo_a_correo(self):
+        c = _login_directo(self.usuario, self.buzon)
+        r = c.post(f'/intranet/correo/{self.correo.id}/vincular-archivo/',
+                   {'archivo_id': self.archivo.id})
+        self.assertEqual(r.status_code, 302)
+        self.assertTrue(
+            ArchivoVinculo.objects.filter(archivo=self.archivo, correo=self.correo).exists()
+        )
+
+    def test_vincular_es_idempotente(self):
+        c = _login_directo(self.usuario, self.buzon)
+        c.post(f'/intranet/correo/{self.correo.id}/vincular-archivo/',
+               {'archivo_id': self.archivo.id})
+        c.post(f'/intranet/correo/{self.correo.id}/vincular-archivo/',
+               {'archivo_id': self.archivo.id})
+        self.assertEqual(
+            ArchivoVinculo.objects.filter(archivo=self.archivo, correo=self.correo).count(), 1
+        )
+
+    def test_desvincular_quita_vinculo(self):
+        vinc = ArchivoVinculo.objects.create(
+            archivo=self.archivo, correo=self.correo, vinculado_por=self.usuario,
+        )
+        c = _login_directo(self.usuario, self.buzon)
+        r = c.post(
+            f'/intranet/correo/{self.correo.id}/vincular-archivo/{vinc.id}/quitar/'
+        )
+        self.assertEqual(r.status_code, 302)
+        self.assertFalse(ArchivoVinculo.objects.filter(id=vinc.id).exists())
+
+    def test_vincular_correo_de_buzon_ajeno_404(self):
+        """No se puede vincular a un correo de un buzón que el usuario no ve."""
+        otro_buzon = Buzon.objects.create(email='ajeno@pietramonte.cl')
+        correo_ajeno = Correo.objects.create(buzon=otro_buzon, asunto='ajeno')
+        c = _login_directo(self.usuario, self.buzon)
+        r = c.post(f'/intranet/correo/{correo_ajeno.id}/vincular-archivo/',
+                   {'archivo_id': self.archivo.id})
+        self.assertEqual(r.status_code, 404)
+        self.assertFalse(ArchivoVinculo.objects.filter(correo=correo_ajeno).exists())

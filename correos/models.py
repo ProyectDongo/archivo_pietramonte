@@ -961,7 +961,7 @@ class Archivo(models.Model):
     def puede_ver(self, usuario) -> bool:
         """
         ¿Este usuario puede ver este archivo?
-          - Admins: TODO.
+          - Admins: ven todos los archivos.
           - Uploader: siempre el suyo.
           - Compartido explícito: si hay ArchivoComparticion para este user.
           - Público: todos los users del portal.
