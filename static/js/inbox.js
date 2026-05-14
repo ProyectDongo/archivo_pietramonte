@@ -313,3 +313,50 @@
     });
   }
 })();
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   Aviso de correos nuevos — polling liviano.
+   Cada 45s consulta /intranet/bandeja/nuevos/?desde=<maxId>. Si hay correos
+   recién sincronizados, muestra el banner "N correos nuevos". El click
+   recarga la página. No pollea si la pestaña está oculta.
+   ════════════════════════════════════════════════════════════════════════ */
+(function () {
+  'use strict';
+
+  const splitList = document.getElementById('split-list');
+  const banner = document.getElementById('inbox-nuevos-banner');
+  if (!splitList || !banner) return;
+
+  const maxId = parseInt(splitList.getAttribute('data-max-id'), 10) || 0;
+  const txt = banner.querySelector('.inbox-nuevos-text');
+  const POLL_MS = 45000;
+
+  function chequear() {
+    fetch('/intranet/bandeja/nuevos/?desde=' + maxId, {
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'fetch' },
+    }).then(function (r) {
+      return r.ok ? r.json() : null;
+    }).then(function (data) {
+      if (data && data.count > 0) {
+        txt.textContent = data.count === 1
+          ? '1 correo nuevo'
+          : data.count + ' correos nuevos';
+        banner.hidden = false;
+      }
+    }).catch(function () { /* silencio: reintenta en el próximo tick */ });
+  }
+
+  banner.addEventListener('click', function () {
+    window.location.reload();
+  });
+
+  // Chequeo inmediato al volver a la pestaña + ticks periódicos solo si visible.
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') chequear();
+  });
+  setInterval(function () {
+    if (document.visibilityState === 'visible') chequear();
+  }, POLL_MS);
+})();

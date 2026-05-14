@@ -8,7 +8,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.core.cache import cache
 from django.core.paginator import Paginator
-from django.db.models import Count, Exists, OuterRef, Q
+from django.db.models import Count, Exists, Max, OuterRef, Q
 from django.db.models.functions import ExtractHour, ExtractIsoWeekDay, TruncDate, TruncMonth
 from django.http import FileResponse, Http404, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
@@ -1011,10 +1011,15 @@ def inbox_view(request):
     )
     cant_borradores = BorradorCorreo.objects.filter(usuario=usuario).count()
 
+    # ID más alto del buzón — el JS lo usa como punto de referencia para
+    # detectar correos recién sincronizados (polling liviano, ver inbox.js).
+    max_correo_id = buzon.correos.aggregate(m=Max('id'))['m'] or 0
+
     return render(request, 'correos/inbox.html', {
         'buzon': buzon,
         'page': page,
         'query': query,
+        'max_correo_id': max_correo_id,
         'total': paginator.count,
         'stats': _stats_de(buzon) if not hay_filtros_activos else None,
         'buzones_visibles': visibles,
@@ -1037,6 +1042,35 @@ def inbox_view(request):
         'borradores_recientes': borradores_recientes,
         'cant_borradores': cant_borradores,
     })
+
+
+@portal_login_required
+@throttle_user('inbox_nuevos', per_minute=120)
+@never_cache
+def inbox_nuevos_view(request):
+    """
+    AJAX liviano: cuántos correos NUEVOS (id > desde) hay en el buzón actual.
+    Lo usa inbox.js para mostrar el banner "N correos nuevos" sin recargar.
+
+    Solo cuenta tipo_carpeta=inbox — los recién sincronizados son recibidos;
+    "enviados"/"otros" no cuentan como novedad para el usuario. No replica los
+    filtros de búsqueda del inbox: es un aviso aproximado, al recargar el user
+    ve la lista real con sus filtros.
+    """
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return JsonResponse({'error': 'auth'}, status=403)
+    buzon = _buzon_actual(request, usuario)
+    if not buzon:
+        return JsonResponse({'error': 'sin_buzon'}, status=400)
+    try:
+        desde_id = int(request.GET.get('desde') or 0)
+    except (TypeError, ValueError):
+        desde_id = 0
+    count = buzon.correos.filter(
+        id__gt=desde_id, tipo_carpeta=Correo.Carpeta.INBOX,
+    ).count()
+    return JsonResponse({'count': count})
 
 
 @portal_login_required
@@ -3881,11 +3915,10 @@ def archivo_subir_version_view(request, archivo_id):
         messages.error(request, f'Archivo demasiado grande. Máximo {ARCHIVO_MAX_BYTES // 1024 // 1024} MB.')
         return redirect('archivos' if base.tipo != Archivo.Tipo.CONTRATO else 'contratos')
 
-    from django.db.models import Max as _DbMax
     raiz_id = base.version_padre_id or base.id
     ultimo_num = (Archivo.objects
                   .filter(Q(id=raiz_id) | Q(version_padre_id=raiz_id))
-                  .aggregate(maxv=_DbMax('version_num'))['maxv'] or 1)
+                  .aggregate(maxv=Max('version_num'))['maxv'] or 1)
 
     nueva = Archivo(
         nombre=base.nombre,

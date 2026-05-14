@@ -4939,6 +4939,52 @@
   overflow: hidden;
 }
 
+/* Banner "N correos nuevos" — polling liviano (ver inbox.js) */
+.inbox-nuevos-banner {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 16px;
+  border: none;
+  border-bottom: 1px solid var(--bdr);
+  background: var(--rl);
+  color: var(--r);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: background .12s;
+}
+.inbox-nuevos-banner:hover { background: rgba(200, 12, 15, .14); }
+.inbox-nuevos-banner[hidden] { display: none; }
+.inbox-nuevos-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--r);
+  flex-shrink: 0;
+  animation: inbox-nuevos-pulse 1.8s ease-in-out infinite;
+}
+@keyframes inbox-nuevos-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: .4; transform: scale(.75); }
+}
+.inbox-nuevos-text { flex: 1; }
+.inbox-nuevos-cta {
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+[data-theme="dark"] .inbox-nuevos-banner {
+  background: rgba(200, 12, 15, .16);
+  color: #ff6b6e;
+}
+[data-theme="dark"] .inbox-nuevos-banner:hover { background: rgba(200, 12, 15, .24); }
+[data-theme="dark"] .inbox-nuevos-dot { background: #ff6b6e; }
+
 .page-inbox .inbox-list-wrap .split-list {
   background: var(--w);
   border: none;

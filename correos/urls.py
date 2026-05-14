@@ -26,6 +26,7 @@ urlpatterns = [
     path('intranet/salir/',                  views.logout_view,       name='logout'),
     path('intranet/escritorio/',             views.escritorio_view,   name='escritorio'),
     path('intranet/bandeja/',                views.inbox_view,        name='inbox'),
+    path('intranet/bandeja/nuevos/',         views.inbox_nuevos_view, name='inbox_nuevos'),
     path('intranet/correo/<int:correo_id>/preview/',     views.correo_preview_view,   name='correo_preview'),
     path('intranet/correo/<int:correo_id>/prefill/',     views.correo_prefill_view,   name='correo_prefill'),
     path('intranet/correo/<int:correo_id>/destacar/',    views.toggle_destacado_view, name='toggle_destacado'),

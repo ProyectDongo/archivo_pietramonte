@@ -286,7 +286,12 @@
       <button type="button" class="bulk-bar-close" id="bulk-bar-close" title="Cerrar selección" aria-label="Cerrar selección">✕</button>
     </div>
 <div class="inbox-list-wrap">
-      <div class="split-list" id="split-list">
+      <button type="button" class="inbox-nuevos-banner" id="inbox-nuevos-banner" hidden>
+        <span class="inbox-nuevos-dot" aria-hidden="true"></span>
+        <span class="inbox-nuevos-text"></span>
+        <span class="inbox-nuevos-cta">Ver ahora</span>
+      </button>
+      <div class="split-list" id="split-list" data-max-id="{{ max_correo_id }}">
         {% if page.object_list %}
         <ul class="correos-list" role="list">
           {% for correo in page.object_list %}
