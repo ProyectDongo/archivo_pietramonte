@@ -39,6 +39,11 @@ def _get_csrf_de(html: str) -> str:
 
 @override_settings(
     PORTAL_ALLOWED_EMAILS=['empleado@gmail.com'],
+    # Fuerza el bypass de Turnstile (verify_turnstile devuelve True sin secret).
+    # Sin esto, los tests fallan al correrse en un entorno CON TURNSTILE_SECRET_KEY
+    # configurado (ej. el container de producción): el captcha rechaza el token
+    # vacío que manda _post_login y el login nunca llega al flujo real.
+    TURNSTILE_SECRET_KEY='',
     STORAGES={
         'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
         'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
