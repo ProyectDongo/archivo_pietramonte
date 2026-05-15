@@ -19,9 +19,9 @@ from django.views.decorators.http import require_http_methods, require_POST
 from . import captcha, totp as totp_helpers
 from .models import (
     Adjunto, Archivo, ArchivoComparticion, ArchivoVinculo, BorradorAdjunto,
-    BorradorCorreo, Buzon, CategoriaTema, Correo, CorreoEnviado, CorreoLeido,
-    CorreoSnooze, Etiqueta, EventoAuditoria, IntentoLogin, ReenvioCorreo,
-    UserDesktopPrefs, UsuarioPortal, hash_ip,
+    BorradorCorreo, Buzon, CategoriaTema, Correo, CorreoEliminado,
+    CorreoEnviado, CorreoLeido, CorreoSnooze, Etiqueta, EventoAuditoria,
+    IntentoLogin, ReenvioCorreo, UserDesktopPrefs, UsuarioPortal, hash_ip,
 )
 from .templatetags.correos_tags import html_a_texto
 from .threading import (
@@ -893,6 +893,10 @@ def inbox_view(request):
         snoozed_until=CorreoSnooze.objects.filter(
             usuario=usuario, correo=OuterRef('pk'), until_at__gt=timezone.now()
         ).values('until_at')[:1],
+    ).exclude(
+        # Soft-delete per-usuario: si existe CorreoEliminado para el usuario
+        # actual (en cualquier estado: papelera o purgado), ocultarlo del inbox.
+        id__in=CorreoEliminado.objects.filter(usuario=usuario).values('correo_id'),
     )
 
     # Si NO está pidiendo la vista de pospuestos, ocultamos los snoozed activos.
@@ -1083,6 +1087,36 @@ def inbox_view(request):
         resp.set_cookie('inbox_vista', request.GET['vista'],
                         max_age=60 * 60 * 24 * 365, samesite='Lax')
     return resp
+
+
+@portal_login_required
+def papelera_correos_view(request):
+    """
+    Vista de la papelera de correos del usuario actual.
+    Muestra los Correos con CorreoEliminado.purgado=False — los que están
+    "en papelera" (recuperables).
+    """
+    usuario = _usuario_actual(request)
+    if not usuario:
+        return redirect('login')
+
+    elim_qs = (
+        CorreoEliminado.objects
+        .filter(usuario=usuario, purgado=False,
+                correo__buzon__in=usuario.buzones_visibles())
+        .select_related('correo', 'correo__buzon')
+        .prefetch_related('correo__etiquetas')
+        .order_by('-eliminado_en')
+    )
+
+    paginator = Paginator(elim_qs, 50)
+    page = paginator.get_page(request.GET.get('page', 1))
+
+    return render(request, 'correos/papelera.html', {
+        'page': page,
+        'total': paginator.count,
+        'buzones_visibles': list(usuario.buzones_visibles()),
+    })
 
 
 @portal_login_required
@@ -1933,6 +1967,141 @@ def toggle_destacado_view(request, correo_id):
     correo.destacado = not correo.destacado
     correo.save(update_fields=['destacado'])
     return JsonResponse({'destacado': correo.destacado})
+
+
+# ─── Papelera (soft-delete per-usuario) ────────────────────────────────────
+def _es_ajax(request) -> bool:
+    """
+    True si el request viene de fetch/XHR; False si es submit de form clasico.
+
+    Acepta cualquier valor en X-Requested-With (XMLHttpRequest, fetch, etc.) —
+    los browsers solo lo setean cuando JS lo pide explícito, así que cualquier
+    valor indica fetch/AJAX (PM.post manda 'fetch'). Un form HTML clásico no
+    setea ese header.
+    """
+    return bool(request.headers.get('x-requested-with'))
+
+
+def _respuesta_papelera(request, mensaje: str, ok: bool = True, **extras):
+    """Helper común: AJAX→JSON. Form clásico→messages + redirect a inbox."""
+    if _es_ajax(request):
+        return JsonResponse({'ok': ok, **extras})
+    if ok:
+        messages.success(request, mensaje)
+    else:
+        messages.error(request, mensaje)
+    return redirect('inbox')
+
+
+@portal_login_required
+@require_POST
+def correo_eliminar_view(request, correo_id):
+    """
+    POST → mueve el correo a la papelera del usuario actual (soft-delete).
+    Si ya estaba purgado, lo "des-purga" para que vuelva a la papelera
+    (caso edge — pero coherente con la semántica del modelo).
+    Idempotente: re-llamarlo no rompe nada.
+
+    AJAX → JSON {ok: True}. Form clásico → redirect a inbox con messages.
+    """
+    usuario, correo = _correo_si_visible(request, correo_id)
+    rec, creado = CorreoEliminado.objects.get_or_create(
+        usuario=usuario, correo=correo,
+        defaults={'purgado': False},
+    )
+    if not creado and rec.purgado:
+        rec.purgado = False
+        rec.save(update_fields=['purgado'])
+    return _respuesta_papelera(request, 'Correo movido a la papelera.')
+
+
+@portal_login_required
+@require_POST
+def correo_restaurar_view(request, correo_id):
+    """
+    POST → saca el correo de la papelera (vuelve a la bandeja del usuario).
+    Borra el record de CorreoEliminado.
+    """
+    usuario, correo = _correo_si_visible(request, correo_id)
+    CorreoEliminado.objects.filter(usuario=usuario, correo=correo).delete()
+    if _es_ajax(request):
+        return JsonResponse({'ok': True})
+    messages.success(request, 'Correo restaurado a la bandeja.')
+    return redirect('papelera_correos')
+
+
+@portal_login_required
+@require_POST
+def correo_eliminar_permanente_view(request, correo_id):
+    """
+    POST → marca el correo como purgado para el usuario actual. Sale de la
+    papelera y no vuelve al inbox. El Correo y sus adjuntos NO se borran de
+    la DB — otros usuarios del mismo buzón siguen viéndolos.
+    """
+    usuario, correo = _correo_si_visible(request, correo_id)
+    rec, _ = CorreoEliminado.objects.get_or_create(
+        usuario=usuario, correo=correo,
+        defaults={'purgado': True},
+    )
+    if not rec.purgado:
+        rec.purgado = True
+        rec.save(update_fields=['purgado'])
+    if _es_ajax(request):
+        return JsonResponse({'ok': True})
+    messages.success(request, 'Correo eliminado definitivamente de tu vista.')
+    return redirect('papelera_correos')
+
+
+@portal_login_required
+@require_POST
+def vaciar_papelera_view(request):
+    """
+    POST → marca como purgados TODOS los CorreoEliminado del usuario en
+    estado papelera (purgado=False). Vacía la papelera del usuario actual.
+    """
+    usuario = _usuario_actual(request)
+    if not usuario:
+        raise Http404
+    n = CorreoEliminado.objects.filter(
+        usuario=usuario, purgado=False
+    ).update(purgado=True)
+    if _es_ajax(request):
+        return JsonResponse({'ok': True, 'purgados': n})
+    messages.success(request, f'Papelera vaciada: {n} correo{"s" if n != 1 else ""} eliminado{"s" if n != 1 else ""} definitivamente.')
+    return redirect('papelera_correos')
+
+
+@portal_login_required
+@require_POST
+def correo_bulk_eliminar_view(request):
+    """
+    POST {ids: "1,2,3"} → mueve varios correos a la papelera del usuario.
+    Idempotente. Devuelve cantidad afectada.
+    """
+    usuario = _usuario_actual(request)
+    if not usuario:
+        raise Http404
+    raw_ids = (request.POST.get('ids') or '').strip()
+    if not raw_ids:
+        return JsonResponse({'ok': False, 'error': 'sin ids'}, status=400)
+    try:
+        ids = [int(x) for x in raw_ids.split(',') if x.strip().isdigit()][:200]
+    except ValueError:
+        return JsonResponse({'ok': False, 'error': 'ids invalidos'}, status=400)
+    if not ids:
+        return JsonResponse({'ok': False, 'error': 'sin ids validos'}, status=400)
+
+    buzones_visibles = usuario.buzones_visibles()
+    correos = Correo.objects.filter(id__in=ids, buzon__in=buzones_visibles)
+    creados = 0
+    for c in correos:
+        _, creado = CorreoEliminado.objects.get_or_create(
+            usuario=usuario, correo=c,
+            defaults={'purgado': False},
+        )
+        if creado:
+            creados += 1
+    return JsonResponse({'ok': True, 'afectados': creados})
 
 
 @portal_login_required
