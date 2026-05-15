@@ -52,7 +52,10 @@ _CSP_DEFAULT = (
     # (el cleaner strippea los <img https://>) y/o restringir img-src acá.
     "img-src 'self' data: blob: https: http:; "
     "connect-src 'self' https://challenges.cloudflare.com https://cloudflareinsights.com; "
-    "frame-src 'self' https://challenges.cloudflare.com; "  # 'self' para PDF/audio inline en adj-viewer
+    # blob: para que el visor de PDF (fetch-as-blob → <embed src="blob:..."/>) renderee.
+    # Las URLs blob: solo existen dentro del documento que las creó — no hay vector
+    # de carga externa, por eso es seguro permitirlas.
+    "frame-src 'self' blob: https://challenges.cloudflare.com; "  # 'self' + blob: para PDF/audio inline en adj-viewer
     "frame-ancestors 'none'; "
     "form-action 'self'; "
     "base-uri 'self'; "

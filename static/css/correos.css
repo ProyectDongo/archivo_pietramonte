@@ -4615,6 +4615,10 @@
   font-size: 13px;
   z-index: 1;
 }
+/* Especificidad: el [hidden] del user agent (display:none) y .adj-viewer-loading
+   (display:flex) tienen la misma especificidad → gana el del autor (flex). El
+   spinner quedaba arriba del PDF tapándolo. !important rompe el empate. */
+.adj-viewer-loading[hidden] { display: none !important; }
 .adj-viewer-spinner {
   width: 34px;
   height: 34px;
