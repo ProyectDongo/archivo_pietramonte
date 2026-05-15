@@ -160,13 +160,11 @@
                 aria-label="Expandir mensaje de {{ c.remitente_nombre|default:c.remitente }}">
           <span class="avatar avatar-sm" data-color="{{ c.remitente|avatar_color }}">{{ c.remitente|avatar_iniciales }}</span>
           <div class="thread-msg-meta">
-            <div class="thread-msg-from-row">
-              <span class="thread-msg-from" title="{{ c.remitente }}">{{ c.remitente_nombre|default:c.remitente|truncatechars:40 }}</span>
-              {% if c.tipo_carpeta == 'enviados' %}
-              <span class="thread-msg-tag-enviado">Enviado</span>
-              {% endif %}
-            </div>
-            <div class="thread-msg-snippet">{{ c.cuerpo_texto|truncatechars:140 }}</div>
+            <span class="thread-msg-from" title="{{ c.remitente }}">{{ c.remitente_nombre|default:c.remitente|truncatechars:30 }}</span>
+            {% if c.tipo_carpeta == 'enviados' %}
+            <span class="thread-msg-tag-enviado">Enviado</span>
+            {% endif %}
+            <span class="thread-msg-snippet">{% if c.cuerpo_texto %}{{ c.cuerpo_texto|truncatechars:140 }}{% else %}{{ c.cuerpo_html|striptags|truncatechars:140 }}{% endif %}</span>
           </div>
           <div class="thread-msg-side">
             {% if c.tiene_adjunto %}<span class="thread-msg-adj" title="Con adjunto">📎</span>{% endif %}

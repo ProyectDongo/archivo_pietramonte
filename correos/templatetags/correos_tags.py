@@ -209,7 +209,7 @@ _EMAIL_CLEANER_OUTBOUND = None
 
 
 _CSS_PROPS = [
-    'color', 'background-color',
+    'color', 'background', 'background-color',
     'font', 'font-family', 'font-size', 'font-weight', 'font-style',
     'font-variant', 'line-height', 'letter-spacing', 'text-align',
     'text-decoration', 'text-transform', 'text-indent', 'white-space',
