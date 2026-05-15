@@ -23,6 +23,11 @@ from .models import (
     CorreoSnooze, Etiqueta, EventoAuditoria, IntentoLogin, ReenvioCorreo,
     UserDesktopPrefs, UsuarioPortal, hash_ip,
 )
+from .templatetags.correos_tags import html_a_texto
+from .threading import (
+    create_thread_for as thread_create_for,
+    recompute_thread_cache as thread_recompute,
+)
 from .throttle import throttle_user
 from taller.anti_bot import verify_turnstile
 
@@ -1581,17 +1586,31 @@ def responder_correo_view(request, correo_id):
     sent_correo = None
     if resultado['ok']:
         try:
+            _es_html = bool(cuerpo) and ('<' in cuerpo and '>' in cuerpo)
+            # Thread: hereda del correo original (este es Reply).
+            _thread = correo.thread
+            if _thread is None:
+                # El original todavía no tenía thread asignado (backlog
+                # legacy). Lo creamos ahora con el original como raíz.
+                _thread = thread_create_for(correo)
+                correo.thread = _thread
+                correo.save(update_fields=['thread'])
             sent_correo = Correo.objects.create(
                 buzon=correo.buzon,
                 tipo_carpeta=Correo.Carpeta.ENVIADOS,
                 mensaje_id=new_msg_id[:500],
+                in_reply_to=(correo.mensaje_id or '')[:500],
+                references=((correo.references or '') + ' ' + (correo.mensaje_id or '')).strip()[:5000],
+                thread=_thread,
                 remitente=_from_alias_buzon(correo.buzon)[:500],
                 destinatario=', '.join(to_addrs + cc_addrs)[:1000],
                 asunto=asunto[:1000],
                 fecha=timezone.now(),
-                cuerpo_texto=cuerpo,
+                cuerpo_texto=html_a_texto(cuerpo) if _es_html else (cuerpo or ''),
+                cuerpo_html=cuerpo if _es_html else '',
                 tiene_adjunto=False,
             )
+            thread_recompute(_thread)
             # Marcado como leído por el que lo envió (es su propio mensaje)
             CorreoLeido.objects.get_or_create(usuario=usuario, correo=sent_correo)
         except Exception:
@@ -2395,17 +2414,46 @@ def borrador_enviar_view(request, borrador_id):
     sent_correo = None
     if resultado['ok']:
         try:
+            _es_html = bool(cuerpo) and ('<' in cuerpo and '>' in cuerpo)
+            # Thread: si es reply, hereda del original; si no, se crea
+            # después del create con el sent_correo como raíz.
+            _is_reply = bool(b.correo_original) and b.modo in (
+                BorradorCorreo.Modo.RESPONDER, BorradorCorreo.Modo.RESPONDER_TODOS
+            )
+            if _is_reply:
+                _orig = b.correo_original
+                _thread = _orig.thread
+                if _thread is None:
+                    _thread = thread_create_for(_orig)
+                    _orig.thread = _thread
+                    _orig.save(update_fields=['thread'])
+                _irt = (_orig.mensaje_id or '')[:500]
+                _refs = ((_orig.references or '') + ' ' + (_orig.mensaje_id or '')).strip()[:5000]
+            else:
+                _thread = None
+                _irt = ''
+                _refs = ''
             sent_correo = Correo.objects.create(
                 buzon=buzon,
                 tipo_carpeta=Correo.Carpeta.ENVIADOS,
                 mensaje_id=new_msg_id[:500],
+                in_reply_to=_irt,
+                references=_refs,
+                thread=_thread,
                 remitente=_from_alias_buzon(buzon)[:500],
                 destinatario=', '.join(to_addrs + cc_addrs)[:1000],
                 asunto=asunto[:1000],
                 fecha=timezone.now(),
-                cuerpo_texto=cuerpo,
+                cuerpo_texto=html_a_texto(cuerpo) if _es_html else (cuerpo or ''),
+                cuerpo_html=cuerpo if _es_html else '',
                 tiene_adjunto=False,
             )
+            if _thread is None:
+                _thread = thread_create_for(sent_correo)
+                sent_correo.thread = _thread
+                sent_correo.save(update_fields=['thread'])
+            else:
+                thread_recompute(_thread)
             CorreoLeido.objects.get_or_create(usuario=usuario, correo=sent_correo)
         except Exception:
             logger.warning(
@@ -2650,6 +2698,7 @@ def compose_view(request):
             dest_str = ', '.join(to_addrs + cc_addrs)
             if bcc_addrs:
                 dest_str = (dest_str + ', Bcc: ' + ', '.join(bcc_addrs)) if dest_str else ('Bcc: ' + ', '.join(bcc_addrs))
+            _es_html = bool(cuerpo) and ('<' in cuerpo and '>' in cuerpo)
             sent_correo = Correo.objects.create(
                 buzon=buzon,
                 tipo_carpeta=Correo.Carpeta.ENVIADOS,
@@ -2658,9 +2707,14 @@ def compose_view(request):
                 destinatario=dest_str[:1000],
                 asunto=asunto[:1000],
                 fecha=timezone.now(),
-                cuerpo_texto=cuerpo,
+                cuerpo_texto=html_a_texto(cuerpo) if _es_html else (cuerpo or ''),
+                cuerpo_html=cuerpo if _es_html else '',
                 tiene_adjunto=bool(archivos_para_persistir),
             )
+            # Compose nuevo: crea Thread propio con este sent_correo como raíz.
+            _thread = thread_create_for(sent_correo)
+            sent_correo.thread = _thread
+            sent_correo.save(update_fields=['thread'])
             CorreoLeido.objects.get_or_create(usuario=usuario, correo=sent_correo)
             # Persistir adjuntos como rows Adjunto (para que aparezcan en
             # Enviados con el pill 📎 y se puedan re-descargar).
