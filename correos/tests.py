@@ -1597,3 +1597,85 @@ class ArchivoVinculoTests(TestCase):
                    {'archivo_id': self.archivo.id})
         self.assertEqual(r.status_code, 404)
         self.assertFalse(ArchivoVinculo.objects.filter(correo=correo_ajeno).exists())
+
+
+# ─── Threading: validación del fallback por asunto con prefijo Re:/Fwd: ───
+from .models import Thread
+from .threading import find_parent_thread, create_thread_for
+
+
+class ThreadingFallbackTests(TestCase):
+    """
+    Caso reportado: 20 correos con asunto "FACTURAS COMERCIAL PIETRAMONTE"
+    enviados a lo largo de meses (envío recurrente, no respuestas) se
+    agrupaban en un único thread. Causa: fallback por asunto sin filtrar
+    por prefijo Re:/Fwd:.
+
+    Fix: el fallback solo aplica si el asunto empieza con Re:/Fwd:/RV:/Fw:.
+    """
+
+    def setUp(self):
+        self.buzon = Buzon.objects.create(email='facturas@pietramonte.cl')
+
+    def _correo(self, asunto, fecha=None, msg_id=''):
+        c = Correo.objects.create(
+            buzon=self.buzon,
+            asunto=asunto,
+            fecha=fecha or timezone.now(),
+            mensaje_id=msg_id,
+        )
+        return c
+
+    def test_envios_recurrentes_sin_re_no_se_agrupan(self):
+        """FACTURAS COMERCIAL enviado N veces sin Re: → N hilos distintos."""
+        c1 = self._correo('FACTURAS COMERCIAL PIETRAMONTE', msg_id='m1@x')
+        t1 = create_thread_for(c1)
+        c1.thread = t1; c1.save(update_fields=['thread'])
+
+        # Segundo envío con MISMO asunto, sin Re:, sin headers:
+        # debe abrir hilo nuevo (no juntarse con t1).
+        parent = find_parent_thread(self.buzon, '', '', 'FACTURAS COMERCIAL PIETRAMONTE')
+        self.assertIsNone(parent, 'Asunto repetido sin Re:/Fwd: NO debe matchear thread previo')
+
+    def test_re_si_se_agrupa_con_thread_previo(self):
+        """Una respuesta legítima con prefijo "Re:" SÍ usa el fallback."""
+        c1 = self._correo('Cotización vehículo X', msg_id='m1@x')
+        t1 = create_thread_for(c1)
+        c1.thread = t1; c1.save(update_fields=['thread'])
+
+        # Reply sin headers (correo legacy importado sin In-Reply-To):
+        # con prefijo Re: debe encontrar t1.
+        parent = find_parent_thread(self.buzon, '', '', 'Re: Cotización vehículo X')
+        self.assertEqual(parent, t1)
+
+    def test_fwd_y_rv_tambien_aplican_fallback(self):
+        """Variantes de prefijo: Fwd:, Fw:, RV: también activan el fallback."""
+        c1 = self._correo('Documento original', msg_id='m1@x')
+        t1 = create_thread_for(c1)
+        c1.thread = t1; c1.save(update_fields=['thread'])
+
+        for prefix in ('Fwd: ', 'Fw: ', 'RV: ', 'fwd: ', 'rv: ', 'RE: '):
+            parent = find_parent_thread(
+                self.buzon, '', '', prefix + 'Documento original',
+            )
+            self.assertEqual(parent, t1, f'prefijo {prefix!r} debería matchear')
+
+    def test_headers_tienen_prioridad_sobre_asunto(self):
+        """Si el correo trae In-Reply-To válido, gana headers — sin importar asunto."""
+        c1 = self._correo('Asunto A', msg_id='msg-a@x')
+        t1 = create_thread_for(c1)
+        c1.thread = t1; c1.save(update_fields=['thread'])
+
+        # In-Reply-To apunta a c1 — debe devolver t1 incluso con asunto distinto.
+        parent = find_parent_thread(self.buzon, 'msg-a@x', '', 'Asunto Diferente')
+        self.assertEqual(parent, t1)
+
+    def test_sin_headers_sin_prefix_devuelve_none(self):
+        """Correo nuevo sin headers ni Re: → None (caller crea hilo nuevo)."""
+        # Aún si hay un thread previo con el mismo asunto.
+        c1 = self._correo('Saludos', msg_id='m1@x')
+        t1 = create_thread_for(c1)
+        c1.thread = t1; c1.save(update_fields=['thread'])
+
+        parent = find_parent_thread(self.buzon, '', '', 'Saludos')
+        self.assertIsNone(parent)

@@ -84,8 +84,12 @@ def find_parent_thread(buzon, in_reply_to: str, references: str,
 
     1. **Por headers**: si `in_reply_to` o el último `references` matchean
        un Correo existente, devuelve su thread.
-    2. **Por asunto normalizado**: si hay un Thread previo con el mismo
-       asunto normalizado en el mismo buzón, devuelve ese.
+    2. **Por asunto normalizado** SOLO si el asunto tiene prefijo Re:/Fwd:/
+       RV:/Fw: (evidencia de que es respuesta a un correo previo). Sin
+       prefijo se considera un envío nuevo aunque repita asunto — esto
+       evita falsos positivos en envíos recurrentes con asunto fijo (ej.
+       "FACTURAS COMERCIAL" enviado mensualmente NO debe agruparse en un
+       solo hilo eterno; cada envío abre su propio hilo).
 
     Retorna None si no hay match — el caller debe crear un Thread nuevo.
     """
@@ -105,6 +109,12 @@ def find_parent_thread(buzon, in_reply_to: str, references: str,
                  .first())
         if padre and padre.thread_id:
             return Thread.objects.filter(id=padre.thread_id).first()
+
+    # Fallback por asunto: SOLO si es un Re:/Fwd:/RV:/Fw:. Sin prefijo
+    # asumimos correo nuevo y abrimos thread propio.
+    asunto_raw = (asunto or '').strip()
+    if not _RE_ASUNTO_PREFIJO.match(asunto_raw):
+        return None
 
     norm = normalizar_asunto(asunto)
     if norm and len(norm) >= 4:
