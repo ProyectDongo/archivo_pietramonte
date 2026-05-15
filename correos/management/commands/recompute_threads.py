@@ -6,27 +6,42 @@ Algoritmo (en orden de preferencia):
 1. **Por headers**: si el Correo tiene `in_reply_to` o `references` poblados,
    se busca un Correo padre con `mensaje_id` matcheando y se hereda su thread.
 
-2. **Por asunto normalizado + buzón**: si no hay match por headers, se busca
-   un Thread existente con el mismo `asunto` normalizado en el mismo buzón
-   y se asigna. Si no existe, se crea uno nuevo con el Correo más antiguo
-   del grupo como raíz.
+2. **Por asunto con prefijo Re:/Fwd:**: si no hay match por headers, y el
+   asunto trae prefijo Re:/Fwd:/RV:/Fw:, se busca un Thread existente con
+   el mismo asunto normalizado en el mismo buzón. Sin prefijo se considera
+   correo nuevo y abre thread propio.
 
 Recorre los Correos por fecha ascendente — así el más antiguo de cada hilo
 queda como raíz natural.
 
 Idempotente: re-ejecutar no rompe nada porque los Correos ya con thread se
-omiten (a menos que pases --force).
+omiten (a menos que pases --force o --reset).
 
 Uso:
 
     python manage.py recompute_threads --dry-run     # preview
     python manage.py recompute_threads               # aplicar
-    python manage.py recompute_threads --force       # recalcular TODO (reset)
+    python manage.py recompute_threads --force       # reprocesa todos los
+                                                     # correos (incluso los
+                                                     # que ya tenian thread)
+                                                     # PERO mantiene los
+                                                     # threads viejos: si la
+                                                     # logica nueva difiere
+                                                     # de la vieja, --force
+                                                     # NO la limpia.
+    python manage.py recompute_threads --reset       # null thread_id en
+                                                     # todos los correos +
+                                                     # delete de threads,
+                                                     # luego backfill desde
+                                                     # cero. Usar tras un
+                                                     # cambio de logica de
+                                                     # threading.
     python manage.py recompute_threads --buzon=1     # solo un buzón
 """
 from __future__ import annotations
 
 from django.core.management.base import BaseCommand
+from django.db import transaction
 
 from correos.models import Buzon, Correo, Thread
 from correos.threading import (
@@ -44,17 +59,27 @@ class Command(BaseCommand):
                             help='No toca la DB, solo cuenta.')
         parser.add_argument('--force', action='store_true',
                             help='Recalcula todos los correos, incluso los que ya tenian thread.')
+        parser.add_argument('--reset', action='store_true',
+                            help='ANTES del backfill, borra todos los Thread y nullea Correo.thread. '
+                                 'Usar tras cambios en la logica de threading para empezar de cero.')
         parser.add_argument('--buzon', type=int, default=None,
                             help='Limita el backfill a un buzon_id.')
 
     def handle(self, *args, **options):
         dry_run = options['dry_run']
         force   = options['force']
+        reset   = options['reset']
         buzon_id = options['buzon']
 
         buzones_qs = Buzon.objects.all()
         if buzon_id:
             buzones_qs = buzones_qs.filter(id=buzon_id)
+
+        if reset:
+            self._aplicar_reset(buzones_qs, dry_run)
+            # Tras el reset, todos los Correo.thread quedan en NULL → el
+            # backfill normal (sin --force) los procesa a todos.
+            force = False
 
         total_correos = 0
         total_asignados = 0
@@ -119,3 +144,29 @@ class Command(BaseCommand):
             self.stdout.write(self.style.NOTICE(
                 'Dry-run: no se modificó nada. Re-corré sin --dry-run.'
             ))
+
+    def _aplicar_reset(self, buzones_qs, dry_run: bool) -> None:
+        """
+        Nullea Correo.thread y borra Thread del scope (todo o un buzón).
+        Indispensable antes de un backfill cuando la lógica de threading
+        cambió, sino find_parent_thread sigue encontrando padres con thread
+        viejo y reasigna a esos threads en vez de aplicar la nueva lógica.
+        """
+        correos_qs = Correo.objects.filter(buzon__in=buzones_qs).exclude(thread__isnull=True)
+        threads_qs = Thread.objects.filter(buzon__in=buzones_qs)
+        n_correos = correos_qs.count()
+        n_threads = threads_qs.count()
+
+        self.stdout.write(self.style.WARNING(
+            f'\n[--reset] Limpiando: {n_correos} correos con thread, {n_threads} threads.'
+        ))
+        if dry_run:
+            self.stdout.write(self.style.NOTICE(
+                '[--reset] Dry-run: no se limpia nada. (El backfill simulado abajo asume reset hecho.)'
+            ))
+            return
+
+        with transaction.atomic():
+            correos_qs.update(thread=None)
+            threads_qs.delete()
+        self.stdout.write(self.style.SUCCESS('[--reset] Limpieza OK.'))
